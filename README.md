@@ -21,4 +21,22 @@ PYTHONPATH=src python scripts/visualize_rcpsp.py \
   --format pdf
 ```
 
+Run the simple B&B solver and visualize its search tree:
+
+```bash
+PYTHONPATH=src python scripts/run_bnb.py \
+  --instance data/j30rcp/J301_1.RCP \
+  --max-nodes 2000 \
+  --output-dir reports/figures
+```
+
+Batch-report B&B results across a directory of instances:
+
+```bash
+PYTHONPATH=src python scripts/report_bnb.py \
+  --root data/j30rcp \
+  --pattern '*.RCP' \
+  --max-nodes 2000
+```
+
 The script parses the instance, builds the precedence DAG, and renders it with Graphviz. Add future training/evaluation entry points under `scripts/` and reuse shared code from `src/rcpsp_bb_rl/`.

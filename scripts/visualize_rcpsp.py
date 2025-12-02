@@ -2,6 +2,7 @@ import argparse
 import sys
 from pathlib import Path
 
+
 # Ensure the src directory is importable when running from the repo root.
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_PATH = PROJECT_ROOT / "src"
@@ -21,7 +22,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--instance",
-        default="data/j30rcp/J302_1.RCP",
+        default="data/j30rcp/J301_1.RCP",
         help="Path to the RCPSP instance file.",
     )
     parser.add_argument(
