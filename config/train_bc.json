@@ -1,0 +1,13 @@
+{
+  "trajectories_dir": "data/trajectories",
+  "pattern": "*.jsonl",
+  "batch_size": 512,
+  "epochs": 10,
+  "lr": 0.0003,
+  "hidden_sizes": [128, 128],
+  "dropout": 0.1,
+  "val_frac": 0.1,
+  "max_resources": 4,
+  "output": "models/policy.pt",
+  "seed": 42
+}

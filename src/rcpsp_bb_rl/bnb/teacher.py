@@ -6,7 +6,14 @@ from typing import Dict, Iterable, List, Optional
 
 from ortools.sat.python import cp_model
 
-from rcpsp_bb_rl.bnb.core import ScheduleEntry, build_predecessors, compute_ready_set, current_makespan, lower_bound
+from rcpsp_bb_rl.bnb.core import (
+    ScheduleEntry,
+    build_predecessors,
+    compute_ready_set,
+    current_makespan,
+    earliest_feasible_start,
+    lower_bound,
+)
 from rcpsp_bb_rl.data.parsing import RCPSPInstance
 
 
@@ -83,6 +90,8 @@ def generate_trace(
 
     for depth, act_id in enumerate(order):
         ready = compute_ready_set(unscheduled, set(scheduled.keys()), predecessors)
+        ready_sorted = sorted(ready)
+        unscheduled_sorted = sorted(unscheduled)
         lb = lower_bound(instance, unscheduled, scheduled)
 
         # Resource usage at current time (makespan so far).
@@ -111,6 +120,18 @@ def generate_trace(
             for r in range(len(instance.resource_caps))
         ]
 
+        # Earliest feasible starts for each ready activity given current schedule.
+        earliest_starts = {
+            str(rid): earliest_feasible_start(
+                instance,
+                predecessors,
+                scheduled,
+                rid,
+                incumbent=None,
+            )
+            for rid in ready_sorted
+        }
+
         records.append(
             {
                 "instance": instance_name,
@@ -118,13 +139,14 @@ def generate_trace(
                 "num_resources": instance.num_resources,
                 "resource_caps": instance.resource_caps,
                 "depth": depth,
-                "ready": sorted(ready),
-                "unscheduled": sorted(unscheduled),
+                "ready": ready_sorted,
+                "unscheduled": unscheduled_sorted,
                 "scheduled": {
                     str(k): {"start": v.start, "finish": v.finish, "duration": v.duration}
                     for k, v in scheduled.items()
                 },
                 "activities": static_acts,
+                "earliest_start": earliest_starts,
                 "lower_bound": lb,
                 "makespan_so_far": ms,
                 "resource_used_now": res_used,
