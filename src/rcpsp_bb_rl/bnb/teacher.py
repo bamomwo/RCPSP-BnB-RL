@@ -6,13 +6,7 @@ from typing import Dict, Iterable, List, Optional
 
 from ortools.sat.python import cp_model
 
-from rcpsp_bb_rl.bnb.core import (
-    ScheduleEntry,
-    build_predecessors,
-    compute_ready_set,
-    current_makespan,
-    lower_bound,
-)
+from rcpsp_bb_rl.bnb.core import ScheduleEntry, build_predecessors, compute_ready_set, current_makespan, lower_bound
 from rcpsp_bb_rl.data.parsing import RCPSPInstance
 
 
@@ -91,9 +85,38 @@ def generate_trace(
         ready = compute_ready_set(unscheduled, set(scheduled.keys()), predecessors)
         lb = lower_bound(instance, unscheduled, scheduled)
 
+        # Resource usage at current time (makespan so far).
+        ms = current_makespan(scheduled)
+        res_used = [0 for _ in instance.resource_caps]
+        for other_id, entry in scheduled.items():
+            for r, cap in enumerate(instance.resource_caps):
+                if entry.start <= ms < entry.finish:
+                    res_used[r] += instance.activities[other_id].resources[r]
+
+        static_acts = {
+            str(aid): {
+                "duration": act.duration,
+                "resources": act.resources,
+                "successors": act.successors,
+                "num_successors": len(act.successors),
+                "num_predecessors": len(predecessors.get(aid, ())),
+            }
+            for aid, act in instance.activities.items()
+        }
+
+        # Simple summaries of remaining work.
+        rem_durations = [instance.activities[a].duration for a in unscheduled]
+        rem_energy = [
+            sum(instance.activities[a].duration * instance.activities[a].resources[r] for a in unscheduled)
+            for r in range(len(instance.resource_caps))
+        ]
+
         records.append(
             {
                 "instance": instance_name,
+                "num_activities": instance.num_activities,
+                "num_resources": instance.num_resources,
+                "resource_caps": instance.resource_caps,
                 "depth": depth,
                 "ready": sorted(ready),
                 "unscheduled": sorted(unscheduled),
@@ -101,8 +124,13 @@ def generate_trace(
                     str(k): {"start": v.start, "finish": v.finish, "duration": v.duration}
                     for k, v in scheduled.items()
                 },
+                "activities": static_acts,
                 "lower_bound": lb,
-                "makespan_so_far": current_makespan(scheduled),
+                "makespan_so_far": ms,
+                "resource_used_now": res_used,
+                "resource_available_now": [cap - u for cap, u in zip(instance.resource_caps, res_used)],
+                "remaining_durations": rem_durations,
+                "remaining_energy_per_resource": rem_energy,
                 "action": {"task": act_id, "start": start_times[act_id]},
             }
         )

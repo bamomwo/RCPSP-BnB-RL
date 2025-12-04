@@ -2,8 +2,5 @@
 *.pyc
 __pycache__/
 
-/data/*
-
-
 /reports/figures/*
 

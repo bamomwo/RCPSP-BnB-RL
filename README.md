@@ -1,6 +1,6 @@
 # RCPSP Branch-and-Bound RL
 
-Lightweight ML project scaffold for training and evaluating a branching policy for RCPSP branch-and-bound.
+An ML project for training and evaluating a branching policy for RCPSP branch-and-bound
 
 ## Layout
 - `src/rcpsp_bb_rl/`: Python package for data loading, modeling, and utilities.

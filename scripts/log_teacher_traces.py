@@ -58,7 +58,7 @@ def main() -> None:
     out_dir = (
         Path(args.output_dir)
         if args.output_dir
-        else PROJECT_ROOT / "reports" / "trajectories"
+        else PROJECT_ROOT / "data" / "trajectories"
     )
     out_dir.mkdir(parents=True, exist_ok=True)
 
