@@ -66,3 +66,30 @@ class PolicyMLP(nn.Module):
         """Compute sigmoid-threshold accuracy for monitoring."""
         preds = (logits > 0).long()
         return (preds == labels).float().mean()
+
+
+def load_policy_checkpoint(path: str, device: torch.device | str = "cpu") -> PolicyMLP:
+    """
+    Load a PolicyMLP checkpoint saved by scripts/train_bc.py.
+
+    Args:
+        path: Path to a .pt file containing {"model_state": ..., "config": ...}.
+        device: Torch device to map the checkpoint/model to.
+
+    Returns:
+        An eval-mode PolicyMLP instance with weights loaded.
+    """
+    checkpoint = torch.load(path, map_location=device)
+    if "model_state" not in checkpoint or "config" not in checkpoint:
+        raise ValueError(f"Checkpoint at {path} is missing required keys 'model_state' and 'config'")
+
+    cfg = checkpoint["config"]
+    model = PolicyMLP(
+        global_dim=cfg["global_dim"],
+        candidate_dim=cfg["candidate_dim"],
+        hidden_sizes=cfg.get("hidden_sizes", (128, 128)),
+        dropout=cfg.get("dropout", 0.0),
+    ).to(device)
+    model.load_state_dict(checkpoint["model_state"])
+    model.eval()
+    return model

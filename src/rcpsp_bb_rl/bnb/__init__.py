@@ -6,6 +6,7 @@ from rcpsp_bb_rl.bnb.core import (
     build_predecessors,
     lower_bound,
 )
+from rcpsp_bb_rl.bnb.policy_guidance import make_policy_order_fn
 
 __all__ = [
     "BBNode",
@@ -14,4 +15,5 @@ __all__ = [
     "SolverResult",
     "build_predecessors",
     "lower_bound",
+    "make_policy_order_fn",
 ]

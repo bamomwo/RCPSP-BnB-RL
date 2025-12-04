@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from math import inf
-from typing import Dict, Iterable, List, Optional, Set, Tuple
+from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple
 
 from rcpsp_bb_rl.data.parsing import Activity, RCPSPInstance
 
@@ -116,6 +116,9 @@ def lower_bound(
     return cur + remaining
 
 
+ReadyOrderFn = Callable[[BBNode, Optional[int]], Iterable[int]]
+
+
 class BnBSolver:
     """Simple DFS-based branch-and-bound for RCPSP."""
 
@@ -131,7 +134,7 @@ class BnBSolver:
         self._next_node_id += 1
         return nid
 
-    def solve(self, max_nodes: int = 10000) -> SolverResult:
+    def solve(self, max_nodes: int = 10000, order_ready_fn: Optional[ReadyOrderFn] = None) -> SolverResult:
         unscheduled = set(self.instance.activities.keys())
         ready = compute_ready_set(unscheduled, set(), self.predecessors)
         root_id = self._new_node_id()
@@ -151,6 +154,7 @@ class BnBSolver:
         best_makespan: Optional[int] = None
         best_schedule: Optional[Dict[int, ScheduleEntry]] = None
         nodes_expanded = 0
+        order_fn = order_ready_fn or (lambda node, _inc: sorted(node.ready))
 
         while stack and nodes_expanded < max_nodes:
             node_id = stack.pop()
@@ -176,7 +180,9 @@ class BnBSolver:
             node.status = "expanded"
             nodes_expanded += 1
 
-            for act_id in sorted(node.ready):
+            ready_order = list(order_fn(node, best_makespan))
+
+            for act_id in ready_order:
                 start_time = earliest_feasible_start(
                     self.instance,
                     self.predecessors,

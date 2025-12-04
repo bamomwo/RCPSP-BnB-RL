@@ -30,6 +30,16 @@ PYTHONPATH=src python scripts/run_bnb.py \
   --output-dir reports/figures
 ```
 
+Run the solver with a learned branching policy (expects `models/policy.pt` saved by `scripts/train_bc.py`):
+
+```bash
+PYTHONPATH=src python scripts/run_bnb.py \
+  --instance data/j30rcp/J301_1.RCP \
+  --policy models/policy.pt \
+  --policy-max-resources 4 \
+  --policy-device cpu
+```
+
 Batch-report B&B results across a directory of instances:
 
 ```bash
