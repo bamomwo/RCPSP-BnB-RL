@@ -182,7 +182,9 @@ class BnBSolver:
 
             ready_order = list(order_fn(node, best_makespan))
 
-            for act_id in ready_order:
+            # Push in reverse: DFS pops LIFO, so reversing makes the highest-priority
+            # (first in ready_order, e.g., top policy score) expand first.
+            for act_id in reversed(ready_order):
                 start_time = earliest_feasible_start(
                     self.instance,
                     self.predecessors,

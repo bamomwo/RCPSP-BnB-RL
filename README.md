@@ -58,4 +58,11 @@ Compare native vs policy-guided branching and save a text summary:
 PYTHONPATH=src python scripts/report_bnb.py --root data/j30rcp --pattern '*.RCP' --max-nodes 2000 --policy models/policy.pt --output-dir reports/bnb_reports --output-name summary.txt
 ```
 
+Evaluate only OR-Tools (CP-SAT) on the first 20 instances under `data/1kNetRes`, with a 1-second per-instance time limit:
+
+```bash
+python scripts/report_bnb.py --root data/1kNetRes --pattern "*.rcp" --limit 20 --only-ortools --ortools-time-limit 1
+```
+This skips the native/policy B&B runs and reports the OR-Tools makespan/time columns only.
+
 The scripts parse instances, build precedence graphs, and can render search trees with Graphviz. Add future training/evaluation entry points under `scripts/` and reuse shared code from `src/rcpsp_bb_rl/`.
