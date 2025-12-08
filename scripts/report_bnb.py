@@ -13,6 +13,7 @@ if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
 from rcpsp_bb_rl.bnb.core import BnBSolver  # noqa: E402
+from rcpsp_bb_rl.bnb.teacher import solve_optimal_schedule  # noqa: E402
 from rcpsp_bb_rl.bnb.policy_guidance import make_policy_order_fn  # noqa: E402
 from rcpsp_bb_rl.data.dataset import list_instance_paths  # noqa: E402
 from rcpsp_bb_rl.data.parsing import load_instance  # noqa: E402
@@ -71,6 +72,22 @@ def parse_args() -> argparse.Namespace:
         default="summary.txt",
         help="Filename for the summary text output.",
     )
+    parser.add_argument(
+        "--with-ortools",
+        action="store_true",
+        help="Also evaluate an OR-Tools CP-SAT solve for comparison.",
+    )
+    parser.add_argument(
+        "--only-ortools",
+        action="store_true",
+        help="Skip native/policy runs and only evaluate OR-Tools.",
+    )
+    parser.add_argument(
+        "--ortools-time-limit",
+        type=float,
+        default=None,
+        help="Optional time limit (seconds) for the OR-Tools solve.",
+    )
     return parser.parse_args()
 
 
@@ -98,6 +115,22 @@ def run_instance(
     return result.best_makespan, elapsed
 
 
+def run_ortools(
+    path: Path,
+    time_limit_s: Optional[float] = None,
+) -> Tuple[int | None, float | None]:
+    """Solve with OR-Tools CP-SAT and return makespan and wall time (or None on failure)."""
+    instance = load_instance(path)
+    start = time.perf_counter()
+    try:
+        starts = solve_optimal_schedule(instance, time_limit_s=time_limit_s)
+        makespan = max(starts[aid] + instance.activities[aid].duration for aid in starts)
+    except Exception:
+        return None, None
+    elapsed = time.perf_counter() - start
+    return makespan, elapsed
+
+
 def main() -> None:
     args = parse_args()
     policy_model = None
@@ -105,16 +138,23 @@ def main() -> None:
     if args.policy:
         policy_model = load_policy_checkpoint(args.policy, device=policy_device)
 
+    include_native = not args.only_ortools
+    include_policy = policy_model is not None and include_native
+    include_ortools = args.with_ortools or args.only_ortools
+
     paths: List[Path] = list_instance_paths(args.root, patterns=(args.pattern,))
     if args.limit is not None:
         paths = paths[: args.limit]
 
     rows = []
     for idx, path in enumerate(paths, start=1):
-        best_naive, time_naive = run_instance(path, args.max_nodes)
-        best_policy, time_policy = (None, None)
+        row_vals = [idx, path.name]
 
-        if policy_model is not None:
+        if include_native:
+            best_naive, time_naive = run_instance(path, args.max_nodes)
+            row_vals.extend([best_naive, time_naive])
+
+        if include_policy:
             best_policy, time_policy = run_instance(
                 path,
                 args.max_nodes,
@@ -122,86 +162,85 @@ def main() -> None:
                 policy_device=policy_device,
                 policy_max_resources=args.policy_max_resources,
             )
+            row_vals.extend([best_policy, time_policy])
 
-        rows.append((idx, path.name, best_naive, time_naive, best_policy, time_policy))
+        if include_ortools:
+            best_ortools, time_ortools = run_ortools(
+                path,
+                time_limit_s=args.ortools_time_limit,
+            )
+            row_vals.extend([best_ortools, time_ortools])
+
+        rows.append(row_vals)
 
     # Print a simple table similar to benchmark reports.
     lines = []
 
-    if policy_model is None:
-        header = ("#", "Instance", "Makespan", "CPU-Time[s]")
-        col_widths = [len(h) for h in header]
-        for row in rows:
-            col_widths[0] = max(col_widths[0], len(str(row[0])))
-            col_widths[1] = max(col_widths[1], len(row[1]))
-            col_widths[2] = max(col_widths[2], len(str(row[2])) if row[2] is not None else 1)
-            col_widths[3] = max(col_widths[3], len(f"{row[3]:.2f}"))
+    # Dynamically configure columns based on requested comparisons.
+    header = ["#", "Instance"]
+    time_cols = set()
 
-        def fmt_row(cols, is_header: bool = False) -> str:
-            time_part = (
-                str(cols[3]).ljust(col_widths[3])
-                if is_header or isinstance(cols[3], str)
-                else f"{cols[3]:>{col_widths[3]}.2f}"
-            )
-            return (
-                f"{str(cols[0]).rjust(col_widths[0])}  "
-                f"{str(cols[1]).ljust(col_widths[1])}  "
-                f"{str(cols[2]).rjust(col_widths[2])}  "
-                f"{time_part}"
-            )
+    if include_native:
+        header.extend(["Makespan(native)", "CPU-Time[native]"])
+        time_cols.add(len(header) - 1)
+    if include_policy:
+        header.extend(["Makespan(policy)", "CPU-Time[policy]"])
+        time_cols.add(len(header) - 1)
+    if include_ortools:
+        header.extend(["Makespan(ortools)", "CPU-Time[ortools]"])
+        time_cols.add(len(header) - 1)
 
-        lines.append("Benchmark-style summary (native B&B)")
-        lines.append("-" * sum(col_widths) + "-" * 6)
-        lines.append(fmt_row(header, is_header=True))
-        lines.append("-" * sum(col_widths) + "-" * 6)
-        for row in rows:
-            makespan = row[2] if row[2] is not None else "-"
-            lines.append(fmt_row((row[0], row[1], makespan, row[3])))
-    else:
-        header = (
-            "#",
-            "Instance",
-            "Makespan(native)",
-            "CPU-Time[native]",
-            "Makespan(policy)",
-            "CPU-Time[policy]",
-        )
-        col_widths = [len(h) for h in header]
-        for row in rows:
-            col_widths[0] = max(col_widths[0], len(str(row[0])))
-            col_widths[1] = max(col_widths[1], len(row[1]))
-            col_widths[2] = max(col_widths[2], len(str(row[2])) if row[2] is not None else 1)
-            col_widths[3] = max(col_widths[3], len(f"{row[3]:.2f}"))
-            col_widths[4] = max(col_widths[4], len(str(row[4])) if row[4] is not None else 1)
-            col_widths[5] = max(col_widths[5], len(f"{row[5]:.2f}")) if row[5] is not None else col_widths[5]
-
-        def fmt_row(cols, is_header: bool = False) -> str:
-            def fmt_time(val, width):
-                if is_header or isinstance(val, str):
-                    return str(val).ljust(width)
+    # Compute column widths.
+    col_widths = [len(h) for h in header]
+    for row in rows:
+        for i, val in enumerate(row[: len(header)]):
+            if i in time_cols:
                 if val is None:
-                    return "-".ljust(width)
-                return f"{val:>{width}.2f}"
+                    col_widths[i] = max(col_widths[i], 1)
+                else:
+                    col_widths[i] = max(col_widths[i], len(f"{val:.2f}"))
+            else:
+                col_widths[i] = max(col_widths[i], len(str(val)) if val is not None else 1)
 
-            return (
-                f"{str(cols[0]).rjust(col_widths[0])}  "
-                f"{str(cols[1]).ljust(col_widths[1])}  "
-                f"{str(cols[2] if cols[2] is not None else '-').rjust(col_widths[2])}  "
-                f"{fmt_time(cols[3], col_widths[3])}  "
-                f"{str(cols[4] if cols[4] is not None else '-').rjust(col_widths[4])}  "
-                f"{fmt_time(cols[5], col_widths[5])}"
-            )
+    def fmt_row(cols, is_header: bool = False) -> str:
+        parts = []
+        for i, val in enumerate(cols):
+            width = col_widths[i]
+            if i == 1:  # Instance column left-aligned
+                parts.append(str(val).ljust(width))
+                continue
+            if i in time_cols:
+                if is_header or isinstance(val, str):
+                    parts.append(str(val).ljust(width))
+                elif val is None:
+                    parts.append("-".ljust(width))
+                else:
+                    parts.append(f"{val:>{width}.2f}")
+            else:
+                parts.append(str(val if val is not None else "-").rjust(width))
+        return "  ".join(parts)
 
-        lines.append("Benchmark-style summary (native vs policy-guided)")
-        lines.append("-" * sum(col_widths) + "-" * 10)
-        lines.append(fmt_row(header, is_header=True))
-        lines.append("-" * sum(col_widths) + "-" * 10)
-        for row in rows:
-            lines.append(fmt_row(row))
+    comparisons = []
+    if include_native:
+        comparisons.append("native")
+    if include_policy:
+        comparisons.append("policy")
+    if include_ortools:
+        comparisons.append("ortools")
+    lines.append("Benchmark-style summary (" + " vs ".join(comparisons) + ")")
 
+    lines.append("-" * (sum(col_widths) + 2 * (len(col_widths) - 1)))
+    lines.append(fmt_row(header, is_header=True))
+    lines.append("-" * (sum(col_widths) + 2 * (len(col_widths) - 1)))
+    for row in rows:
+        lines.append(fmt_row(row[: len(header)]))
+
+    if include_policy:
         lines.append("")
         lines.append("Note: columns labelled '(policy)' were generated using the trained policy;")
         lines.append("columns without the suffix come from the native B&B branching.")
+    if include_ortools:
+        lines.append("Note: columns labelled '(ortools)' were solved via OR-Tools CP-SAT (may be optimal or best-found).")
 
     # Print to stdout.
     for line in lines:

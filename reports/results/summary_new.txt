@@ -1,0 +1,18 @@
+Benchmark-style summary (native vs policy vs ortools)
+------------------------------------------------------------------------------------------------------------------------------
+ #  Instance      Makespan(native)  CPU-Time[native]  Makespan(policy)  CPU-Time[policy]  Makespan(ortools)  CPU-Time[ortools]
+------------------------------------------------------------------------------------------------------------------------------
+ 1  J3010_1.RCP                 56              0.26                51              0.37                 42               0.06
+ 2  J3010_10.RCP                46              0.16                46              0.43                 41               0.01
+ 3  J3010_2.RCP                 62              0.25                66              0.48                 56               0.02
+ 4  J3010_3.RCP                 72              0.29                69              0.67                 62               0.02
+ 5  J3010_4.RCP                 71              0.12                69              0.41                 58               0.01
+ 6  J3010_5.RCP                 47              0.38                45              0.65                 41               0.01
+ 7  J3010_6.RCP                 51              0.19                53              0.65                 44               0.01
+ 8  J3010_7.RCP                 57              0.16                52              0.59                 49               0.01
+ 9  J3010_8.RCP                 62              0.29                62              0.84                 54               0.01
+10  J3010_9.RCP                 49              0.09                55              0.32                 49               0.01
+
+Note: columns labelled '(policy)' were generated using the trained policy;
+columns without the suffix come from the native B&B branching.
+Note: columns labelled '(ortools)' were solved via OR-Tools CP-SAT (may be optimal or best-found).
