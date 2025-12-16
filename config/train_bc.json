@@ -1,7 +1,7 @@
 {
   "trajectories_dir": "data/trajectories/1kNetRes",
   "pattern": "*.jsonl",
-  "batch_size": 512,
+  "batch_size": 32,
   "epochs": 100,
   "lr": 0.0003,
   "hidden_sizes": [128, 128],

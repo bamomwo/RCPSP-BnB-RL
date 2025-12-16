@@ -67,6 +67,57 @@ class PolicyMLP(nn.Module):
         preds = (logits > 0).long()
         return (preds == labels).float().mean()
 
+    @staticmethod
+    def listwise_nll(
+        logits: torch.Tensor,
+        lengths: torch.Tensor,
+        targets: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        Negative log likelihood over per-state softmaxes.
+
+        Args:
+            logits: [Nc] logits for all candidates in the batch.
+            lengths: [B] number of candidates per state (sum(lengths) == Nc).
+            targets: [B] index of the expert-chosen candidate within each state's ready list.
+        """
+        losses: list[torch.Tensor] = []
+        offset = 0
+        for length, target in zip(lengths.tolist(), targets):
+            if length <= 0:
+                continue
+            state_logits = logits[offset : offset + length]
+            log_probs = F.log_softmax(state_logits, dim=0)
+            losses.append(-log_probs[target])
+            offset += length
+        if not losses:
+            return torch.tensor(0.0, device=logits.device, requires_grad=True)
+        return torch.stack(losses).mean()
+
+    @staticmethod
+    def listwise_accuracy(
+        logits: torch.Tensor,
+        lengths: torch.Tensor,
+        targets: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        Compute per-state top-1 accuracy under the listwise softmax.
+        """
+        correct = 0
+        total = 0
+        offset = 0
+        for length, target in zip(lengths.tolist(), targets.tolist()):
+            if length <= 0:
+                continue
+            state_logits = logits[offset : offset + length]
+            pred = int(torch.argmax(state_logits).item())
+            correct += int(pred == target)
+            total += 1
+            offset += length
+        if total == 0:
+            return torch.tensor(0.0, device=logits.device)
+        return torch.tensor(correct / total, device=logits.device)
+
 
 def load_policy_checkpoint(path: str, device: torch.device | str = "cpu") -> PolicyMLP:
     """

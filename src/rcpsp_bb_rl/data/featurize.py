@@ -120,6 +120,61 @@ def featurize_candidates(
     }
 
 
+def featurize_states(
+    records: Sequence[TrajectoryRecord],
+    max_resources: int,
+) -> Dict[str, torch.Tensor]:
+    """
+    Convert a batch of TrajectoryRecord instances into tensors grouped by state.
+
+    Returns:
+        {
+            "candidate_feats": [Nc, Fc],
+            "global_feats": [Nc, Fg],
+            "candidate_ids": [Nc],
+            "lengths": [B],  # number of candidates per state
+            "targets": [B],  # index of expert-chosen candidate within each state's ready list
+            "depths": [B],
+        }
+    """
+    cand_feats: List[List[float]] = []
+    glob_feats: List[List[float]] = []
+    cand_ids: List[int] = []
+    lengths: List[int] = []
+    targets: List[int] = []
+    depths: List[int] = []
+
+    for rec in records:
+        ready = rec.ready
+        if not ready:
+            continue
+
+        try:
+            target_idx = ready.index(rec.action_task)
+        except ValueError:
+            # If the logged action is not in the ready list, skip the record.
+            continue
+
+        glob = global_features(rec, max_resources)
+        lengths.append(len(ready))
+        targets.append(target_idx)
+        depths.append(int(rec.raw.get("depth", 0)))
+
+        for task in ready:
+            cand_feats.append(candidate_features(rec, task, max_resources))
+            glob_feats.append(glob)
+            cand_ids.append(int(task))
+
+    return {
+        "candidate_feats": torch.tensor(cand_feats, dtype=torch.float32),
+        "global_feats": torch.tensor(glob_feats, dtype=torch.float32),
+        "candidate_ids": torch.tensor(cand_ids, dtype=torch.long),
+        "lengths": torch.tensor(lengths, dtype=torch.long),
+        "targets": torch.tensor(targets, dtype=torch.long),
+        "depths": torch.tensor(depths, dtype=torch.long),
+    }
+
+
 def collate_candidate_batch(
     batch: Sequence[CandidateExample],
     max_resources: int = 4,
@@ -132,3 +187,16 @@ def collate_candidate_batch(
                             collate_fn=lambda b: collate_candidate_batch(b, max_resources=4))
     """
     return featurize_candidates(batch, max_resources=max_resources)
+
+
+def collate_state_batch(
+    batch: Sequence[TrajectoryRecord],
+    max_resources: int = 4,
+) -> Dict[str, torch.Tensor]:
+    """
+    DataLoader collate_fn for batches of TrajectoryRecord instances.
+
+    Produces flattened candidate/global features alongside per-state lengths/targets
+    so that a listwise loss can be applied.
+    """
+    return featurize_states(batch, max_resources=max_resources)

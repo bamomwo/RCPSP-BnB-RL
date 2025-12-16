@@ -13,7 +13,7 @@ SRC_PATH = PROJECT_ROOT / "src"
 if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
-from rcpsp_bb_rl.data.featurize import collate_candidate_batch  # noqa: E402
+from rcpsp_bb_rl.data.featurize import collate_state_batch  # noqa: E402
 from rcpsp_bb_rl.data.trajectory_dataset import load_trajectories  # noqa: E402
 from rcpsp_bb_rl.models import PolicyMLP  # noqa: E402
 
@@ -96,7 +96,7 @@ def make_loaders(
     max_resources: int,
     seed: int,
 ) -> tuple[DataLoader, DataLoader]:
-    dataset = load_trajectories(trajectories_dir, pattern=pattern, flatten_ready=True)
+    dataset = load_trajectories(trajectories_dir, pattern=pattern, flatten_ready=False)
 
     val_size = max(1, int(len(dataset) * val_frac))
     train_size = max(len(dataset) - val_size, 1)
@@ -106,7 +106,7 @@ def make_loaders(
         generator=torch.Generator().manual_seed(seed),
     )
 
-    collate = lambda batch: collate_candidate_batch(batch, max_resources=max_resources)
+    collate = lambda batch: collate_state_batch(batch, max_resources=max_resources)
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, collate_fn=collate)
     val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, collate_fn=collate)
     return train_loader, val_loader
@@ -119,12 +119,15 @@ def evaluate(model: PolicyMLP, loader: DataLoader, device: torch.device) -> tupl
     total_batches = 0
     with torch.no_grad():
         for batch in loader:
+            if batch["lengths"].numel() == 0:
+                continue
             cand = batch["candidate_feats"].to(device)
             glob = batch["global_feats"].to(device)
-            labels = batch["labels"].to(device)
+            lengths = batch["lengths"]
+            targets = batch["targets"].to(device)
             logits = model(cand, glob)
-            loss = model.bce_loss(logits, labels)
-            acc = model.accuracy(logits, labels)
+            loss = model.listwise_nll(logits, lengths, targets)
+            acc = model.listwise_accuracy(logits, lengths, targets)
             total_loss += loss.item()
             total_acc += acc.item()
             total_batches += 1
@@ -136,7 +139,7 @@ def evaluate(model: PolicyMLP, loader: DataLoader, device: torch.device) -> tupl
 def main() -> None:
     args = parse_args()
     defaults = parse_args_from_defaults()
-    config = vars(defaults)
+    config = vars(defaults).copy()
 
     if args.config:
         cfg_path = Path(args.config)
@@ -189,13 +192,16 @@ def main() -> None:
         epoch_acc = 0.0
         batches = 0
         for batch in train_loader:
+            if batch["lengths"].numel() == 0:
+                continue
             cand = batch["candidate_feats"].to(device)
             glob = batch["global_feats"].to(device)
-            labels = batch["labels"].to(device)
+            lengths = batch["lengths"]
+            targets = batch["targets"].to(device)
 
             logits = model(cand, glob)
-            loss = model.bce_loss(logits, labels)
-            acc = model.accuracy(logits, labels)
+            loss = model.listwise_nll(logits, lengths, targets)
+            acc = model.listwise_accuracy(logits, lengths, targets)
 
             optimizer.zero_grad()
             loss.backward()
