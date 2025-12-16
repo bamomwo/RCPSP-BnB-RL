@@ -224,8 +224,8 @@ def main() -> None:
                     "config": {
                         "global_dim": global_dim,
                         "candidate_dim": candidate_dim,
-                        "hidden_sizes": args.hidden_sizes,
-                        "dropout": args.dropout,
+                        "hidden_sizes": [int(h) for h in config["hidden_sizes"]],
+                        "dropout": float(config["dropout"]),
                     },
                 },
                 output_path,
