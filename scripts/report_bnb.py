@@ -1,8 +1,9 @@
 import argparse
+import statistics
 import sys
 import time
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import torch
 
@@ -83,10 +84,10 @@ def parse_args() -> argparse.Namespace:
         help="Skip native/policy runs and only evaluate OR-Tools.",
     )
     parser.add_argument(
-        "--ortools-time-limit",
+        "--time-limit",
         type=float,
         default=None,
-        help="Optional time limit (seconds) for the OR-Tools solve.",
+        help="Optional wall-clock time limit (seconds) applied to all solvers (native, policy, OR-Tools).",
     )
     return parser.parse_args()
 
@@ -97,6 +98,7 @@ def run_instance(
     policy_model=None,
     policy_device: Optional[torch.device] = None,
     policy_max_resources: int = 4,
+    time_limit_s: Optional[float] = None,
 ) -> Tuple[int | None, float]:
     instance = load_instance(path)
     solver = BnBSolver(instance)
@@ -110,7 +112,7 @@ def run_instance(
             predecessors=solver.predecessors,
         )
     start = time.perf_counter()
-    result = solver.solve(max_nodes=max_nodes, order_ready_fn=order_fn)
+    result = solver.solve(max_nodes=max_nodes, order_ready_fn=order_fn, time_limit_s=time_limit_s)
     elapsed = time.perf_counter() - start
     return result.best_makespan, elapsed
 
@@ -137,6 +139,7 @@ def main() -> None:
     policy_device = torch.device(args.policy_device)
     if args.policy:
         policy_model = load_policy_checkpoint(args.policy, device=policy_device)
+    time_limit_all = args.time_limit
 
     include_native = not args.only_ortools
     include_policy = policy_model is not None and include_native
@@ -147,12 +150,16 @@ def main() -> None:
         paths = paths[: args.limit]
 
     rows = []
+    summary_rows: List[Dict[str, object]] = []
     for idx, path in enumerate(paths, start=1):
         row_vals = [idx, path.name]
+        entry: Dict[str, object] = {"instance": path.name}
 
         if include_native:
-            best_naive, time_naive = run_instance(path, args.max_nodes)
+            best_naive, time_naive = run_instance(path, args.max_nodes, time_limit_s=time_limit_all)
             row_vals.extend([best_naive, time_naive])
+            entry["native_makespan"] = best_naive
+            entry["native_time"] = time_naive
 
         if include_policy:
             best_policy, time_policy = run_instance(
@@ -161,17 +168,23 @@ def main() -> None:
                 policy_model=policy_model,
                 policy_device=policy_device,
                 policy_max_resources=args.policy_max_resources,
+                time_limit_s=time_limit_all,
             )
             row_vals.extend([best_policy, time_policy])
+            entry["policy_makespan"] = best_policy
+            entry["policy_time"] = time_policy
 
         if include_ortools:
             best_ortools, time_ortools = run_ortools(
                 path,
-                time_limit_s=args.ortools_time_limit,
+                time_limit_s=time_limit_all,
             )
             row_vals.extend([best_ortools, time_ortools])
+            entry["ortools_makespan"] = best_ortools
+            entry["ortools_time"] = time_ortools
 
         rows.append(row_vals)
+        summary_rows.append(entry)
 
     # Print a simple table similar to benchmark reports.
     lines = []
@@ -234,6 +247,127 @@ def main() -> None:
     lines.append("-" * (sum(col_widths) + 2 * (len(col_widths) - 1)))
     for row in rows:
         lines.append(fmt_row(row[: len(header)]))
+
+    # Aggregate comparisons.
+    def compute_gaps(
+        key: str,
+        baseline_key: str = "ortools_makespan",
+        rows: List[Dict[str, object]] = summary_rows,
+    ) -> List[float]:
+        gaps: List[float] = []
+        for r in rows:
+            base = r.get(baseline_key)
+            val = r.get(key)
+            if base is None or val is None:
+                continue
+            if base == 0:
+                continue
+            gaps.append((float(val) - float(base)) / float(base))
+        return gaps
+
+    gap_native = compute_gaps("native_makespan") if include_native and include_ortools else []
+    gap_policy = compute_gaps("policy_makespan") if include_policy and include_ortools else []
+
+    wins = ties = losses = 0
+    if include_policy and include_native:
+        for r in summary_rows:
+            n = r.get("native_makespan")
+            p = r.get("policy_makespan")
+            if n is None or p is None:
+                continue
+            if p < n:
+                wins += 1
+            elif p > n:
+                losses += 1
+            else:
+                ties += 1
+
+    def success_rate(key: str) -> float:
+        solved = sum(1 for r in summary_rows if r.get(key) is not None)
+        return solved / len(summary_rows) if summary_rows else 0.0
+
+    if include_policy or include_native:
+        lines.append("")
+        lines.append("Aggregates:")
+
+        show_wins = include_policy and include_native
+        agg_header = ["Solver", "Median Gap", "Mean Gap"]
+        if show_wins:
+            agg_header.append("% Wins vs Native")
+        agg_header.append("% <= 5% Gap")
+
+        comparisons_total = wins + losses + ties
+        wins_pct = (wins / comparisons_total * 100) if comparisons_total else None
+
+        def fmt_pct(value: Optional[float], digits: int = 1) -> str:
+            if value is None:
+                return "-"
+            if digits <= 0:
+                return f"{value:.0f}%"
+            return f"{value:.{digits}f}%"
+
+        def gap_stat(gaps: List[float], stat_fn) -> Optional[float]:
+            if not gaps:
+                return None
+            return stat_fn(gaps) * 100
+
+        def pct_within(gaps: List[float], threshold: float) -> Optional[float]:
+            if not gaps:
+                return None
+            return sum(g <= threshold for g in gaps) / len(gaps) * 100
+
+        def build_row(label: str, gaps: List[float], wins_value: Optional[float] = None) -> List[str]:
+            row = [
+                label,
+                fmt_pct(gap_stat(gaps, statistics.median)),
+                fmt_pct(gap_stat(gaps, statistics.mean)),
+            ]
+            if show_wins:
+                row.append(fmt_pct(wins_value, digits=0))
+            row.append(fmt_pct(pct_within(gaps, 0.05), digits=0))
+            return row
+
+        agg_rows: List[List[str]] = []
+        if include_native:
+            agg_rows.append(build_row("Native B&B", gap_native))
+        if include_policy:
+            agg_rows.append(build_row("Policy B&B", gap_policy, wins_pct))
+
+        agg_col_widths = [len(h) for h in agg_header]
+        for row in agg_rows:
+            for i, val in enumerate(row):
+                agg_col_widths[i] = max(agg_col_widths[i], len(val))
+
+        def fmt_agg_row(row: List[str]) -> str:
+            parts: List[str] = []
+            for i, val in enumerate(row):
+                width = agg_col_widths[i]
+                if i == 0:
+                    parts.append(val.ljust(width))
+                else:
+                    parts.append(val.rjust(width))
+            return "  ".join(parts)
+
+        lines.append("-" * (sum(agg_col_widths) + 2 * (len(agg_col_widths) - 1)))
+        lines.append(fmt_agg_row(agg_header))
+        lines.append("-" * (sum(agg_col_widths) + 2 * (len(agg_col_widths) - 1)))
+        for row in agg_rows:
+            lines.append(fmt_agg_row(row))
+
+        if include_ortools:
+            lines.append("Gaps measured relative to OR-Tools solutions when available.")
+        else:
+            lines.append("Gaps shown as '-' when no OR-Tools baseline is available.")
+
+        success_bits = []
+        if include_native:
+            success_bits.append(f"Native success: {success_rate('native_makespan')*100:.1f}%")
+        if include_policy:
+            success_bits.append(f"Policy success: {success_rate('policy_makespan')*100:.1f}%")
+        if include_ortools:
+            success_bits.append(f"OR-Tools success: {success_rate('ortools_makespan')*100:.1f}%")
+        if success_bits:
+            lines.append("Success rates: " + ", ".join(success_bits))
 
     if include_policy:
         lines.append("")

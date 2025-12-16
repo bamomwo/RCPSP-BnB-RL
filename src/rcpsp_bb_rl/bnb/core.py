@@ -1,3 +1,4 @@
+import time
 from dataclasses import dataclass
 from math import inf
 from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple
@@ -134,7 +135,12 @@ class BnBSolver:
         self._next_node_id += 1
         return nid
 
-    def solve(self, max_nodes: int = 10000, order_ready_fn: Optional[ReadyOrderFn] = None) -> SolverResult:
+    def solve(
+        self,
+        max_nodes: int = 10000,
+        order_ready_fn: Optional[ReadyOrderFn] = None,
+        time_limit_s: Optional[float] = None,
+    ) -> SolverResult:
         unscheduled = set(self.instance.activities.keys())
         ready = compute_ready_set(unscheduled, set(), self.predecessors)
         root_id = self._new_node_id()
@@ -155,8 +161,14 @@ class BnBSolver:
         best_schedule: Optional[Dict[int, ScheduleEntry]] = None
         nodes_expanded = 0
         order_fn = order_ready_fn or (lambda node, _inc: sorted(node.ready))
+        start_time_monotonic = time.perf_counter()
 
-        while stack and nodes_expanded < max_nodes:
+        def time_exceeded() -> bool:
+            if time_limit_s is None:
+                return False
+            return (time.perf_counter() - start_time_monotonic) >= time_limit_s
+
+        while stack and nodes_expanded < max_nodes and not time_exceeded():
             node_id = stack.pop()
             node = self.nodes[node_id]
 
@@ -185,22 +197,22 @@ class BnBSolver:
             # Push in reverse: DFS pops LIFO, so reversing makes the highest-priority
             # (first in ready_order, e.g., top policy score) expand first.
             for act_id in reversed(ready_order):
-                start_time = earliest_feasible_start(
+                est_start = earliest_feasible_start(
                     self.instance,
                     self.predecessors,
                     node.scheduled,
                     act_id,
                     best_makespan,
                 )
-                if start_time is None:
+                if est_start is None:
                     continue
 
                 duration = self.instance.activities[act_id].duration
-                finish = start_time + duration
+                finish = est_start + duration
 
                 child_scheduled = dict(node.scheduled)
                 child_scheduled[act_id] = ScheduleEntry(
-                    start=start_time,
+                    start=est_start,
                     finish=finish,
                     duration=duration,
                 )
@@ -222,7 +234,7 @@ class BnBSolver:
                     unscheduled=child_unscheduled,
                     lower_bound=child_lb,
                     parent_id=node_id,
-                    action=f"act {act_id}@{start_time}",
+                    action=f"act {act_id}@{est_start}",
                     depth=node.depth + 1,
                 )
                 self.nodes.append(child_node)
