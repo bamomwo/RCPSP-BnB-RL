@@ -23,49 +23,11 @@ from rcpsp_bb_rl.rl import BranchingEnv  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="PPO fine-tuning for B&B branching policy.")
+    parser = argparse.ArgumentParser(description="PPO fine-tuning for B&B branching policy (config-driven only).")
     parser.add_argument(
         "--config",
         required=True,
-        help="Path to JSON config file to override defaults.",
-    )
-    parser.add_argument("--root", default=None, help="Directory of RCPSP instances for training.")
-    parser.add_argument("--pattern", default=None, help="Glob pattern for instances under root.")
-    parser.add_argument("--max-instances", type=int, default=None, help="Optional limit on instances to sample from.")
-    parser.add_argument("--max-steps-per-episode", type=int, default=None, help="Hard cap on env steps per episode.")
-    parser.add_argument("--max-resources", type=int, default=None, help="Pad/truncate resource dims for features.")
-    parser.add_argument("--step-cost", type=float, default=None, help="Per-step penalty (kept at -1 by default).")
-    parser.add_argument(
-        "--terminal-makespan-coeff",
-        type=float,
-        default=None,
-        help="Coefficient for makespan shaping when a new incumbent is found.",
-    )
-    parser.add_argument("--total-env-steps", type=int, default=None, help="Total env steps to collect.")
-    parser.add_argument("--rollout-horizon", type=int, default=None, help="Steps per PPO rollout before updating.")
-    parser.add_argument("--ppo-epochs", type=int, default=None, help="SGD passes over each rollout batch.")
-    parser.add_argument("--clip-eps", type=float, default=None, help="PPO clip range.")
-    parser.add_argument("--gae-lambda", type=float, default=None, help="GAE lambda.")
-    parser.add_argument("--gamma", type=float, default=None, help="Discount factor.")
-    parser.add_argument("--ent-coef", type=float, default=None, help="Entropy bonus coefficient.")
-    parser.add_argument("--vf-coef", type=float, default=None, help="Value loss coefficient.")
-    parser.add_argument("--lr", type=float, default=None, help="Learning rate.")
-    parser.add_argument("--max-grad-norm", type=float, default=None, help="Gradient clipping.")
-    parser.add_argument(
-        "--hidden-sizes",
-        type=int,
-        nargs="+",
-        default=None,
-        help="Hidden layer sizes for the policy/value backbone.",
-    )
-    parser.add_argument("--dropout", type=float, default=None, help="Dropout probability.")
-    parser.add_argument("--seed", type=int, default=None, help="Random seed.")
-    parser.add_argument("--device", default=None, help="Torch device.")
-    parser.add_argument("--bc-checkpoint", default=None, help="Optional path to a supervised BC checkpoint to warm start.")
-    parser.add_argument(
-        "--save-path",
-        default=None,
-        help="Where to save checkpoints.",
+        help="Path to JSON config file with all required hyperparameters.",
     )
     return parser.parse_args()
 
@@ -73,6 +35,40 @@ def parse_args() -> argparse.Namespace:
 def load_config(path: Path) -> Dict:
     with path.open() as f:
         return json.load(f)
+
+
+def validate_config(config: Dict[str, object]) -> Dict[str, object]:
+    required_fields = {
+        "root",
+        "pattern",
+        "max_resources",
+        "step_cost",
+        "terminal_makespan_coeff",
+        "total_env_steps",
+        "rollout_horizon",
+        "ppo_epochs",
+        "clip_eps",
+        "gae_lambda",
+        "gamma",
+        "ent_coef",
+        "vf_coef",
+        "lr",
+        "max_grad_norm",
+        "hidden_sizes",
+        "dropout",
+        "seed",
+        "device",
+        "save_path",
+    }
+    optional_fields = {"max_instances", "max_steps_per_episode", "bc_checkpoint"}
+
+    missing = [key for key in sorted(required_fields) if key not in config or config[key] is None]
+    if missing:
+        missing_fields = ", ".join(missing)
+        raise ValueError(f"Config file is missing required fields: {missing_fields}")
+
+    merged = {**{k: None for k in optional_fields}, **config}
+    return merged
 
 
 def set_seed(seed: int) -> None:
@@ -190,19 +186,11 @@ def compute_gae(
 
 def main() -> None:
     args = parse_args()
-    config: Dict[str, object] = {}
 
     cfg_path = Path(args.config)
     if not cfg_path.exists():
         raise FileNotFoundError(f"Config file not found at {cfg_path}. Please supply a valid --config path.")
-    file_cfg = load_config(cfg_path)
-    config.update(file_cfg)
-
-    # Only override with CLI flags that were explicitly provided.
-    for k, v in vars(args).items():
-        if k == "config" or v is None:
-            continue
-        config[k] = v
+    config = validate_config(load_config(cfg_path))
 
     set_seed(int(config["seed"]))
 
@@ -255,6 +243,8 @@ def main() -> None:
     update_idx = 0
     recent_returns = deque(maxlen=10)
     episode_return = 0.0
+    episodes_completed = 0
+    done_reason_counts: Dict[str, int] = {}
 
     total_env_steps = int(config["total_env_steps"])
     rollout_horizon = int(config["rollout_horizon"])
@@ -281,6 +271,9 @@ def main() -> None:
 
             if step_out.done:
                 recent_returns.append(episode_return)
+                episodes_completed += 1
+                reason = step_out.info.get("done_reason", "unknown")
+                done_reason_counts[reason] = done_reason_counts.get(reason, 0) + 1
                 episode_return = 0.0
                 # Reset rollout collection for the next episode within the same horizon
                 # while still respecting the rollout size.
@@ -326,16 +319,18 @@ def main() -> None:
             loss_v = torch.stack(value_losses).mean()
             loss_ent = torch.stack(entropies).mean()
             loss = loss_pi + float(config["vf_coef"]) * loss_v - float(config["ent_coef"]) * loss_ent
-            loss.backward()
-            nn.utils.clip_grad_norm_(model.parameters(), float(config["max_grad_norm"]))
-            optimizer.step()
+        loss.backward()
+        nn.utils.clip_grad_norm_(model.parameters(), float(config["max_grad_norm"]))
+        optimizer.step()
 
         update_idx += 1
         avg_return = sum(recent_returns) / len(recent_returns) if recent_returns else 0.0
+        done_summary = ", ".join(f"{k}:{v}" for k, v in sorted(done_reason_counts.items()))
         print(
             f"Update {update_idx} | steps={total_steps} | "
             f"loss_pi={loss_pi.item():.4f} loss_v={loss_v.item():.4f} ent={loss_ent.item():.4f} | "
-            f"avg_return(last {len(recent_returns)} eps)={avg_return:.2f}"
+            f"avg_return(last {len(recent_returns)} eps)={avg_return:.2f} | "
+            f"episodes={episodes_completed} done_reasons=[{done_summary}]"
         )
 
         # Save checkpoint each update

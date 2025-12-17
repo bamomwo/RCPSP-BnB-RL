@@ -2,12 +2,13 @@
   "trajectories_dir": "data/trajectories/1kNetRes",
   "pattern": "*.jsonl",
   "batch_size": 32,
-  "epochs": 100,
   "lr": 0.0003,
-  "hidden_sizes": [128, 128],
+  "hidden_sizes": [512, 256, 128],
   "dropout": 0.1,
   "val_frac": 0.1,
   "max_resources": 4,
   "output": "models/policy.pt",
-  "seed": 42
+  "seed": 42,
+  "patience": 15,
+  "min_epochs": 30
 }

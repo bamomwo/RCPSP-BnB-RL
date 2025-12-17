@@ -359,6 +359,16 @@ def main() -> None:
         else:
             lines.append("Gaps shown as '-' when no OR-Tools baseline is available.")
 
+        if include_policy and include_native:
+            no_tie_total = wins + losses
+            wins_pct_no_ties = (wins / no_tie_total * 100) if no_tie_total else None
+            ties_pct = (ties / comparisons_total * 100) if comparisons_total else None
+            lines.append(
+                "Policy vs Native record: "
+                f"W={wins}, L={losses}, T={ties} "
+                f"(wins/all={fmt_pct(wins_pct)}, wins/no-ties={fmt_pct(wins_pct_no_ties)}, ties={fmt_pct(ties_pct)})"
+            )
+
         success_bits = []
         if include_native:
             success_bits.append(f"Native success: {success_rate('native_makespan')*100:.1f}%")

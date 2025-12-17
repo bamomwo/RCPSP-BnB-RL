@@ -6,7 +6,7 @@
   "max_resources": 4,
   "step_cost": 1.0,
   "terminal_makespan_coeff": 0.01,
-  "total_env_steps": 2000000,
+  "total_env_steps": 200000,
   "rollout_horizon": 256,
   "ppo_epochs": 4,
   "clip_eps": 0.2,
@@ -16,10 +16,10 @@
   "vf_coef": 0.5,
   "lr": 0.0003,
   "max_grad_norm": 0.5,
-  "hidden_sizes": [128, 128],
+  "hidden_sizes": [512, 256, 128],
   "dropout": 0.1, 
   "seed": 42,
   "device": "cuda",
-  "bc_checkpoint": null,
+  "bc_checkpoint": "models/policy.pt",
   "save_path": "models/policy_ppo.pt"
 }

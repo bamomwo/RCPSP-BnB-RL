@@ -1,25 +1,15 @@
-Benchmark-style summary (ortools)
------------------------------------------------------------
- #  Instance           Makespan(ortools)  CPU-Time[ortools]
------------------------------------------------------------
- 1  AD_inst1.rcp                      46               0.04
- 2  AD_inst100001.rcp                 78               0.04
- 3  AD_inst10001.rcp                  95               0.01
- 4  AD_inst1001.rcp                   35               0.01
- 5  AD_inst101001.rcp                 52               0.16
- 6  AD_inst102001.rcp                120               0.01
- 7  AD_inst103001.rcp                 81               0.01
- 8  AD_inst104001.rcp                 83               0.08
- 9  AD_inst105001.rcp                 61               0.12
-10  AD_inst106001.rcp                121               0.01
-11  AD_inst107001.rcp                 75               0.01
-12  AD_inst108001.rcp                 79               0.03
-13  AD_inst109001.rcp                 60               0.14
-14  AD_inst110001.rcp                106               0.01
-15  AD_inst11001.rcp                  71               0.01
-16  AD_inst111001.rcp                 79               0.01
-17  AD_inst112001.rcp                 83               0.09
-18  AD_inst113001.rcp                 48               0.09
-19  AD_inst114001.rcp                117               0.01
-20  AD_inst115001.rcp                 78               0.01
+Benchmark-style summary (native vs ortools)
+----------------------------------------------------------------------------------------
+#  Instance     Makespan(native)  CPU-Time[native]  Makespan(ortools)  CPU-Time[ortools]
+----------------------------------------------------------------------------------------
+1  VNR_10.rcp                 90              0.13                 90               0.03
+2  VNR_100.rcp                98              1.84                 95             212.67
+
+Aggregates:
+---------------------------------------------
+Solver      Median Gap  Mean Gap  % <= 5% Gap
+---------------------------------------------
+Native B&B        1.6%      1.6%         100%
+Gaps measured relative to OR-Tools solutions when available.
+Success rates: Native success: 100.0%, OR-Tools success: 100.0%
 Note: columns labelled '(ortools)' were solved via OR-Tools CP-SAT (may be optimal or best-found).

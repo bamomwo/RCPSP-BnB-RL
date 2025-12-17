@@ -115,7 +115,12 @@ class BranchingEnv:
             incumbent=incumbent,
         )
         glob = global_features(record, max_resources=self.max_resources)
-        ready_sorted = record.ready
+        expected_ready = sorted(node.ready)
+        if record.ready != expected_ready:
+            raise RuntimeError(
+                f"Ready order mismatch: record.ready={record.ready} vs sorted(node.ready)={expected_ready}"
+            )
+        ready_sorted = expected_ready
         cand = [candidate_features(record, rid, max_resources=self.max_resources) for rid in ready_sorted]
         mask = [record.earliest_start.get(rid) is not None for rid in ready_sorted]
 

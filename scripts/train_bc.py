@@ -20,59 +20,26 @@ from rcpsp_bb_rl.models import PolicyMLP  # noqa: E402
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train a supervised imitation (behavior cloning) policy MLP.")
-    parser.add_argument(
-        "--config",
-        default=None,
-        help="Path to JSON config file to override defaults.",
-    )
-    parser.add_argument(
-        "--trajectories-dir",
-        default="data/trajectories",
-        help="Directory containing trajectory JSONL files.",
-    )
-    parser.add_argument(
-        "--pattern",
-        default="*.jsonl",
-        help="Glob pattern for trajectory files (default: *.jsonl).",
-    )
-    parser.add_argument("--batch-size", type=int, default=512, help="Batch size for training.")
-    parser.add_argument("--epochs", type=int, default=10, help="Number of training epochs.")
-    parser.add_argument("--lr", type=float, default=3e-4, help="Learning rate.")
-    parser.add_argument(
-        "--hidden-sizes",
-        type=int,
-        nargs="+",
-        default=[128, 128],
-        help="Hidden layer sizes for the policy MLP.",
-    )
-    parser.add_argument("--dropout", type=float, default=0.1, help="Dropout probability.")
-    parser.add_argument("--val-frac", type=float, default=0.1, help="Fraction of data for validation.")
-    parser.add_argument("--max-resources", type=int, default=4, help="Pad/truncate resource dimensions to this size.")
-    parser.add_argument(
-        "--output",
-        default=str(PROJECT_ROOT / "models" / "policy.pt"),
-        help="Path to save the trained model.",
-    )
-    parser.add_argument("--seed", type=int, default=42, help="Random seed.")
+    parser.add_argument("--config", required=True, help="Path to JSON config file.")
     return parser.parse_args()
 
 
-def parse_args_from_defaults() -> argparse.Namespace:
-    """Helper to capture argparse defaults without CLI overrides."""
-    parser = argparse.ArgumentParser(add_help=False)
-    parser.add_argument("--config", default=None)
-    parser.add_argument("--trajectories-dir", default="data/trajectories")
-    parser.add_argument("--pattern", default="*.jsonl")
-    parser.add_argument("--batch-size", type=int, default=512)
-    parser.add_argument("--epochs", type=int, default=10)
-    parser.add_argument("--lr", type=float, default=3e-4)
-    parser.add_argument("--hidden-sizes", type=int, nargs="+", default=[128, 128])
-    parser.add_argument("--dropout", type=float, default=0.1)
-    parser.add_argument("--val-frac", type=float, default=0.1)
-    parser.add_argument("--max-resources", type=int, default=4)
-    parser.add_argument("--output", default=str(PROJECT_ROOT / "models" / "policy.pt"))
-    parser.add_argument("--seed", type=int, default=42)
-    return parser.parse_args([])
+DEFAULT_CONFIG: Dict = {
+    "trajectories_dir": "data/trajectories",
+    "pattern": "*.jsonl",
+    "batch_size": 512,
+    # If epochs is None, train until early stopping triggers.
+    "epochs": None,
+    "lr": 3e-4,
+    "hidden_sizes": [128, 128],
+    "dropout": 0.1,
+    "val_frac": 0.1,
+    "max_resources": 4,
+    "output": str(PROJECT_ROOT / "models" / "policy.pt"),
+    "seed": 42,
+    "patience": 5,
+    "min_epochs": 0,
+}
 
 
 def load_config(path: Path) -> Dict:
@@ -138,20 +105,10 @@ def evaluate(model: PolicyMLP, loader: DataLoader, device: torch.device) -> tupl
 
 def main() -> None:
     args = parse_args()
-    defaults = parse_args_from_defaults()
-    config = vars(defaults).copy()
-
-    if args.config:
-        cfg_path = Path(args.config)
-        file_cfg = load_config(cfg_path)
-        config.update(file_cfg)
-
-    # CLI overrides config/defaults when differing from defaults.
-    for k, v in vars(args).items():
-        if k == "config":
-            continue
-        if v != getattr(defaults, k):
-            config[k] = v
+    cfg_path = Path(args.config)
+    file_cfg = load_config(cfg_path)
+    config = DEFAULT_CONFIG.copy()
+    config.update(file_cfg)
 
     set_seed(int(config["seed"]))
 
@@ -183,10 +140,17 @@ def main() -> None:
 
     best_val_loss = float("inf")
     best_val_acc = 0.0
+    no_improve = 0
+    patience = int(config["patience"])
+    min_epochs = int(config["min_epochs"])
+    max_epochs = config.get("epochs")
+    max_epochs = None if max_epochs is None else int(max_epochs)
     output_path = Path(config["output"])
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    for epoch in range(1, int(config["epochs"]) + 1):
+    epoch = 0
+    while True:
+        epoch += 1
         model.train()
         epoch_loss = 0.0
         epoch_acc = 0.0
@@ -224,6 +188,7 @@ def main() -> None:
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             best_val_acc = val_acc
+            no_improve = 0
             torch.save(
                 {
                     "model_state": model.state_dict(),
@@ -236,6 +201,15 @@ def main() -> None:
                 },
                 output_path,
             )
+        else:
+            no_improve += 1
+
+        if epoch >= min_epochs and no_improve >= patience:
+            print(f"Early stopping triggered after {epoch} epochs (patience={patience}).")
+            break
+        if max_epochs is not None and epoch >= max_epochs:
+            print(f"Reached max_epochs={max_epochs}; stopping training.")
+            break
 
     print(f"Done. Best val_loss={best_val_loss:.4f}, val_acc={best_val_acc:.4f}. Saved to {output_path}")
 
