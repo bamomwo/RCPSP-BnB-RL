@@ -288,8 +288,12 @@ class BranchingEnv:
 
         # Reward bonus if we improved the incumbent during this expansion.
         if self.best_makespan is not None and self.best_makespan != best_before:
-            reward -= self.terminal_makespan_coeff * float(self.best_makespan)
+            improvement = (
+                float(best_before - self.best_makespan) if best_before is not None else float(self.best_makespan)
+            )
+            reward += self.terminal_makespan_coeff * improvement
             info["best_makespan"] = self.best_makespan
+            info["makespan_improvement"] = improvement
 
         if self.max_steps is not None and self.steps >= self.max_steps and not done:
             done = True

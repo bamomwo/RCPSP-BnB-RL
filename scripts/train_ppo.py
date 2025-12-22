@@ -22,6 +22,35 @@ from rcpsp_bb_rl.models import PolicyMLP, load_policy_checkpoint  # noqa: E402
 from rcpsp_bb_rl.rl import BranchingEnv  # noqa: E402
 
 
+def _copy_policy_weights(src: PolicyMLP, dst: PolicyMLP) -> None:
+    """
+    Copy linear layer weights/biases from a source PolicyMLP to a destination PolicyMLP,
+    ignoring differences in Dropout placement. Raises if the linear layer shapes differ.
+    """
+    src_linears = [m for m in src.backbone if isinstance(m, nn.Linear)]
+    dst_linears = [m for m in dst.backbone if isinstance(m, nn.Linear)]
+    if len(src_linears) != len(dst_linears):
+        raise RuntimeError(
+            f"Mismatch in linear layer counts when copying BC weights (src={len(src_linears)} dst={len(dst_linears)})"
+        )
+    for s, d in zip(src_linears, dst_linears):
+        if s.weight.shape != d.weight.shape:
+            raise RuntimeError(
+                f"Linear weight shape mismatch when copying BC weights (src={s.weight.shape} dst={d.weight.shape})"
+            )
+        d.weight.data.copy_(s.weight.data)
+        d.bias.data.copy_(s.bias.data)
+    dst.head.load_state_dict(src.head.state_dict())
+
+
+def _instance_label(source: Path | str | object) -> str:
+    """Short label for logging which instance an episode uses."""
+    try:
+        return Path(str(source)).name
+    except Exception:
+        return str(source)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="PPO fine-tuning for B&B branching policy (config-driven only).")
     parser.add_argument(
@@ -216,6 +245,8 @@ def main() -> None:
         max_steps=None if config["max_steps_per_episode"] is None else int(config["max_steps_per_episode"]),
     )
     obs = env.reset()
+    episodes_started = 1
+    print(f"[episode {episodes_started} start] instance={_instance_label(env.instance_source)}")
 
     # Infer feature dims from the first observation.
     global_dim = obs["global_feats"].numel()
@@ -235,7 +266,16 @@ def main() -> None:
     # Warm start from BC if provided.
     if config.get("bc_checkpoint"):
         bc_model = load_policy_checkpoint(config["bc_checkpoint"], device=device)
-        model.policy.load_state_dict(bc_model.state_dict())
+        try:
+            model.policy.load_state_dict(bc_model.state_dict(), strict=True)
+        except RuntimeError as e:
+            if "Missing key(s)" in str(e) or "Unexpected key(s)" in str(e):
+                _copy_policy_weights(bc_model, model.policy)
+                print(
+                    "Loaded BC checkpoint by copying linear weights (dropout layouts differed between checkpoint and PPO config)."
+                )
+            else:
+                raise
 
     optimizer = optim.AdamW(model.parameters(), lr=float(config["lr"]))
 
@@ -256,6 +296,15 @@ def main() -> None:
                 action_idx, logprob, entropy = select_action(model, obs, device)
             step_out = env.step(action_idx)
             episode_return += step_out.reward
+            if step_out.info.get("best_makespan") is not None:
+                print(
+                    f"[incumbent] step={total_steps + 1} "
+                    f"makespan={step_out.info['best_makespan']} "
+                    f"stack={step_out.info.get('stack_size', 'na')} "
+                    f"improvement={step_out.info.get('makespan_improvement', 'na')} "
+                    f"reward={step_out.reward:.4f} "
+                    f"episode_return={episode_return:.2f}"
+                )
             transition = {
                 "obs": obs,
                 "action_idx": action_idx,
@@ -267,16 +316,21 @@ def main() -> None:
             }
             rollout.append(transition)
             total_steps += 1
-            obs = step_out.observation if not step_out.done else env.reset(random.choice(instance_paths))
-
             if step_out.done:
                 recent_returns.append(episode_return)
                 episodes_completed += 1
                 reason = step_out.info.get("done_reason", "unknown")
                 done_reason_counts[reason] = done_reason_counts.get(reason, 0) + 1
                 episode_return = 0.0
+                next_instance = random.choice(instance_paths)
+                episodes_started += 1
+                print(f"[episode {episodes_started} start] instance={_instance_label(next_instance)}")
+                obs = env.reset(next_instance)
                 # Reset rollout collection for the next episode within the same horizon
                 # while still respecting the rollout size.
+            else:
+                obs = step_out.observation
+
             if total_steps >= total_env_steps:
                 break
 
