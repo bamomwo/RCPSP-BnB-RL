@@ -1,17 +1,20 @@
+from __future__ import annotations
+
 import argparse
 import json
 import random
 import sys
+import time
 from collections import deque
 from pathlib import Path
-from typing import Dict, List, Sequence, Tuple
+from typing import Any, Dict, List, Sequence, Tuple
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.distributions import Categorical
 
-# Ensure the src directory is importable when running from the repo root.
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_PATH = PROJECT_ROOT / "src"
 if str(SRC_PATH) not in sys.path:
@@ -22,372 +25,300 @@ from rcpsp_bb_rl.models import PolicyMLP, load_policy_checkpoint  # noqa: E402
 from rcpsp_bb_rl.rl import BranchingEnv  # noqa: E402
 
 
+def parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(description="PPO fine-tuning (budgeted episodes + shaping rewards).")
+    p.add_argument("--config", required=True)
+    return p.parse_args()
+
+
+def load_json(path: Path) -> Dict[str, Any]:
+    with path.open() as f:
+        return json.load(f)
+
+
+def set_seed(seed: int) -> None:
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
+
 def _copy_policy_weights(src: PolicyMLP, dst: PolicyMLP) -> None:
-    """
-    Copy linear layer weights/biases from a source PolicyMLP to a destination PolicyMLP,
-    ignoring differences in Dropout placement. Raises if the linear layer shapes differ.
-    """
     src_linears = [m for m in src.backbone if isinstance(m, nn.Linear)]
     dst_linears = [m for m in dst.backbone if isinstance(m, nn.Linear)]
     if len(src_linears) != len(dst_linears):
-        raise RuntimeError(
-            f"Mismatch in linear layer counts when copying BC weights (src={len(src_linears)} dst={len(dst_linears)})"
-        )
+        raise RuntimeError("Mismatch in linear layer counts when copying BC weights.")
     for s, d in zip(src_linears, dst_linears):
         if s.weight.shape != d.weight.shape:
-            raise RuntimeError(
-                f"Linear weight shape mismatch when copying BC weights (src={s.weight.shape} dst={d.weight.shape})"
-            )
+            raise RuntimeError("Linear shape mismatch when copying BC weights.")
         d.weight.data.copy_(s.weight.data)
         d.bias.data.copy_(s.bias.data)
     dst.head.load_state_dict(src.head.state_dict())
 
 
-def _instance_label(source: Path | str | object) -> str:
-    """Short label for logging which instance an episode uses."""
-    try:
-        return Path(str(source)).name
-    except Exception:
-        return str(source)
-
-
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="PPO fine-tuning for B&B branching policy (config-driven only).")
-    parser.add_argument(
-        "--config",
-        required=True,
-        help="Path to JSON config file with all required hyperparameters.",
-    )
-    return parser.parse_args()
-
-
-def load_config(path: Path) -> Dict:
-    with path.open() as f:
-        return json.load(f)
-
-
-def validate_config(config: Dict[str, object]) -> Dict[str, object]:
-    required_fields = {
-        "root",
-        "pattern",
-        "max_resources",
-        "step_cost",
-        "terminal_makespan_coeff",
-        "total_env_steps",
-        "rollout_horizon",
-        "ppo_epochs",
-        "clip_eps",
-        "gae_lambda",
-        "gamma",
-        "ent_coef",
-        "vf_coef",
-        "lr",
-        "max_grad_norm",
-        "hidden_sizes",
-        "dropout",
-        "seed",
-        "device",
-        "save_path",
-    }
-    optional_fields = {"max_instances", "max_steps_per_episode", "bc_checkpoint"}
-
-    missing = [key for key in sorted(required_fields) if key not in config or config[key] is None]
-    if missing:
-        missing_fields = ", ".join(missing)
-        raise ValueError(f"Config file is missing required fields: {missing_fields}")
-
-    merged = {**{k: None for k in optional_fields}, **config}
-    return merged
-
-
-def set_seed(seed: int) -> None:
-    random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-
-
 class ActorCritic(nn.Module):
-    """Policy head from the BC model plus a simple value head."""
-
-    def __init__(
-        self,
-        global_dim: int,
-        candidate_dim: int,
-        hidden_sizes: Sequence[int],
-        dropout: float,
-    ) -> None:
+    def __init__(self, global_dim: int, candidate_dim: int, hidden_sizes: Sequence[int], dropout: float) -> None:
         super().__init__()
         self.policy = PolicyMLP(global_dim, candidate_dim, hidden_sizes=hidden_sizes, dropout=dropout)
-        self.value_head = nn.Sequential(
-            nn.Linear(global_dim, 128),
-            nn.ReLU(),
-            nn.Linear(128, 1),
-        )
+        self.value_head = nn.Sequential(nn.Linear(global_dim, 128), nn.ReLU(), nn.Linear(128, 1))
 
-    def policy_logits(self, cand_feats: torch.Tensor, glob_feats: torch.Tensor) -> torch.Tensor:
-        return self.policy(cand_feats, glob_feats)
+    def policy_logits(self, cand_feats: torch.Tensor, glob_feats_repeated: torch.Tensor) -> torch.Tensor:
+        return self.policy(cand_feats, glob_feats_repeated)
 
     def value(self, glob_feats: torch.Tensor) -> torch.Tensor:
         return self.value_head(glob_feats).squeeze(-1)
 
 
-def make_envs(
-    instance_paths: Sequence[Path],
-    max_resources: int,
-    step_cost: float,
-    max_steps_per_episode: int | None,
-    terminal_makespan_coeff: float,
-) -> List[BranchingEnv]:
-    envs = []
-    for p in instance_paths:
-        envs.append(
-            BranchingEnv(
-                instance_source=p,
-                max_resources=max_resources,
-                step_cost=step_cost,
-                terminal_makespan_coeff=terminal_makespan_coeff,
-                max_steps=max_steps_per_episode,
-            )
-        )
-    return envs
-
-
-@torch.no_grad()
-def select_action(
-    model: ActorCritic,
-    obs: Dict[str, torch.Tensor],
-    device: torch.device,
-) -> Tuple[int, torch.Tensor, torch.Tensor]:
+def policy_dist_and_value(model: ActorCritic, obs: Dict[str, torch.Tensor], device: torch.device) -> Tuple[Categorical, torch.Tensor]:
     cand = obs["candidate_feats"].to(device)
     glob = obs["global_feats"].to(device)
     mask = obs["action_mask"].to(device)
-
     if cand.numel() == 0:
         raise RuntimeError("No available actions in the ready set.")
-
     glob_rep = glob.unsqueeze(0).repeat(len(cand), 1)
-    logits = model.policy_logits(cand, glob_rep)
-    logits = logits.masked_fill(~mask, -1e9)
-    dist = Categorical(logits=logits)
-    action_idx = dist.sample()
-    logprob = dist.log_prob(action_idx)
-    entropy = dist.entropy()
-    return int(action_idx.item()), logprob, entropy
-
-
-def compute_logprob_entropy(
-    model: ActorCritic,
-    obs: Dict[str, torch.Tensor],
-    action_idx: int,
-    device: torch.device,
-) -> Tuple[torch.Tensor, torch.Tensor]:
-    cand = obs["candidate_feats"].to(device)
-    glob = obs["global_feats"].to(device)
-    mask = obs["action_mask"].to(device)
-    glob_rep = glob.unsqueeze(0).repeat(len(cand), 1)
-    logits = model.policy_logits(cand, glob_rep)
-    logits = logits.masked_fill(~mask, -1e9)
-    dist = Categorical(logits=logits)
-    idx_tensor = torch.tensor(action_idx, device=device)
-    logprob = dist.log_prob(idx_tensor)
-    entropy = dist.entropy()
-    return logprob, entropy
+    logits = model.policy_logits(cand, glob_rep).masked_fill(~mask, -1e9)
+    return Categorical(logits=logits), model.value(glob)
 
 
 def compute_gae(
-    rewards: List[float],
-    values: List[float],
-    dones: List[bool],
-    gamma: float,
-    lam: float,
+    rewards: torch.Tensor, dones: torch.Tensor, values: torch.Tensor, last_value: float, gamma: float, gae_lambda: float
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    gae = 0.0
-    returns: List[float] = []
-    for t in reversed(range(len(rewards))):
-        next_value = 0.0 if dones[t] else values[t + 1]
-        delta = rewards[t] + gamma * next_value * (0.0 if dones[t] else 1.0) - values[t]
-        gae = delta + gamma * lam * (0.0 if dones[t] else 1.0) * gae
-        returns.insert(0, gae + values[t])
-    adv = torch.tensor([r - v for r, v in zip(returns, values[:-1])], dtype=torch.float32)
-    returns_t = torch.tensor(returns, dtype=torch.float32)
-    return adv, returns_t
+    T = rewards.shape[0]
+    adv = torch.zeros(T, dtype=torch.float32)
+    lastgaelam = 0.0
+    for t in reversed(range(T)):
+        nextnonterminal = 1.0 - float(dones[t].item())
+        nextvalue = last_value if t == T - 1 else float(values[t + 1].item())
+        delta = float(rewards[t].item()) + gamma * nextvalue * nextnonterminal - float(values[t].item())
+        lastgaelam = delta + gamma * gae_lambda * nextnonterminal * lastgaelam
+        adv[t] = lastgaelam
+    return adv, adv + values
 
 
 def main() -> None:
     args = parse_args()
-
     cfg_path = Path(args.config)
-    if not cfg_path.exists():
-        raise FileNotFoundError(f"Config file not found at {cfg_path}. Please supply a valid --config path.")
-    config = validate_config(load_config(cfg_path))
+    config = load_json(cfg_path)
+
+    required = [
+        "root","pattern","seed","device","save_path","max_resources","hidden_sizes","dropout","lr",
+        "total_env_steps","rollout_horizon","ppo_epochs","clip_eps","gamma","gae_lambda","ent_coef",
+        "vf_coef","max_grad_norm","minibatches","episode_budget",
+        # new reward knobs
+        "step_eps","prune_alpha","lb_beta","inc_gamma",
+    ]
+    missing = [k for k in required if k not in config or config[k] is None]
+    if missing:
+        raise ValueError(f"Config missing: {', '.join(missing)}")
+
+    bc_checkpoint = config.get("bc_checkpoint", None)
+    target_kl = config.get("target_kl", None)
+    max_instances = config.get("max_instances", None)
 
     set_seed(int(config["seed"]))
-
-    # Resolve device from config but gracefully fall back to CPU if unavailable.
     requested_device = str(config["device"])
-    if requested_device == "cuda" and not torch.cuda.is_available():
-        device = torch.device("cpu")
-    else:
-        device = torch.device(requested_device)
+    device = torch.device("cpu") if (requested_device == "cuda" and not torch.cuda.is_available()) else torch.device(requested_device)
 
     instance_paths = list_instance_paths(config["root"], patterns=(config["pattern"],))
-    if config["max_instances"] is not None:
-        instance_paths = instance_paths[: int(config["max_instances"])]
+    if max_instances is not None:
+        instance_paths = instance_paths[: int(max_instances)]
     if not instance_paths:
-        raise FileNotFoundError(f"No instances found under {config['root']} matching {config['pattern']}")
+        raise FileNotFoundError("No instances found.")
 
-    # Single-env setup for now; can extend to vectorized later.
+    episode_budget = int(config["episode_budget"])
     env = BranchingEnv(
         instance_source=random.choice(instance_paths),
         max_resources=int(config["max_resources"]),
-        step_cost=float(config["step_cost"]),
-        terminal_makespan_coeff=float(config["terminal_makespan_coeff"]),
-        max_steps=None if config["max_steps_per_episode"] is None else int(config["max_steps_per_episode"]),
+        step_cost=0.0,                 # ignore env reward; we shape here
+        terminal_makespan_coeff=0.0,   # ignore env shaping
+        max_steps=episode_budget,
     )
     obs = env.reset()
-    episodes_started = 1
-    print(f"[episode {episodes_started} start] instance={_instance_label(env.instance_source)}")
 
-    # Infer feature dims from the first observation.
     global_dim = obs["global_feats"].numel()
-    candidate_dim = (
-        obs["candidate_feats"].shape[1]
-        if obs["candidate_feats"].numel() > 0
-        else int(config["max_resources"]) + 5
-    )
+    candidate_dim = obs["candidate_feats"].shape[1] if obs["candidate_feats"].numel() > 0 else int(config["max_resources"]) + 5
 
     model = ActorCritic(
         global_dim=global_dim,
         candidate_dim=candidate_dim,
-        hidden_sizes=tuple(config["hidden_sizes"]),
+        hidden_sizes=tuple(int(x) for x in config["hidden_sizes"]),
         dropout=float(config["dropout"]),
     ).to(device)
 
-    # Warm start from BC if provided.
-    if config.get("bc_checkpoint"):
-        bc_model = load_policy_checkpoint(config["bc_checkpoint"], device=device)
+    if bc_checkpoint:
+        bc_model = load_policy_checkpoint(bc_checkpoint, device=device)
         try:
             model.policy.load_state_dict(bc_model.state_dict(), strict=True)
         except RuntimeError as e:
             if "Missing key(s)" in str(e) or "Unexpected key(s)" in str(e):
                 _copy_policy_weights(bc_model, model.policy)
-                print(
-                    "Loaded BC checkpoint by copying linear weights (dropout layouts differed between checkpoint and PPO config)."
-                )
             else:
                 raise
 
-    optimizer = optim.AdamW(model.parameters(), lr=float(config["lr"]))
-
-    total_steps = 0
-    update_idx = 0
-    recent_returns = deque(maxlen=10)
-    episode_return = 0.0
-    episodes_completed = 0
-    done_reason_counts: Dict[str, int] = {}
+    optimizer = optim.AdamW(model.parameters(), lr=float(config["lr"]), eps=1e-5)
 
     total_env_steps = int(config["total_env_steps"])
     rollout_horizon = int(config["rollout_horizon"])
-    while total_steps < total_env_steps:
-        rollout = []
+    ppo_epochs = int(config["ppo_epochs"])
+    minibatches = int(config["minibatches"])
+    mb_size = max(1, rollout_horizon // max(1, minibatches))
+
+    gamma = float(config["gamma"])
+    gae_lambda = float(config["gae_lambda"])
+    clip_eps = float(config["clip_eps"])
+    ent_coef = float(config["ent_coef"])
+    vf_coef = float(config["vf_coef"])
+    max_grad_norm = float(config["max_grad_norm"])
+
+    step_eps = float(config["step_eps"])
+    prune_alpha = float(config["prune_alpha"])
+    lb_beta = float(config["lb_beta"])
+    inc_gamma = float(config["inc_gamma"])
+
+    recent_returns = deque(maxlen=20)
+    episodes_completed = 0
+    done_reason_counts: Dict[str, int] = {}
+    sps_window_start = time.time()
+    sps_window_steps = 0
+    global_step = 0
+    episode_return_running = 0.0
+
+    while global_step < total_env_steps:
+        rollout_obs: List[Dict[str, torch.Tensor]] = []
+        rollout_actions: List[int] = []
+        rollout_logprobs: List[float] = []
+        rollout_values: List[float] = []
+        rollout_rewards: List[float] = []
+        rollout_dones: List[int] = []
+
         for _ in range(rollout_horizon):
+            global_step += 1
+            sps_window_steps += 1
+
             with torch.no_grad():
-                value = model.value(obs["global_feats"].to(device)).item()
-                action_idx, logprob, entropy = select_action(model, obs, device)
-            step_out = env.step(action_idx)
-            episode_return += step_out.reward
-            if step_out.info.get("best_makespan") is not None:
-                print(
-                    f"[incumbent] step={total_steps + 1} "
-                    f"makespan={step_out.info['best_makespan']} "
-                    f"stack={step_out.info.get('stack_size', 'na')} "
-                    f"improvement={step_out.info.get('makespan_improvement', 'na')} "
-                    f"reward={step_out.reward:.4f} "
-                    f"episode_return={episode_return:.2f}"
-                )
-            transition = {
-                "obs": obs,
-                "action_idx": action_idx,
-                "logprob": logprob.detach(),
-                "entropy": entropy.detach(),
-                "reward": step_out.reward,
-                "done": step_out.done,
-                "value": value,
-            }
-            rollout.append(transition)
-            total_steps += 1
-            if step_out.done:
-                recent_returns.append(episode_return)
-                episodes_completed += 1
+                dist, v = policy_dist_and_value(model, obs, device)
+            action = int(dist.sample().item())
+            logprob = float(dist.log_prob(torch.tensor(action, device=device)).item())
+
+            # --- shaping signals BEFORE step ---
+            stack_before = len(env.stack)
+            lb_before = float(env.node.lower_bound) if getattr(env, "node", None) is not None else 0.0
+            best_before = env.best_makespan
+
+            step_out = env.step(action)
+            done = bool(step_out.done)
+
+            # --- shaping signals AFTER step ---
+            stack_after = int(step_out.info.get("stack_size", len(env.stack)))
+            pruned = max(0, stack_before - stack_after)
+
+            lb_after = float(env.node.lower_bound) if (not done and getattr(env, "node", None) is not None) else lb_before
+            d_lb = max(0.0, lb_after - lb_before)
+
+            best_after = env.best_makespan
+            inc_impr = 0.0
+            if best_before is not None and best_after is not None and best_after < best_before:
+                inc_impr = float(best_before - best_after)
+
+            r = (-step_eps) + (prune_alpha * pruned) + (lb_beta * d_lb) + (inc_gamma * inc_impr)
+
+            rollout_obs.append(obs)
+            rollout_actions.append(action)
+            rollout_logprobs.append(logprob)
+            rollout_values.append(float(v.item()))
+            rollout_rewards.append(r)
+            rollout_dones.append(1 if done else 0)
+
+            episode_return_running += r
+
+            if done:
                 reason = step_out.info.get("done_reason", "unknown")
                 done_reason_counts[reason] = done_reason_counts.get(reason, 0) + 1
-                episode_return = 0.0
-                next_instance = random.choice(instance_paths)
-                episodes_started += 1
-                print(f"[episode {episodes_started} start] instance={_instance_label(next_instance)}")
-                obs = env.reset(next_instance)
-                # Reset rollout collection for the next episode within the same horizon
-                # while still respecting the rollout size.
+                episodes_completed += 1
+                recent_returns.append(episode_return_running)
+                episode_return_running = 0.0
+                obs = env.reset(random.choice(instance_paths))
             else:
                 obs = step_out.observation
 
-            if total_steps >= total_env_steps:
+            if global_step >= total_env_steps:
                 break
 
-        # Bootstrap value for GAE
         with torch.no_grad():
-            next_value = model.value(obs["global_feats"].to(device)).item()
-        rewards = [t["reward"] for t in rollout]
-        dones = [t["done"] for t in rollout]
-        values = [t["value"] for t in rollout] + [next_value]
-        advantages, returns = compute_gae(
-            rewards,
-            values,
-            dones,
-            float(config["gamma"]),
-            float(config["gae_lambda"]),
-        )
-        # Normalize advantages
-        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+            _, last_v = policy_dist_and_value(model, obs, device)
+            last_value = float(last_v.item())
 
-        # PPO update
-        for _ in range(int(config["ppo_epochs"])):
-            policy_losses = []
-            value_losses = []
-            entropies = []
-            for t, adv, ret in zip(rollout, advantages, returns):
-                logprob_new, entropy = compute_logprob_entropy(model, t["obs"], t["action_idx"], device)
-                ratio = torch.exp(logprob_new - t["logprob"])
-                clipped = torch.clamp(ratio, 1.0 - float(config["clip_eps"]), 1.0 + float(config["clip_eps"]))
-                policy_loss = -torch.min(ratio * adv, clipped * adv)
+        rewards_t = torch.tensor(rollout_rewards, dtype=torch.float32)
+        dones_t = torch.tensor(rollout_dones, dtype=torch.float32)
+        values_t = torch.tensor(rollout_values, dtype=torch.float32)
 
-                value_pred = model.value(t["obs"]["global_feats"].to(device))
-                value_loss = (value_pred - ret) ** 2
+        advantages_t, returns_t = compute_gae(rewards_t, dones_t, values_t, last_value, gamma, gae_lambda)
+        advantages_t = (advantages_t - advantages_t.mean()) / (advantages_t.std() + 1e-8)
 
-                policy_losses.append(policy_loss)
-                value_losses.append(value_loss)
-                entropies.append(entropy)
+        b_inds = np.arange(len(rollout_obs))
+        clipfracs: List[float] = []
+        last_pg = last_vl = last_ent = last_kl = 0.0
 
-            optimizer.zero_grad()
-            loss_pi = torch.stack(policy_losses).mean()
-            loss_v = torch.stack(value_losses).mean()
-            loss_ent = torch.stack(entropies).mean()
-            loss = loss_pi + float(config["vf_coef"]) * loss_v - float(config["ent_coef"]) * loss_ent
-        loss.backward()
-        nn.utils.clip_grad_norm_(model.parameters(), float(config["max_grad_norm"]))
-        optimizer.step()
+        for _ in range(ppo_epochs):
+            np.random.shuffle(b_inds)
+            for start in range(0, len(b_inds), mb_size):
+                mb_inds = b_inds[start : start + mb_size]
+                if len(mb_inds) == 0:
+                    continue
 
-        update_idx += 1
-        avg_return = sum(recent_returns) / len(recent_returns) if recent_returns else 0.0
+                new_logps, new_ents, new_vals = [], [], []
+                for i in mb_inds:
+                    d_i, v_i = policy_dist_and_value(model, rollout_obs[i], device)
+                    a_i = torch.tensor(rollout_actions[i], device=device)
+                    new_logps.append(d_i.log_prob(a_i))
+                    new_ents.append(d_i.entropy())
+                    new_vals.append(v_i)
+
+                new_logps_t = torch.stack(new_logps)
+                ent_t = torch.stack(new_ents).mean()
+                new_vals_t = torch.stack(new_vals).squeeze(-1)
+
+                old_logps_t = torch.tensor([rollout_logprobs[i] for i in mb_inds], dtype=torch.float32, device=device)
+                mb_adv = advantages_t[mb_inds].to(device)
+                mb_ret = returns_t[mb_inds].to(device)
+
+                logratio = new_logps_t - old_logps_t
+                ratio = torch.exp(logratio)
+
+                with torch.no_grad():
+                    approx_kl = ((ratio - 1) - logratio).mean()
+                    clipfracs.append((torch.abs(ratio - 1.0) > clip_eps).float().mean().item())
+
+                pg1 = -mb_adv * ratio
+                pg2 = -mb_adv * torch.clamp(ratio, 1.0 - clip_eps, 1.0 + clip_eps)
+                pg_loss = torch.max(pg1, pg2).mean()
+                v_loss = 0.5 * (new_vals_t - mb_ret).pow(2).mean()
+
+                loss = pg_loss - ent_coef * ent_t + vf_coef * v_loss
+
+                optimizer.zero_grad()
+                loss.backward()
+                nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
+                optimizer.step()
+
+                last_pg, last_vl, last_ent, last_kl = float(pg_loss.item()), float(v_loss.item()), float(ent_t.item()), float(approx_kl.item())
+
+            if target_kl is not None and last_kl > float(target_kl):
+                break
+
+        avg_return = float(sum(recent_returns) / len(recent_returns)) if recent_returns else 0.0
         done_summary = ", ".join(f"{k}:{v}" for k, v in sorted(done_reason_counts.items()))
+        sps = int(sps_window_steps / max(time.time() - sps_window_start, 1e-6))
+        sps_window_steps = 0
+        sps_window_start = time.time()
+
         print(
-            f"Update {update_idx} | steps={total_steps} | "
-            f"loss_pi={loss_pi.item():.4f} loss_v={loss_v.item():.4f} ent={loss_ent.item():.4f} | "
-            f"avg_return(last {len(recent_returns)} eps)={avg_return:.2f} | "
-            f"episodes={episodes_completed} done_reasons=[{done_summary}]"
+            f"steps={global_step} | avg_return(last {len(recent_returns)} eps)={avg_return:.4f} | "
+            f"episodes={episodes_completed} done_reasons=[{done_summary}] | "
+            f"pg={last_pg:.4f} v={last_vl:.4f} ent={last_ent:.4f} kl={last_kl:.4f} "
+            f"clipfrac={np.mean(clipfracs) if clipfracs else 0.0:.4f} | SPS={sps}"
         )
 
-        # Save checkpoint each update
         save_path = Path(config["save_path"])
         save_path.parent.mkdir(parents=True, exist_ok=True)
         torch.save(
@@ -397,14 +328,17 @@ def main() -> None:
                 "config": {
                     "global_dim": global_dim,
                     "candidate_dim": candidate_dim,
-                    "hidden_sizes": tuple(config["hidden_sizes"]),
+                    "hidden_sizes": tuple(int(x) for x in config["hidden_sizes"]),
                     "dropout": float(config["dropout"]),
+                    "episode_budget": episode_budget,
+                    "step_eps": step_eps,
+                    "prune_alpha": prune_alpha,
+                    "lb_beta": lb_beta,
+                    "inc_gamma": inc_gamma,
                 },
             },
             save_path,
         )
-
-        # TODO: add optional evaluation hook that calls scripts/report_bnb.py on a held-out set.
 
     print(f"Training complete. Saved policy to {config['save_path']}")
 

@@ -3,5 +3,5 @@
 __pycache__/
 
 /reports/figures/*
-
+/data/1ktrain
 move_1knet_res.py

@@ -21,6 +21,10 @@ from rcpsp_bb_rl.data.parsing import load_instance  # noqa: E402
 from rcpsp_bb_rl.models import load_policy_checkpoint  # noqa: E402
 
 
+
+
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run B&B on a set of RCPSP instances and print a summary table."
@@ -89,6 +93,12 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional wall-clock time limit (seconds) applied to all solvers (native, policy, OR-Tools).",
     )
+    parser.add_argument(
+        "--progress-every",
+        type=int,
+        default=50,
+        help="Print progress every N instances (default: 50). Set <=0 to disable.",
+    )
     return parser.parse_args()
 
 
@@ -111,6 +121,10 @@ def run_instance(
             device=policy_device or "cpu",
             predecessors=solver.predecessors,
         )
+
+    base_order_fn = order_fn or (lambda node, _inc: sorted(node.ready))
+
+
     start = time.perf_counter()
     result = solver.solve(max_nodes=max_nodes, order_ready_fn=order_fn, time_limit_s=time_limit_s)
     elapsed = time.perf_counter() - start
@@ -151,6 +165,7 @@ def main() -> None:
 
     rows = []
     summary_rows: List[Dict[str, object]] = []
+    start_time = time.perf_counter()
     for idx, path in enumerate(paths, start=1):
         row_vals = [idx, path.name]
         entry: Dict[str, object] = {"instance": path.name}
@@ -185,6 +200,13 @@ def main() -> None:
 
         rows.append(row_vals)
         summary_rows.append(entry)
+        if args.progress_every > 0 and (idx % args.progress_every == 0 or idx == len(paths)):
+            elapsed = time.perf_counter() - start_time
+            rate = idx / elapsed if elapsed > 0 else 0.0
+            remaining = len(paths) - idx
+            eta = remaining / rate if rate > 0 else float("inf")
+            eta_str = f"{eta/60:.1f}m" if eta != float("inf") else "unknown"
+            print(f"[progress] {idx}/{len(paths)} | elapsed {elapsed/60:.1f}m | eta {eta_str}")
 
     # Print a simple table similar to benchmark reports.
     lines = []
@@ -396,6 +418,7 @@ def main() -> None:
     out_path = out_dir / args.output_name
     out_path.write_text("\n".join(lines))
     print(f"\nSaved summary to {out_path}")
+
 
 
 if __name__ == "__main__":
