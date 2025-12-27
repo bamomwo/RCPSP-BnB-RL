@@ -3,7 +3,7 @@
   "pattern": "*.rcp",
   "max_instances": null,
   "max_resources": 4,
-  "total_env_steps": 1000000,
+  "total_env_steps": 400000,
   "rollout_horizon": 256,
   "ppo_epochs": 4,
   "clip_eps": 0.2,
@@ -25,5 +25,14 @@
   "target_kl": 0.02,
   "device": "cuda",
   "bc_checkpoint": "models/policy.pt",
-  "save_path": "models/policy_ppo.pt"
+  "save_path": "models/policy_ppo.pt",
+  "eval_every_steps": 50000,
+  "eval_root": "data/test",
+  "eval_pattern": "*.RCP",
+  "eval_limit": 50,
+  "eval_max_nodes": 2000,
+  "eval_time_limit": null,
+  "eval_output_dir": "reports/eval_stats",
+  "eval_checkpoint_dir": "models/checkpoints",
+  "eval_progress_every": 0
 }

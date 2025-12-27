@@ -13,12 +13,27 @@ SRC_PATH = PROJECT_ROOT / "src"
 if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
-from rcpsp_bb_rl.bnb.core import BnBSolver  # noqa: E402
+from rcpsp_bb_rl.bnb.eval import run_instance  # noqa: E402
 from rcpsp_bb_rl.bnb.teacher import solve_optimal_schedule  # noqa: E402
-from rcpsp_bb_rl.bnb.policy_guidance import make_policy_order_fn  # noqa: E402
-from rcpsp_bb_rl.data.dataset import list_instance_paths  # noqa: E402
 from rcpsp_bb_rl.data.parsing import load_instance  # noqa: E402
+from rcpsp_bb_rl.data.dataset import list_instance_paths  # noqa: E402
 from rcpsp_bb_rl.models import load_policy_checkpoint  # noqa: E402
+
+
+def run_ortools(
+    path: Path,
+    time_limit_s: Optional[float] = None,
+) -> Tuple[int | None, float | None]:
+    """Solve with OR-Tools CP-SAT and return makespan and wall time (or None on failure)."""
+    instance = load_instance(path)
+    start = time.perf_counter()
+    try:
+        starts = solve_optimal_schedule(instance, time_limit_s=time_limit_s)
+        makespan = max(starts[aid] + instance.activities[aid].duration for aid in starts)
+    except Exception:
+        return None, None
+    elapsed = time.perf_counter() - start
+    return makespan, elapsed
 
 
 
@@ -100,51 +115,6 @@ def parse_args() -> argparse.Namespace:
         help="Print progress every N instances (default: 50). Set <=0 to disable.",
     )
     return parser.parse_args()
-
-
-def run_instance(
-    path: Path,
-    max_nodes: int,
-    policy_model=None,
-    policy_device: Optional[torch.device] = None,
-    policy_max_resources: int = 4,
-    time_limit_s: Optional[float] = None,
-) -> Tuple[int | None, float]:
-    instance = load_instance(path)
-    solver = BnBSolver(instance)
-    order_fn = None
-    if policy_model is not None:
-        order_fn = make_policy_order_fn(
-            instance=instance,
-            model=policy_model,
-            max_resources=policy_max_resources,
-            device=policy_device or "cpu",
-            predecessors=solver.predecessors,
-        )
-
-    base_order_fn = order_fn or (lambda node, _inc: sorted(node.ready))
-
-
-    start = time.perf_counter()
-    result = solver.solve(max_nodes=max_nodes, order_ready_fn=order_fn, time_limit_s=time_limit_s)
-    elapsed = time.perf_counter() - start
-    return result.best_makespan, elapsed
-
-
-def run_ortools(
-    path: Path,
-    time_limit_s: Optional[float] = None,
-) -> Tuple[int | None, float | None]:
-    """Solve with OR-Tools CP-SAT and return makespan and wall time (or None on failure)."""
-    instance = load_instance(path)
-    start = time.perf_counter()
-    try:
-        starts = solve_optimal_schedule(instance, time_limit_s=time_limit_s)
-        makespan = max(starts[aid] + instance.activities[aid].duration for aid in starts)
-    except Exception:
-        return None, None
-    elapsed = time.perf_counter() - start
-    return makespan, elapsed
 
 
 def main() -> None:

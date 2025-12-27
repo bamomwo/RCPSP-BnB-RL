@@ -7,7 +7,7 @@ import sys
 import time
 from collections import deque
 from pathlib import Path
-from typing import Any, Dict, List, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import torch
@@ -23,6 +23,7 @@ if str(SRC_PATH) not in sys.path:
 from rcpsp_bb_rl.data.dataset import list_instance_paths  # noqa: E402
 from rcpsp_bb_rl.models import PolicyMLP, load_policy_checkpoint  # noqa: E402
 from rcpsp_bb_rl.rl import BranchingEnv  # noqa: E402
+from rcpsp_bb_rl.bnb.eval import evaluate_bnb_suite, list_eval_instances  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
@@ -118,6 +119,8 @@ def main() -> None:
     set_seed(int(config["seed"]))
     requested_device = str(config["device"])
     device = torch.device("cpu") if (requested_device == "cuda" and not torch.cuda.is_available()) else torch.device(requested_device)
+    eval_requested_device = str(config.get("eval_policy_device", requested_device))
+    eval_device = torch.device("cpu") if (eval_requested_device == "cuda" and not torch.cuda.is_available()) else torch.device(eval_requested_device)
 
     instance_paths = list_instance_paths(config["root"], patterns=(config["pattern"],))
     if max_instances is not None:
@@ -175,6 +178,23 @@ def main() -> None:
     lb_beta = float(config["lb_beta"])
     inc_gamma = float(config["inc_gamma"])
 
+    eval_every_steps = int(config.get("eval_every_steps", 0))
+    eval_root = str(config.get("eval_root", config["root"]))
+    eval_pattern = str(config.get("eval_pattern", config["pattern"]))
+    eval_limit = config.get("eval_limit", None)
+    eval_max_nodes = int(config.get("eval_max_nodes", episode_budget))
+    eval_time_limit = config.get("eval_time_limit", None)
+    eval_output_dir = Path(config.get("eval_output_dir", "reports/eval_stats"))
+    eval_checkpoint_dir = Path(config.get("eval_checkpoint_dir", "models/checkpoints"))
+    eval_progress_every = int(config.get("eval_progress_every", 0))
+    eval_policy_max_resources = int(config.get("eval_policy_max_resources", config["max_resources"]))
+
+    eval_paths: Optional[List[Path]] = None
+    if eval_every_steps > 0:
+        eval_paths = list_eval_instances(eval_root, eval_pattern, eval_limit)
+        if not eval_paths:
+            raise FileNotFoundError("No eval instances found.")
+
     recent_returns = deque(maxlen=20)
     episodes_completed = 0
     done_reason_counts: Dict[str, int] = {}
@@ -182,6 +202,8 @@ def main() -> None:
     sps_window_steps = 0
     global_step = 0
     episode_return_running = 0.0
+    next_eval_step = eval_every_steps if eval_every_steps > 0 else None
+    bc_eval_model = load_policy_checkpoint(bc_checkpoint, device=eval_device) if bc_checkpoint else None
 
     while global_step < total_env_steps:
         rollout_obs: List[Dict[str, torch.Tensor]] = []
@@ -339,6 +361,66 @@ def main() -> None:
             },
             save_path,
         )
+
+        if next_eval_step is not None and global_step >= next_eval_step:
+            eval_output_dir.mkdir(parents=True, exist_ok=True)
+            eval_checkpoint_dir.mkdir(parents=True, exist_ok=True)
+            eval_ckpt_path = eval_checkpoint_dir / f"policy_ppo_step_{global_step}.pt"
+            torch.save(
+                {
+                    "model_state": model.policy.state_dict(),
+                    "value_state": model.value_head.state_dict(),
+                    "config": {
+                        "global_dim": global_dim,
+                        "candidate_dim": candidate_dim,
+                        "hidden_sizes": tuple(int(x) for x in config["hidden_sizes"]),
+                        "dropout": float(config["dropout"]),
+                        "episode_budget": episode_budget,
+                        "step_eps": step_eps,
+                        "prune_alpha": prune_alpha,
+                        "lb_beta": lb_beta,
+                        "inc_gamma": inc_gamma,
+                    },
+                },
+                eval_ckpt_path,
+            )
+
+            was_training = model.training
+            model.policy.eval()
+            if bc_eval_model is not None:
+                bc_eval_model.eval()
+            eval_results = evaluate_bnb_suite(
+                paths=eval_paths or [],
+                max_nodes=eval_max_nodes,
+                policy_model=model.policy,
+                bc_model=bc_eval_model,
+                policy_device=eval_device,
+                policy_max_resources=eval_policy_max_resources,
+                time_limit_s=eval_time_limit,
+                progress_every=eval_progress_every,
+            )
+            if was_training:
+                model.policy.train()
+            model.policy.to(device)
+
+            eval_payload = {
+                "step": global_step,
+                "timestamp": time.time(),
+                "policy_checkpoint": str(eval_ckpt_path),
+                "config": {
+                    "eval_root": eval_root,
+                    "eval_pattern": eval_pattern,
+                    "eval_limit": eval_limit,
+                    "eval_max_nodes": eval_max_nodes,
+                    "eval_time_limit": eval_time_limit,
+                    "eval_checkpoint_dir": str(eval_checkpoint_dir),
+                },
+                "results": eval_results,
+            }
+            eval_output_path = eval_output_dir / f"eval_step_{global_step}.json"
+            eval_output_path.write_text(json.dumps(eval_payload, indent=2, sort_keys=True))
+            print(f"[eval] Saved checkpoint to {eval_ckpt_path} and stats to {eval_output_path}")
+            next_eval_step += eval_every_steps
 
     print(f"Training complete. Saved policy to {config['save_path']}")
 
