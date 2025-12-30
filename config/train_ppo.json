@@ -32,7 +32,6 @@
   "eval_limit": 50,
   "eval_max_nodes": 2000,
   "eval_time_limit": null,
-  "eval_output_dir": "reports/eval_stats",
   "eval_checkpoint_dir": "models/checkpoints",
   "eval_progress_every": 0
 }

@@ -17,12 +17,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--eval-dir",
         default="reports/eval_stats",
-        help="Directory containing eval_step_*.json files.",
+        help="Directory containing eval stats JSON files.",
     )
     p.add_argument(
-        "--fallback-dir",
-        default="reports/eval",
-        help="Fallback directory to search if eval-dir is empty.",
+        "--compact-file",
+        default="wins_vs_native.json",
+        help="Compact eval file name within eval-dir (JSON list).",
     )
     p.add_argument(
         "--output",
@@ -47,6 +47,27 @@ def _load_eval_files(eval_dir: Path) -> List[Tuple[int, Dict[str, object]]]:
             continue
         data = json.loads(path.read_text())
         entries.append((step, data))
+    entries.sort(key=lambda x: x[0])
+    return entries
+
+
+def _load_compact_file(path: Path) -> List[Tuple[int, Dict[str, object]]]:
+    if not path.exists():
+        return []
+    try:
+        data = json.loads(path.read_text())
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(data, list):
+        return []
+    entries: List[Tuple[int, Dict[str, object]]] = []
+    for row in data:
+        if not isinstance(row, dict):
+            continue
+        step = row.get("step")
+        if step is None:
+            continue
+        entries.append((int(step), row))
     entries.sort(key=lambda x: x[0])
     return entries
 
@@ -154,39 +175,34 @@ def plot_series(steps: List[int], values: List[Optional[float]], label: str) -> 
 def main() -> None:
     args = parse_args()
     eval_dir = Path(args.eval_dir)
-    fallback_dir = Path(args.fallback_dir)
     output_path = Path(args.output)
 
-    entries = _load_eval_files(eval_dir)
-    if not entries and fallback_dir.exists():
-        entries = _load_eval_files(fallback_dir)
+    compact_path = eval_dir / args.compact_file
+    entries = _load_compact_file(compact_path)
+    compact_mode = bool(entries)
     if not entries:
-        raise FileNotFoundError("No eval_step_*.json files found.")
+        raise FileNotFoundError(f"No eval stats found in {compact_path}.")
 
     steps: List[int] = []
     stats: List[Dict[str, object]] = []
     for step, data in entries:
         steps.append(step)
-        stats.append(summarize_eval(data))
+        if compact_mode:
+            stats.append(data)
+        else:
+            stats.append(summarize_eval(data))
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     plt.figure(figsize=(11, 7))
 
-    plt.subplot(2, 1, 1)
-    plot_series(steps, [s["win_rate_native"] for s in stats], "Win rate vs native")
-    plot_series(steps, [s["gain_native_mean"] for s in stats], "Mean gain vs native")
-    plt.ylabel("Rate / Gain")
-    plt.title("PPO Policy vs Native")
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-
-    plt.subplot(2, 1, 2)
-    plot_series(steps, [s["win_rate_bc"] for s in stats], "Win rate vs BC")
-    plot_series(steps, [s["gain_bc_mean"] for s in stats], "Mean gain vs BC")
-    plt.ylabel("Rate / Gain")
+    win_pct = [s.get("wins_vs_native_pct") for s in stats]
+    win_rate = [v / 100.0 if isinstance(v, (int, float)) else None for v in win_pct]
+    plt.subplot(1, 1, 1)
+    plot_series(steps, win_rate, "Win rate vs native")
+    plt.ylabel("Win rate")
     plt.xlabel("Env steps")
-    plt.title("PPO Policy vs BC")
+    plt.title("PPO Policy Trend (Wins vs Native)")
     plt.legend()
     plt.grid(True, alpha=0.3)
 

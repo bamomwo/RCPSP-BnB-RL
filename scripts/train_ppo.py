@@ -37,6 +37,17 @@ def load_json(path: Path) -> Dict[str, Any]:
         return json.load(f)
 
 
+def load_json_list(path: Path) -> List[Dict[str, Any]]:
+    if not path.exists():
+        return []
+    try:
+        with path.open() as f:
+            data = json.load(f)
+    except json.JSONDecodeError:
+        return []
+    return data if isinstance(data, list) else []
+
+
 def set_seed(seed: int) -> None:
     random.seed(seed)
     np.random.seed(seed)
@@ -185,6 +196,7 @@ def main() -> None:
     eval_max_nodes = int(config.get("eval_max_nodes", episode_budget))
     eval_time_limit = config.get("eval_time_limit", None)
     eval_output_dir = Path(config.get("eval_output_dir", "reports/eval_stats"))
+    eval_compact_name = str(config.get("eval_compact_name", "wins_vs_native.json"))
     eval_checkpoint_dir = Path(config.get("eval_checkpoint_dir", "models/checkpoints"))
     eval_progress_every = int(config.get("eval_progress_every", 0))
     eval_policy_max_resources = int(config.get("eval_policy_max_resources", config["max_resources"]))
@@ -417,9 +429,22 @@ def main() -> None:
                 },
                 "results": eval_results,
             }
-            eval_output_path = eval_output_dir / f"eval_step_{global_step}.json"
-            eval_output_path.write_text(json.dumps(eval_payload, indent=2, sort_keys=True))
-            print(f"[eval] Saved checkpoint to {eval_ckpt_path} and stats to {eval_output_path}")
+            eval_compact_path = eval_output_dir / eval_compact_name
+            eval_history = load_json_list(eval_compact_path)
+            wins_vs_native = eval_results.get("summary", {}).get("wins_vs_native", {})
+            eval_history.append(
+                {
+                    "step": global_step,
+                    "timestamp": eval_payload["timestamp"],
+                    "policy_checkpoint": str(eval_ckpt_path),
+                    "wins_vs_native": wins_vs_native,
+                    "wins_vs_native_pct": eval_results.get("summary", {}).get("wins_vs_native_pct"),
+                    "instances": eval_results.get("summary", {}).get("instances"),
+                    "eval_limit": eval_limit,
+                }
+            )
+            eval_compact_path.write_text(json.dumps(eval_history, indent=2, sort_keys=True))
+            print(f"[eval] Saved checkpoint to {eval_ckpt_path} and stats to {eval_compact_path}")
             next_eval_step += eval_every_steps
 
     print(f"Training complete. Saved policy to {config['save_path']}")

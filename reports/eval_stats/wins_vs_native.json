@@ -1,0 +1,114 @@
+[
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_50176.pt",
+    "step": 50176,
+    "timestamp": 1767078020.954124,
+    "wins_vs_native": {
+      "losses": 23,
+      "ties": 14,
+      "total": 50,
+      "wins": 13
+    },
+    "wins_vs_native_pct": 26.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_100096.pt",
+    "step": 100096,
+    "timestamp": 1767078163.66107,
+    "wins_vs_native": {
+      "losses": 23,
+      "ties": 22,
+      "total": 50,
+      "wins": 5
+    },
+    "wins_vs_native_pct": 10.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_150016.pt",
+    "step": 150016,
+    "timestamp": 1767078331.7297761,
+    "wins_vs_native": {
+      "losses": 15,
+      "ties": 26,
+      "total": 50,
+      "wins": 9
+    },
+    "wins_vs_native_pct": 18.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_200192.pt",
+    "step": 200192,
+    "timestamp": 1767078525.5374,
+    "wins_vs_native": {
+      "losses": 15,
+      "ties": 25,
+      "total": 50,
+      "wins": 10
+    },
+    "wins_vs_native_pct": 20.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_250112.pt",
+    "step": 250112,
+    "timestamp": 1767078715.4744692,
+    "wins_vs_native": {
+      "losses": 27,
+      "ties": 15,
+      "total": 50,
+      "wins": 8
+    },
+    "wins_vs_native_pct": 16.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_300032.pt",
+    "step": 300032,
+    "timestamp": 1767078920.942374,
+    "wins_vs_native": {
+      "losses": 16,
+      "ties": 20,
+      "total": 50,
+      "wins": 14
+    },
+    "wins_vs_native_pct": 28.000000000000004
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_350208.pt",
+    "step": 350208,
+    "timestamp": 1767079128.117012,
+    "wins_vs_native": {
+      "losses": 24,
+      "ties": 15,
+      "total": 50,
+      "wins": 11
+    },
+    "wins_vs_native_pct": 22.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_400000.pt",
+    "step": 400000,
+    "timestamp": 1767079319.777861,
+    "wins_vs_native": {
+      "losses": 25,
+      "ties": 15,
+      "total": 50,
+      "wins": 10
+    },
+    "wins_vs_native_pct": 20.0
+  }
+]

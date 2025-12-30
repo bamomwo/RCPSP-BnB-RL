@@ -20,7 +20,9 @@ def run_instance(
     policy_device: Optional[torch.device] = None,
     policy_max_resources: int = 4,
     time_limit_s: Optional[float] = None,
-) -> Tuple[int | None, float]:
+    return_bounds: bool = False,
+    return_debug: bool = False,
+) -> Tuple[int | None, float] | Tuple[int | None, int | None, float] | Tuple[int | None, int | None, float, int | None, int | None]:
     instance = load_instance(path)
     solver = BnBSolver(instance)
     order_fn = None
@@ -36,7 +38,22 @@ def run_instance(
     start = time.perf_counter()
     result = solver.solve(max_nodes=max_nodes, order_ready_fn=order_fn, time_limit_s=time_limit_s)
     elapsed = time.perf_counter() - start
-    return result.best_makespan, elapsed
+    if not return_bounds:
+        return result.best_makespan, elapsed
+
+    pending_lbs = [n.lower_bound for n in result.nodes if n.status == "pending"]
+    if pending_lbs:
+        lb_global_final = min(pending_lbs)
+    elif result.best_makespan is not None:
+        lb_global_final = result.best_makespan
+    else:
+        lb_global_final = None
+
+    lb_root = result.nodes[0].lower_bound if result.nodes else None
+    lower_bound = lb_global_final
+    if return_debug:
+        return result.best_makespan, lower_bound, elapsed, lb_root, lb_global_final
+    return result.best_makespan, lower_bound, elapsed
 
 
 def _safe_mean(values: Iterable[float]) -> Optional[float]:
