@@ -1,4 +1,5 @@
 import argparse
+import json
 import statistics
 import sys
 import time
@@ -101,6 +102,11 @@ def parse_args() -> argparse.Namespace:
         help="Filename for the summary text output.",
     )
     parser.add_argument(
+        "--optimal-json",
+        default=None,
+        help="Optional JSON with optimal makespans keyed by instance filename.",
+    )
+    parser.add_argument(
         "--with-ortools",
         action="store_true",
         help="Also evaluate an OR-Tools CP-SAT solve for comparison.",
@@ -125,6 +131,21 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def load_optimal_makespans(path: Optional[str]) -> Optional[Dict[str, int]]:
+    if path is None:
+        return None
+    data = json.loads(Path(path).read_text())
+    instances = data.get("instances", {})
+    if not isinstance(instances, dict):
+        raise ValueError("Optimal JSON must contain an 'instances' mapping.")
+    mapping = {}
+    for name, payload in instances.items():
+        if not isinstance(payload, dict) or "makespan" not in payload:
+            continue
+        mapping[str(name)] = int(payload["makespan"])
+    return mapping
+
+
 def main() -> None:
     args = parse_args()
     policy_device = torch.device(args.policy_device)
@@ -139,6 +160,9 @@ def main() -> None:
     include_ortools = args.with_ortools or args.only_ortools
     include_bc_display = include_bc or (include_ortools and not include_bc)
 
+    optimal_makespans = load_optimal_makespans(args.optimal_json)
+    include_opt_gap = optimal_makespans is not None
+
     paths: List[Path] = list_instance_paths(args.root, patterns=(args.pattern,))
     if args.limit is not None:
         paths = paths[: args.limit]
@@ -147,6 +171,8 @@ def main() -> None:
     start_time = time.perf_counter()
     for idx, path in enumerate(paths, start=1):
         entry: Dict[str, object] = {"instance": path.name}
+        if optimal_makespans is not None:
+            entry["optimal_makespan"] = optimal_makespans.get(path.name)
 
         if include_native:
             best_naive, lb_naive, time_naive = run_instance(
@@ -227,9 +253,19 @@ def main() -> None:
         entry["ppo_gap"] = compute_gap_pct(
             entry.get("ppo_makespan"), entry.get("ppo_lower_bound")
         )
+        if include_opt_gap:
+            entry["native_gap_opt"] = compute_gap_pct(
+                entry.get("native_makespan"), entry.get("optimal_makespan")
+            )
+            entry["bc_gap_opt"] = compute_gap_pct(
+                entry.get("bc_makespan"), entry.get("optimal_makespan")
+            )
+            entry["ppo_gap_opt"] = compute_gap_pct(
+                entry.get("ppo_makespan"), entry.get("optimal_makespan")
+            )
 
     solver_labels = [("native", "Native"), ("bc", "BC"), ("ppo", "PPO")]
-    header2 = [""] + [label for _, label in solver_labels] * 3
+    header2 = [""] + [label for _, label in solver_labels] * (4 if include_opt_gap else 3)
 
     def fmt_int(val: Optional[int]) -> str:
         return "-" if val is None else str(int(val))
@@ -246,6 +282,9 @@ def main() -> None:
             row.append(fmt_int(entry.get(f"{key}_lower_bound")))
         for key, _ in solver_labels:
             row.append(fmt_gap(entry.get(f"{key}_gap")))
+        if include_opt_gap:
+            for key, _ in solver_labels:
+                row.append(fmt_gap(entry.get(f"{key}_gap_opt")))
         data_rows.append(row)
 
     col_widths = []
@@ -277,6 +316,8 @@ def main() -> None:
         "Lowerbound".center(span_width(4, 6)),
         "Optimality Gap".center(span_width(7, 9)),
     ]
+    if include_opt_gap:
+        header1_parts.append("Gap to Optimal".center(span_width(10, 12)))
     header1 = "  ".join(header1_parts)
     header2_line = fmt_row(header2)
 
@@ -359,6 +400,14 @@ def main() -> None:
             row.append(fmt_pct(pct_within(gaps, 5.0), digits=0))
             return row
 
+        def build_row_no_wins(label: str, gaps: List[float]) -> List[str]:
+            return [
+                label,
+                fmt_pct(gap_stat(gaps, statistics.median)),
+                fmt_pct(gap_stat(gaps, statistics.mean)),
+                fmt_pct(pct_within(gaps, 5.0), digits=0),
+            ]
+
         agg_rows: List[List[str]] = []
         if include_native:
             agg_rows.append(build_row("Native", gap_native))
@@ -389,6 +438,45 @@ def main() -> None:
             lines.append(fmt_agg_row(row))
 
         lines.append("Gaps computed as (upper-lower)/max(1, lower) in percentage.")
+
+        if include_opt_gap:
+            gap_opt_native = collect_gaps("native_gap_opt") if include_native else []
+            gap_opt_bc = collect_gaps("bc_gap_opt") if include_bc_display else []
+            gap_opt_ppo = collect_gaps("ppo_gap_opt") if include_ppo else []
+
+            lines.append("")
+            lines.append("Aggregates (Gap to Optimal):")
+            opt_header = ["Solver", "Median Gap", "Mean Gap", "% <= 5% Gap"]
+            opt_rows: List[List[str]] = []
+            if include_native:
+                opt_rows.append(build_row_no_wins("Native", gap_opt_native))
+            if include_bc_display:
+                opt_rows.append(build_row_no_wins("BC", gap_opt_bc))
+            if include_ppo:
+                opt_rows.append(build_row_no_wins("PPO", gap_opt_ppo))
+
+            opt_col_widths = [len(h) for h in opt_header]
+            for row in opt_rows:
+                for i, val in enumerate(row):
+                    opt_col_widths[i] = max(opt_col_widths[i], len(val))
+
+            def fmt_opt_row(row: List[str]) -> str:
+                parts: List[str] = []
+                for i, val in enumerate(row):
+                    width = opt_col_widths[i]
+                    if i == 0:
+                        parts.append(val.ljust(width))
+                    else:
+                        parts.append(val.rjust(width))
+                return "  ".join(parts)
+
+            lines.append("-" * (sum(opt_col_widths) + 2 * (len(opt_col_widths) - 1)))
+            lines.append(fmt_opt_row(opt_header))
+            lines.append("-" * (sum(opt_col_widths) + 2 * (len(opt_col_widths) - 1)))
+            for row in opt_rows:
+                lines.append(fmt_opt_row(row))
+
+            lines.append("Gap to optimal computed as (makespan-optimal)/optimal in percentage.")
 
         if include_ppo and include_native:
             no_tie_total = wins + losses

@@ -3,7 +3,7 @@
   "pattern": "*.rcp",
   "max_instances": null,
   "max_resources": 4,
-  "total_env_steps": 400000,
+  "total_env_steps": 10000000,
   "rollout_horizon": 256,
   "ppo_epochs": 4,
   "clip_eps": 0.2,
