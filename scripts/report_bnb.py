@@ -478,6 +478,26 @@ def main() -> None:
 
             lines.append("Gap to optimal computed as (makespan-optimal)/optimal in percentage.")
 
+            non_trivial_rows = [
+                r for r in summary_rows if r.get("native_gap_opt") not in (None, 0.0)
+            ]
+            gap_opt_native_nt = collect_gaps("native_gap_opt", non_trivial_rows) if include_native else []
+            gap_opt_bc_nt = collect_gaps("bc_gap_opt", non_trivial_rows) if include_bc_display else []
+            gap_opt_ppo_nt = collect_gaps("ppo_gap_opt", non_trivial_rows) if include_ppo else []
+
+            lines.append("")
+            lines.append("Aggregates (Gap to Optimal, Non-trivial vs Native):")
+            lines.append(f"Instances included: {len(non_trivial_rows)}/{len(summary_rows)}")
+            lines.append("-" * (sum(opt_col_widths) + 2 * (len(opt_col_widths) - 1)))
+            lines.append(fmt_opt_row(opt_header))
+            lines.append("-" * (sum(opt_col_widths) + 2 * (len(opt_col_widths) - 1)))
+            if include_native:
+                lines.append(fmt_opt_row(build_row_no_wins("Native", gap_opt_native_nt)))
+            if include_bc_display:
+                lines.append(fmt_opt_row(build_row_no_wins("BC", gap_opt_bc_nt)))
+            if include_ppo:
+                lines.append(fmt_opt_row(build_row_no_wins("PPO", gap_opt_ppo_nt)))
+
         if include_ppo and include_native:
             no_tie_total = wins + losses
             wins_pct_no_ties = (wins / no_tie_total * 100) if no_tie_total else None

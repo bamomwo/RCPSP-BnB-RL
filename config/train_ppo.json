@@ -1,5 +1,5 @@
 {
-  "root": "data/1kNetRes",
+  "root": "data/train",
   "pattern": "*.rcp",
   "max_instances": null,
   "max_resources": 4,
@@ -26,7 +26,7 @@
   "device": "cuda",
   "bc_checkpoint": "models/policy.pt",
   "save_path": "models/policy_ppo.pt",
-  "eval_every_steps": 50000,
+  "eval_every_steps": 100000,
   "eval_root": "data/test",
   "eval_pattern": "*.RCP",
   "eval_limit": 50,
