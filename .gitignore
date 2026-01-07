@@ -3,8 +3,17 @@
 __pycache__/
 
 /reports/figures/*
+/reports/eval_plots/eval_trends_100k_Netres_vnr.png
+/reports/eval_plots/eval_trends_Netres_vnr_100k_rmod.png
+/reports/eval_stats/wins_vs_native_NetRes_VNR_100k_step_rmod.json
+/reports/eval_stats/wins_vs_native_50k_step.json
+/reports/eval_stats/wins_vs_native_NetRes_VNR_100k_step.json 
+
 /data/1ktrain
 scripts/validate_fix_rcpsp.py
+
+
 models/checkpoints_50k_step
 models/checkpoints_100k_Netres_vnr
-move_1knet_res.py
+models/checkpoints_100k_netres_vnr_rmod 
+

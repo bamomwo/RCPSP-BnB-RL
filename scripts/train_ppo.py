@@ -117,7 +117,7 @@ def main() -> None:
         "total_env_steps","rollout_horizon","ppo_epochs","clip_eps","gamma","gae_lambda","ent_coef",
         "vf_coef","max_grad_norm","minibatches","episode_budget",
         # new reward knobs
-        "step_eps","prune_alpha","lb_beta","inc_gamma",
+        "step_eps","prune_alpha","lb_beta","inc_gamma","inc_time_k",
     ]
     missing = [k for k in required if k not in config or config[k] is None]
     if missing:
@@ -188,6 +188,7 @@ def main() -> None:
     prune_alpha = float(config["prune_alpha"])
     lb_beta = float(config["lb_beta"])
     inc_gamma = float(config["inc_gamma"])
+    inc_time_k = float(config["inc_time_k"])
 
     eval_every_steps = int(config.get("eval_every_steps", 0))
     eval_root = str(config.get("eval_root", config["root"]))
@@ -253,8 +254,11 @@ def main() -> None:
             inc_impr = 0.0
             if best_before is not None and best_after is not None and best_after < best_before:
                 inc_impr = float(best_before - best_after)
+            step_idx = float(step_out.info.get("steps", env.steps))
+            t_norm = step_idx / float(episode_budget) if episode_budget > 0 else 0.0
+            inc_weight = 1.0 / (1.0 + inc_time_k * t_norm)
 
-            r = (-step_eps) + (prune_alpha * pruned) + (lb_beta * d_lb) + (inc_gamma * inc_impr)
+            r = (-step_eps) + (prune_alpha * pruned) + (lb_beta * d_lb) + (inc_gamma * inc_weight * inc_impr)
 
             rollout_obs.append(obs)
             rollout_actions.append(action)

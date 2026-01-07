@@ -175,18 +175,23 @@ def main() -> None:
             entry["optimal_makespan"] = optimal_makespans.get(path.name)
 
         if include_native:
-            best_naive, lb_naive, time_naive = run_instance(
+            best_naive, lb_naive, time_naive, stats_naive = run_instance(
                 path,
                 args.max_nodes,
                 time_limit_s=time_limit_all,
                 return_bounds=True,
+                return_stats=True,
             )
             entry["native_makespan"] = best_naive
             entry["native_lower_bound"] = lb_naive
             entry["native_time"] = time_naive
+            if stats_naive is not None:
+                entry["native_nodes_to_inc"] = stats_naive.get("nodes_to_first_incumbent")
+                entry["native_pruned_after_inc"] = stats_naive.get("nodes_pruned_after_incumbent")
+                entry["native_expanded_after_inc"] = stats_naive.get("nodes_expanded_after_incumbent")
 
         if include_ppo:
-            best_policy, lb_policy, time_policy = run_instance(
+            best_policy, lb_policy, time_policy, stats_ppo = run_instance(
                 path,
                 args.max_nodes,
                 policy_model=ppo_model,
@@ -194,13 +199,18 @@ def main() -> None:
                 policy_max_resources=args.policy_max_resources,
                 time_limit_s=time_limit_all,
                 return_bounds=True,
+                return_stats=True,
             )
             entry["ppo_makespan"] = best_policy
             entry["ppo_lower_bound"] = lb_policy
             entry["ppo_time"] = time_policy
+            if stats_ppo is not None:
+                entry["ppo_nodes_to_inc"] = stats_ppo.get("nodes_to_first_incumbent")
+                entry["ppo_pruned_after_inc"] = stats_ppo.get("nodes_pruned_after_incumbent")
+                entry["ppo_expanded_after_inc"] = stats_ppo.get("nodes_expanded_after_incumbent")
 
         if include_bc:
-            best_bc, lb_bc, time_bc = run_instance(
+            best_bc, lb_bc, time_bc, stats_bc = run_instance(
                 path,
                 args.max_nodes,
                 policy_model=bc_model,
@@ -208,10 +218,15 @@ def main() -> None:
                 policy_max_resources=args.policy_max_resources,
                 time_limit_s=time_limit_all,
                 return_bounds=True,
+                return_stats=True,
             )
             entry["bc_makespan"] = best_bc
             entry["bc_lower_bound"] = lb_bc
             entry["bc_time"] = time_bc
+            if stats_bc is not None:
+                entry["bc_nodes_to_inc"] = stats_bc.get("nodes_to_first_incumbent")
+                entry["bc_pruned_after_inc"] = stats_bc.get("nodes_pruned_after_incumbent")
+                entry["bc_expanded_after_inc"] = stats_bc.get("nodes_expanded_after_incumbent")
 
         if include_ortools:
             best_ortools, lb_ortools, time_ortools = run_ortools(
@@ -243,6 +258,19 @@ def main() -> None:
         denom = max(1, int(lower))
         return (float(upper) - float(lower)) / float(denom) * 100.0
 
+    def compute_bound_gap_pct(incumbent: Optional[int], best_bound: Optional[int]) -> Optional[float]:
+        if incumbent is None or best_bound is None or incumbent <= 0:
+            return None
+        return (float(incumbent) - float(best_bound)) / float(incumbent) * 100.0
+
+    def compute_prune_ratio(pruned: Optional[int], expanded: Optional[int]) -> Optional[float]:
+        if pruned is None or expanded is None:
+            return None
+        denom = pruned + expanded
+        if denom <= 0:
+            return None
+        return float(pruned) / float(denom) * 100.0
+
     for entry in summary_rows:
         entry["native_gap"] = compute_gap_pct(
             entry.get("native_makespan"), entry.get("native_lower_bound")
@@ -251,6 +279,24 @@ def main() -> None:
             entry.get("bc_makespan"), entry.get("bc_lower_bound")
         )
         entry["ppo_gap"] = compute_gap_pct(
+            entry.get("ppo_makespan"), entry.get("ppo_lower_bound")
+        )
+        entry["native_prune_ratio"] = compute_prune_ratio(
+            entry.get("native_pruned_after_inc"), entry.get("native_expanded_after_inc")
+        )
+        entry["bc_prune_ratio"] = compute_prune_ratio(
+            entry.get("bc_pruned_after_inc"), entry.get("bc_expanded_after_inc")
+        )
+        entry["ppo_prune_ratio"] = compute_prune_ratio(
+            entry.get("ppo_pruned_after_inc"), entry.get("ppo_expanded_after_inc")
+        )
+        entry["native_bound_gap"] = compute_bound_gap_pct(
+            entry.get("native_makespan"), entry.get("native_lower_bound")
+        )
+        entry["bc_bound_gap"] = compute_bound_gap_pct(
+            entry.get("bc_makespan"), entry.get("bc_lower_bound")
+        )
+        entry["ppo_bound_gap"] = compute_bound_gap_pct(
             entry.get("ppo_makespan"), entry.get("ppo_lower_bound")
         )
         if include_opt_gap:
@@ -265,7 +311,21 @@ def main() -> None:
             )
 
     solver_labels = [("native", "Native"), ("bc", "BC"), ("ppo", "PPO")]
-    header2 = [""] + [label for _, label in solver_labels] * (4 if include_opt_gap else 3)
+    groups = [
+        ("Makespan/Upperbound", "makespan"),
+        ("Lowerbound", "lower_bound"),
+        ("Optimality Gap", "gap"),
+    ]
+    if include_opt_gap:
+        groups.append(("Gap to Optimal", "gap_opt"))
+    groups.extend(
+        [
+            ("Nodes to Incumbent", "nodes_to_inc"),
+            ("Prune Ratio After Inc", "prune_ratio"),
+            ("Bound Gap Closure", "bound_gap"),
+        ]
+    )
+    header2 = [""] + [label for _, label in solver_labels] * len(groups)
 
     def fmt_int(val: Optional[int]) -> str:
         return "-" if val is None else str(int(val))
@@ -273,18 +333,25 @@ def main() -> None:
     def fmt_gap(val: Optional[float]) -> str:
         return "-" if val is None else f"{val:.1f}%"
 
+    def fmt_ratio(val: Optional[float]) -> str:
+        return "-" if val is None else f"{val:.1f}%"
+
+    def fmt_float(val: Optional[float]) -> str:
+        return "-" if val is None else f"{val:.1f}"
+
     data_rows: List[List[str]] = []
     for entry in summary_rows:
         row: List[str] = [str(entry["instance"])]
-        for key, _ in solver_labels:
-            row.append(fmt_int(entry.get(f"{key}_makespan")))
-        for key, _ in solver_labels:
-            row.append(fmt_int(entry.get(f"{key}_lower_bound")))
-        for key, _ in solver_labels:
-            row.append(fmt_gap(entry.get(f"{key}_gap")))
-        if include_opt_gap:
+        for group_name, group_key in groups:
             for key, _ in solver_labels:
-                row.append(fmt_gap(entry.get(f"{key}_gap_opt")))
+                if group_key in ("makespan", "lower_bound", "nodes_to_inc"):
+                    row.append(fmt_int(entry.get(f"{key}_{group_key}")))
+                elif group_key in ("gap", "gap_opt", "bound_gap"):
+                    row.append(fmt_gap(entry.get(f"{key}_{group_key}")))
+                elif group_key == "prune_ratio":
+                    row.append(fmt_ratio(entry.get(f"{key}_{group_key}")))
+                else:
+                    row.append("-")
         data_rows.append(row)
 
     col_widths = []
@@ -297,6 +364,13 @@ def main() -> None:
         for i, val in enumerate(row):
             col_widths[i] = max(col_widths[i], len(val))
 
+    group_size = len(solver_labels)
+    separators: List[str] = []
+    for i in range(len(col_widths) - 1):
+        solver_col_idx = i - 1
+        end_of_group = solver_col_idx >= 0 and (solver_col_idx % group_size) == (group_size - 1)
+        separators.append("    " if end_of_group else "  ")
+
     def fmt_row(cols: List[str]) -> str:
         parts: List[str] = []
         for i, val in enumerate(cols):
@@ -305,24 +379,25 @@ def main() -> None:
                 parts.append(val.ljust(width))
             else:
                 parts.append(val.rjust(width))
-        return "  ".join(parts)
+        out = parts[0] if parts else ""
+        for i in range(1, len(parts)):
+            out += separators[i - 1] + parts[i]
+        return out
 
     def span_width(start: int, end: int) -> int:
-        return sum(col_widths[start : end + 1]) + 2 * (end - start)
+        sep_width = sum(len(separators[i]) for i in range(start, end))
+        return sum(col_widths[start : end + 1]) + sep_width
 
-    header1_parts = [
-        "Instance".ljust(col_widths[0]),
-        "Makespan/Upperbound".center(span_width(1, 3)),
-        "Lowerbound".center(span_width(4, 6)),
-        "Optimality Gap".center(span_width(7, 9)),
-    ]
-    if include_opt_gap:
-        header1_parts.append("Gap to Optimal".center(span_width(10, 12)))
-    header1 = "  ".join(header1_parts)
+    header1 = "Instance".ljust(col_widths[0])
+    start_idx = 1
+    for group_label, _group_key in groups:
+        end_idx = start_idx + len(solver_labels) - 1
+        header1 += separators[start_idx - 1] + group_label.center(span_width(start_idx, end_idx))
+        start_idx = end_idx + 1
     header2_line = fmt_row(header2)
 
     lines.append("Benchmark-style summary (Native vs BC vs PPO)")
-    total_width = sum(col_widths) + 2 * (len(col_widths) - 1)
+    total_width = sum(col_widths) + sum(len(sep) for sep in separators)
     lines.append("-" * total_width)
     lines.append(header1)
     lines.append(header2_line)
@@ -332,6 +407,12 @@ def main() -> None:
 
     # Aggregate comparisons.
     def collect_gaps(
+        key: str,
+        rows: List[Dict[str, object]] = summary_rows,
+    ) -> List[float]:
+        return [float(r[key]) for r in rows if r.get(key) is not None]
+
+    def collect_vals(
         key: str,
         rows: List[Dict[str, object]] = summary_rows,
     ) -> List[float]:
@@ -497,6 +578,71 @@ def main() -> None:
                 lines.append(fmt_opt_row(build_row_no_wins("BC", gap_opt_bc_nt)))
             if include_ppo:
                 lines.append(fmt_opt_row(build_row_no_wins("PPO", gap_opt_ppo_nt)))
+
+        nodes_native = collect_vals("native_nodes_to_inc") if include_native else []
+        nodes_bc = collect_vals("bc_nodes_to_inc") if include_bc_display else []
+        nodes_ppo = collect_vals("ppo_nodes_to_inc") if include_ppo else []
+        prune_native = collect_vals("native_prune_ratio") if include_native else []
+        prune_bc = collect_vals("bc_prune_ratio") if include_bc_display else []
+        prune_ppo = collect_vals("ppo_prune_ratio") if include_ppo else []
+        bound_native = collect_vals("native_bound_gap") if include_native else []
+        bound_bc = collect_vals("bc_bound_gap") if include_bc_display else []
+        bound_ppo = collect_vals("ppo_bound_gap") if include_ppo else []
+
+        lines.append("")
+        lines.append("Aggregates (Search Metrics):")
+        search_header = [
+            "Solver",
+            "Median Nodes to Inc",
+            "Mean Nodes to Inc",
+            "Mean Prune Ratio",
+            "Median Bound Gap",
+            "Mean Bound Gap",
+        ]
+
+        def build_search_row(label: str, nodes: List[float], prunes: List[float], bounds: List[float]) -> List[str]:
+            return [
+                label,
+                fmt_int(gap_stat(nodes, statistics.median)),
+                fmt_float(gap_stat(nodes, statistics.mean)),
+                fmt_pct(gap_stat(prunes, statistics.mean)),
+                fmt_pct(gap_stat(bounds, statistics.median)),
+                fmt_pct(gap_stat(bounds, statistics.mean)),
+            ]
+
+        search_rows: List[List[str]] = []
+        if include_native:
+            search_rows.append(build_search_row("Native", nodes_native, prune_native, bound_native))
+        if include_bc_display:
+            search_rows.append(build_search_row("BC", nodes_bc, prune_bc, bound_bc))
+        if include_ppo:
+            search_rows.append(build_search_row("PPO", nodes_ppo, prune_ppo, bound_ppo))
+
+        search_col_widths = [len(h) for h in search_header]
+        for row in search_rows:
+            for i, val in enumerate(row):
+                search_col_widths[i] = max(search_col_widths[i], len(val))
+
+        def fmt_search_row(row: List[str]) -> str:
+            parts: List[str] = []
+            for i, val in enumerate(row):
+                width = search_col_widths[i]
+                if i == 0:
+                    parts.append(val.ljust(width))
+                else:
+                    parts.append(val.rjust(width))
+            return "  ".join(parts)
+
+        lines.append("-" * (sum(search_col_widths) + 2 * (len(search_col_widths) - 1)))
+        lines.append(fmt_search_row(search_header))
+        lines.append("-" * (sum(search_col_widths) + 2 * (len(search_col_widths) - 1)))
+        for row in search_rows:
+            lines.append(fmt_search_row(row))
+
+        lines.append(
+            "Search metrics: nodes to first incumbent (expanded), prune ratio after incumbent, "
+            "bound gap closure as (incumbent-best_bound)/incumbent."
+        )
 
         if include_ppo and include_native:
             no_tie_total = wins + losses

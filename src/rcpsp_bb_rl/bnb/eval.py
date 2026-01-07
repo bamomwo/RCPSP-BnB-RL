@@ -22,6 +22,7 @@ def run_instance(
     time_limit_s: Optional[float] = None,
     return_bounds: bool = False,
     return_debug: bool = False,
+    return_stats: bool = False,
 ) -> Tuple[int | None, float] | Tuple[int | None, int | None, float] | Tuple[int | None, int | None, float, int | None, int | None]:
     instance = load_instance(path)
     solver = BnBSolver(instance)
@@ -51,8 +52,22 @@ def run_instance(
 
     lb_root = result.nodes[0].lower_bound if result.nodes else None
     lower_bound = lb_global_final
+    stats = None
+    if return_stats:
+        stats = {
+            "nodes_expanded": result.nodes_expanded,
+            "nodes_pruned": result.nodes_pruned,
+            "nodes_expanded_after_incumbent": result.nodes_expanded_after_incumbent,
+            "nodes_pruned_after_incumbent": result.nodes_pruned_after_incumbent,
+            "nodes_to_first_incumbent": result.first_incumbent_expanded,
+        }
+
     if return_debug:
+        if return_stats:
+            return result.best_makespan, lower_bound, elapsed, lb_root, lb_global_final, stats
         return result.best_makespan, lower_bound, elapsed, lb_root, lb_global_final
+    if return_stats:
+        return result.best_makespan, lower_bound, elapsed, stats
     return result.best_makespan, lower_bound, elapsed
 
 

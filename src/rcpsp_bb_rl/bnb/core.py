@@ -34,6 +34,11 @@ class SolverResult:
     best_schedule: Optional[Dict[int, ScheduleEntry]]
     nodes: List[BBNode]
     edges: List[Tuple[int, int]]
+    nodes_expanded: int
+    nodes_pruned: int
+    nodes_expanded_after_incumbent: int
+    nodes_pruned_after_incumbent: int
+    first_incumbent_expanded: Optional[int]
 
 
 def build_predecessors(instance: RCPSPInstance) -> Dict[int, Set[int]]:
@@ -215,6 +220,11 @@ class BnBSolver:
         best_makespan: Optional[int] = None
         best_schedule: Optional[Dict[int, ScheduleEntry]] = None
         nodes_expanded = 0
+        nodes_pruned = 0
+        nodes_expanded_after_incumbent = 0
+        nodes_pruned_after_incumbent = 0
+        first_incumbent_expanded: Optional[int] = None
+        seen_incumbent = False
         order_fn = order_ready_fn or (lambda node, _inc: sorted(node.ready))
         start_time_monotonic = time.perf_counter()
 
@@ -229,11 +239,17 @@ class BnBSolver:
 
             if node.lower_bound is None:
                 node.status = "pruned"
+                nodes_pruned += 1
+                if seen_incumbent:
+                    nodes_pruned_after_incumbent += 1
                 continue
 
             incumbent = best_makespan
             if incumbent is not None and node.lower_bound >= incumbent:
                 node.status = "pruned"
+                nodes_pruned += 1
+                if seen_incumbent:
+                    nodes_pruned_after_incumbent += 1
                 continue
 
             if not node.unscheduled:
@@ -242,10 +258,22 @@ class BnBSolver:
                 if best_makespan is None or makespan < best_makespan:
                     best_makespan = makespan
                     best_schedule = node.scheduled
+                    if not seen_incumbent:
+                        first_incumbent_expanded = nodes_expanded
+                        seen_incumbent = True
+                continue
+
+            if not node.ready:
+                node.status = "pruned"
+                nodes_pruned += 1
+                if seen_incumbent:
+                    nodes_pruned_after_incumbent += 1
                 continue
 
             node.status = "expanded"
             nodes_expanded += 1
+            if seen_incumbent:
+                nodes_expanded_after_incumbent += 1
 
             ready_order = list(order_fn(node, best_makespan))
 
@@ -301,4 +329,9 @@ class BnBSolver:
             best_schedule=best_schedule,
             nodes=self.nodes,
             edges=self.edges,
+            nodes_expanded=nodes_expanded,
+            nodes_pruned=nodes_pruned,
+            nodes_expanded_after_incumbent=nodes_expanded_after_incumbent,
+            nodes_pruned_after_incumbent=nodes_pruned_after_incumbent,
+            first_incumbent_expanded=first_incumbent_expanded,
         )
