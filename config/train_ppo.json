@@ -32,7 +32,7 @@
   "eval_pattern": "*.RCP",
   "eval_limit": 50,
   "eval_max_nodes": 2000,
-  "eval_time_limit": null,
+  "eval_time_limit": 20,
   "eval_checkpoint_dir": "models/checkpoints",
   "eval_progress_every": 0
 }

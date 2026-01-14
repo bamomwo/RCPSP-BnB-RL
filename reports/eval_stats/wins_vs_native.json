@@ -2,40 +2,40 @@
   {
     "eval_limit": 50,
     "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_10240.pt",
-    "step": 10240,
-    "timestamp": 1767477762.282645,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_100096.pt",
+    "step": 100096,
+    "timestamp": 1767883870.23388,
     "wins_vs_native": {
-      "losses": 22,
-      "ties": 20,
+      "losses": 21,
+      "ties": 18,
       "total": 50,
-      "wins": 8
+      "wins": 11
     },
-    "wins_vs_native_pct": 16.0
+    "wins_vs_native_pct": 22.0
   },
   {
     "eval_limit": 50,
     "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_20224.pt",
-    "step": 20224,
-    "timestamp": 1767477849.7507882,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_200192.pt",
+    "step": 200192,
+    "timestamp": 1767884127.173221,
     "wins_vs_native": {
-      "losses": 20,
-      "ties": 16,
+      "losses": 28,
+      "ties": 15,
       "total": 50,
-      "wins": 14
+      "wins": 7
     },
-    "wins_vs_native_pct": 28.000000000000004
+    "wins_vs_native_pct": 14.000000000000002
   },
   {
     "eval_limit": 50,
     "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_30208.pt",
-    "step": 30208,
-    "timestamp": 1767477949.237817,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_300032.pt",
+    "step": 300032,
+    "timestamp": 1767884517.455347,
     "wins_vs_native": {
-      "losses": 14,
-      "ties": 26,
+      "losses": 23,
+      "ties": 17,
       "total": 50,
       "wins": 10
     },
@@ -44,1132 +44,26 @@
   {
     "eval_limit": 50,
     "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_40192.pt",
-    "step": 40192,
-    "timestamp": 1767478036.810497,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_400128.pt",
+    "step": 400128,
+    "timestamp": 1767884828.5315359,
+    "wins_vs_native": {
+      "losses": 24,
+      "ties": 17,
+      "total": 50,
+      "wins": 9
+    },
+    "wins_vs_native_pct": 18.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_500224.pt",
+    "step": 500224,
+    "timestamp": 1767888540.592038,
     "wins_vs_native": {
       "losses": 16,
-      "ties": 21,
-      "total": 50,
-      "wins": 13
-    },
-    "wins_vs_native_pct": 26.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_50176.pt",
-    "step": 50176,
-    "timestamp": 1767478123.076117,
-    "wins_vs_native": {
-      "losses": 22,
-      "ties": 14,
-      "total": 50,
-      "wins": 14
-    },
-    "wins_vs_native_pct": 28.000000000000004
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_60160.pt",
-    "step": 60160,
-    "timestamp": 1767478210.577842,
-    "wins_vs_native": {
-      "losses": 24,
-      "ties": 18,
-      "total": 50,
-      "wins": 8
-    },
-    "wins_vs_native_pct": 16.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_70144.pt",
-    "step": 70144,
-    "timestamp": 1767478297.006387,
-    "wins_vs_native": {
-      "losses": 19,
-      "ties": 18,
-      "total": 50,
-      "wins": 13
-    },
-    "wins_vs_native_pct": 26.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_80128.pt",
-    "step": 80128,
-    "timestamp": 1767478396.2975209,
-    "wins_vs_native": {
-      "losses": 24,
-      "ties": 20,
-      "total": 50,
-      "wins": 6
-    },
-    "wins_vs_native_pct": 12.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_90112.pt",
-    "step": 90112,
-    "timestamp": 1767478503.683703,
-    "wins_vs_native": {
-      "losses": 23,
-      "ties": 18,
-      "total": 50,
-      "wins": 9
-    },
-    "wins_vs_native_pct": 18.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_100096.pt",
-    "step": 100096,
-    "timestamp": 1767478597.110911,
-    "wins_vs_native": {
-      "losses": 22,
-      "ties": 18,
-      "total": 50,
-      "wins": 10
-    },
-    "wins_vs_native_pct": 20.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_110080.pt",
-    "step": 110080,
-    "timestamp": 1767478687.749054,
-    "wins_vs_native": {
-      "losses": 27,
-      "ties": 15,
-      "total": 50,
-      "wins": 8
-    },
-    "wins_vs_native_pct": 16.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_120064.pt",
-    "step": 120064,
-    "timestamp": 1767478788.5435882,
-    "wins_vs_native": {
-      "losses": 25,
-      "ties": 16,
-      "total": 50,
-      "wins": 9
-    },
-    "wins_vs_native_pct": 18.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_130048.pt",
-    "step": 130048,
-    "timestamp": 1767478883.2967098,
-    "wins_vs_native": {
-      "losses": 20,
-      "ties": 18,
-      "total": 50,
-      "wins": 12
-    },
-    "wins_vs_native_pct": 24.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_140032.pt",
-    "step": 140032,
-    "timestamp": 1767478985.6930401,
-    "wins_vs_native": {
-      "losses": 13,
-      "ties": 28,
-      "total": 50,
-      "wins": 9
-    },
-    "wins_vs_native_pct": 18.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_150016.pt",
-    "step": 150016,
-    "timestamp": 1767479133.1361659,
-    "wins_vs_native": {
-      "losses": 21,
-      "ties": 19,
-      "total": 50,
-      "wins": 10
-    },
-    "wins_vs_native_pct": 20.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_160000.pt",
-    "step": 160000,
-    "timestamp": 1767479228.1742022,
-    "wins_vs_native": {
-      "losses": 22,
-      "ties": 19,
-      "total": 50,
-      "wins": 9
-    },
-    "wins_vs_native_pct": 18.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_170240.pt",
-    "step": 170240,
-    "timestamp": 1767479318.7929442,
-    "wins_vs_native": {
-      "losses": 20,
-      "ties": 18,
-      "total": 50,
-      "wins": 12
-    },
-    "wins_vs_native_pct": 24.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_180224.pt",
-    "step": 180224,
-    "timestamp": 1767479412.323284,
-    "wins_vs_native": {
-      "losses": 22,
-      "ties": 17,
-      "total": 50,
-      "wins": 11
-    },
-    "wins_vs_native_pct": 22.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_190208.pt",
-    "step": 190208,
-    "timestamp": 1767479506.237133,
-    "wins_vs_native": {
-      "losses": 22,
-      "ties": 18,
-      "total": 50,
-      "wins": 10
-    },
-    "wins_vs_native_pct": 20.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_200192.pt",
-    "step": 200192,
-    "timestamp": 1767479599.249127,
-    "wins_vs_native": {
-      "losses": 20,
-      "ties": 19,
-      "total": 50,
-      "wins": 11
-    },
-    "wins_vs_native_pct": 22.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_210176.pt",
-    "step": 210176,
-    "timestamp": 1767479694.4180439,
-    "wins_vs_native": {
-      "losses": 23,
-      "ties": 17,
-      "total": 50,
-      "wins": 10
-    },
-    "wins_vs_native_pct": 20.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_220160.pt",
-    "step": 220160,
-    "timestamp": 1767479793.142632,
-    "wins_vs_native": {
-      "losses": 21,
-      "ties": 15,
-      "total": 50,
-      "wins": 14
-    },
-    "wins_vs_native_pct": 28.000000000000004
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_230144.pt",
-    "step": 230144,
-    "timestamp": 1767479926.904494,
-    "wins_vs_native": {
-      "losses": 21,
-      "ties": 16,
-      "total": 50,
-      "wins": 13
-    },
-    "wins_vs_native_pct": 26.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_240128.pt",
-    "step": 240128,
-    "timestamp": 1767480022.956985,
-    "wins_vs_native": {
-      "losses": 21,
-      "ties": 18,
-      "total": 50,
-      "wins": 11
-    },
-    "wins_vs_native_pct": 22.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_250112.pt",
-    "step": 250112,
-    "timestamp": 1767480120.3948119,
-    "wins_vs_native": {
-      "losses": 25,
-      "ties": 15,
-      "total": 50,
-      "wins": 10
-    },
-    "wins_vs_native_pct": 20.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_260096.pt",
-    "step": 260096,
-    "timestamp": 1767480211.251772,
-    "wins_vs_native": {
-      "losses": 22,
-      "ties": 17,
-      "total": 50,
-      "wins": 11
-    },
-    "wins_vs_native_pct": 22.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_270080.pt",
-    "step": 270080,
-    "timestamp": 1767480308.738849,
-    "wins_vs_native": {
-      "losses": 22,
-      "ties": 19,
-      "total": 50,
-      "wins": 9
-    },
-    "wins_vs_native_pct": 18.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_280064.pt",
-    "step": 280064,
-    "timestamp": 1767480411.3002791,
-    "wins_vs_native": {
-      "losses": 22,
-      "ties": 17,
-      "total": 50,
-      "wins": 11
-    },
-    "wins_vs_native_pct": 22.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_290048.pt",
-    "step": 290048,
-    "timestamp": 1767480513.062436,
-    "wins_vs_native": {
-      "losses": 22,
-      "ties": 16,
-      "total": 50,
-      "wins": 12
-    },
-    "wins_vs_native_pct": 24.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_300032.pt",
-    "step": 300032,
-    "timestamp": 1767480614.922252,
-    "wins_vs_native": {
-      "losses": 24,
-      "ties": 19,
-      "total": 50,
-      "wins": 7
-    },
-    "wins_vs_native_pct": 14.000000000000002
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_310016.pt",
-    "step": 310016,
-    "timestamp": 1767480714.886322,
-    "wins_vs_native": {
-      "losses": 9,
-      "ties": 36,
-      "total": 50,
-      "wins": 5
-    },
-    "wins_vs_native_pct": 10.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_320000.pt",
-    "step": 320000,
-    "timestamp": 1767480834.293818,
-    "wins_vs_native": {
-      "losses": 25,
-      "ties": 16,
-      "total": 50,
-      "wins": 9
-    },
-    "wins_vs_native_pct": 18.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_330240.pt",
-    "step": 330240,
-    "timestamp": 1767481041.191095,
-    "wins_vs_native": {
-      "losses": 28,
-      "ties": 16,
-      "total": 50,
-      "wins": 6
-    },
-    "wins_vs_native_pct": 12.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_340224.pt",
-    "step": 340224,
-    "timestamp": 1767481137.275414,
-    "wins_vs_native": {
-      "losses": 25,
-      "ties": 18,
-      "total": 50,
-      "wins": 7
-    },
-    "wins_vs_native_pct": 14.000000000000002
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_350208.pt",
-    "step": 350208,
-    "timestamp": 1767481229.462875,
-    "wins_vs_native": {
-      "losses": 24,
-      "ties": 14,
-      "total": 50,
-      "wins": 12
-    },
-    "wins_vs_native_pct": 24.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_360192.pt",
-    "step": 360192,
-    "timestamp": 1767481324.1073668,
-    "wins_vs_native": {
-      "losses": 26,
-      "ties": 18,
-      "total": 50,
-      "wins": 6
-    },
-    "wins_vs_native_pct": 12.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_370176.pt",
-    "step": 370176,
-    "timestamp": 1767481415.582198,
-    "wins_vs_native": {
-      "losses": 28,
-      "ties": 16,
-      "total": 50,
-      "wins": 6
-    },
-    "wins_vs_native_pct": 12.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_380160.pt",
-    "step": 380160,
-    "timestamp": 1767481505.599809,
-    "wins_vs_native": {
-      "losses": 25,
-      "ties": 18,
-      "total": 50,
-      "wins": 7
-    },
-    "wins_vs_native_pct": 14.000000000000002
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_390144.pt",
-    "step": 390144,
-    "timestamp": 1767484554.093963,
-    "wins_vs_native": {
-      "losses": 26,
-      "ties": 18,
-      "total": 50,
-      "wins": 6
-    },
-    "wins_vs_native_pct": 12.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_400128.pt",
-    "step": 400128,
-    "timestamp": 1767484645.445296,
-    "wins_vs_native": {
-      "losses": 22,
-      "ties": 18,
-      "total": 50,
-      "wins": 10
-    },
-    "wins_vs_native_pct": 20.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_410112.pt",
-    "step": 410112,
-    "timestamp": 1767485390.308023,
-    "wins_vs_native": {
-      "losses": 29,
-      "ties": 16,
-      "total": 50,
-      "wins": 5
-    },
-    "wins_vs_native_pct": 10.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_420096.pt",
-    "step": 420096,
-    "timestamp": 1767490155.4472718,
-    "wins_vs_native": {
-      "losses": 24,
-      "ties": 18,
-      "total": 50,
-      "wins": 8
-    },
-    "wins_vs_native_pct": 16.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_430080.pt",
-    "step": 430080,
-    "timestamp": 1767490249.814399,
-    "wins_vs_native": {
-      "losses": 26,
-      "ties": 18,
-      "total": 50,
-      "wins": 6
-    },
-    "wins_vs_native_pct": 12.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_440064.pt",
-    "step": 440064,
-    "timestamp": 1767491053.748503,
-    "wins_vs_native": {
-      "losses": 28,
-      "ties": 15,
-      "total": 50,
-      "wins": 7
-    },
-    "wins_vs_native_pct": 14.000000000000002
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_450048.pt",
-    "step": 450048,
-    "timestamp": 1767491144.859831,
-    "wins_vs_native": {
-      "losses": 25,
-      "ties": 16,
-      "total": 50,
-      "wins": 9
-    },
-    "wins_vs_native_pct": 18.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_460032.pt",
-    "step": 460032,
-    "timestamp": 1767491234.01878,
-    "wins_vs_native": {
-      "losses": 19,
-      "ties": 20,
-      "total": 50,
-      "wins": 11
-    },
-    "wins_vs_native_pct": 22.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_470016.pt",
-    "step": 470016,
-    "timestamp": 1767491390.8491678,
-    "wins_vs_native": {
-      "losses": 23,
-      "ties": 18,
-      "total": 50,
-      "wins": 9
-    },
-    "wins_vs_native_pct": 18.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_480000.pt",
-    "step": 480000,
-    "timestamp": 1767491482.398976,
-    "wins_vs_native": {
-      "losses": 20,
-      "ties": 21,
-      "total": 50,
-      "wins": 9
-    },
-    "wins_vs_native_pct": 18.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_490240.pt",
-    "step": 490240,
-    "timestamp": 1767493302.326445,
-    "wins_vs_native": {
-      "losses": 22,
-      "ties": 18,
-      "total": 50,
-      "wins": 10
-    },
-    "wins_vs_native_pct": 20.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_500224.pt",
-    "step": 500224,
-    "timestamp": 1767493389.397722,
-    "wins_vs_native": {
-      "losses": 20,
-      "ties": 18,
-      "total": 50,
-      "wins": 12
-    },
-    "wins_vs_native_pct": 24.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_510208.pt",
-    "step": 510208,
-    "timestamp": 1767493480.454137,
-    "wins_vs_native": {
-      "losses": 20,
-      "ties": 17,
-      "total": 50,
-      "wins": 13
-    },
-    "wins_vs_native_pct": 26.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_520192.pt",
-    "step": 520192,
-    "timestamp": 1767493568.827609,
-    "wins_vs_native": {
-      "losses": 13,
-      "ties": 28,
-      "total": 50,
-      "wins": 9
-    },
-    "wins_vs_native_pct": 18.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_530176.pt",
-    "step": 530176,
-    "timestamp": 1767493657.52728,
-    "wins_vs_native": {
-      "losses": 15,
-      "ties": 27,
-      "total": 50,
-      "wins": 8
-    },
-    "wins_vs_native_pct": 16.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_540160.pt",
-    "step": 540160,
-    "timestamp": 1767493751.918656,
-    "wins_vs_native": {
-      "losses": 24,
-      "ties": 18,
-      "total": 50,
-      "wins": 8
-    },
-    "wins_vs_native_pct": 16.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_550144.pt",
-    "step": 550144,
-    "timestamp": 1767493841.524666,
-    "wins_vs_native": {
-      "losses": 28,
-      "ties": 15,
-      "total": 50,
-      "wins": 7
-    },
-    "wins_vs_native_pct": 14.000000000000002
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_560128.pt",
-    "step": 560128,
-    "timestamp": 1767493949.9419231,
-    "wins_vs_native": {
-      "losses": 25,
-      "ties": 16,
-      "total": 50,
-      "wins": 9
-    },
-    "wins_vs_native_pct": 18.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_570112.pt",
-    "step": 570112,
-    "timestamp": 1767494046.514116,
-    "wins_vs_native": {
-      "losses": 21,
-      "ties": 19,
-      "total": 50,
-      "wins": 10
-    },
-    "wins_vs_native_pct": 20.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_580096.pt",
-    "step": 580096,
-    "timestamp": 1767494147.9092412,
-    "wins_vs_native": {
-      "losses": 27,
-      "ties": 15,
-      "total": 50,
-      "wins": 8
-    },
-    "wins_vs_native_pct": 16.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_590080.pt",
-    "step": 590080,
-    "timestamp": 1767494240.2249348,
-    "wins_vs_native": {
-      "losses": 23,
-      "ties": 19,
-      "total": 50,
-      "wins": 8
-    },
-    "wins_vs_native_pct": 16.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_600064.pt",
-    "step": 600064,
-    "timestamp": 1767494365.968163,
-    "wins_vs_native": {
-      "losses": 24,
-      "ties": 17,
-      "total": 50,
-      "wins": 9
-    },
-    "wins_vs_native_pct": 18.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_610048.pt",
-    "step": 610048,
-    "timestamp": 1767494464.7914171,
-    "wins_vs_native": {
-      "losses": 24,
-      "ties": 17,
-      "total": 50,
-      "wins": 9
-    },
-    "wins_vs_native_pct": 18.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_620032.pt",
-    "step": 620032,
-    "timestamp": 1767494553.535784,
-    "wins_vs_native": {
-      "losses": 24,
-      "ties": 18,
-      "total": 50,
-      "wins": 8
-    },
-    "wins_vs_native_pct": 16.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_630016.pt",
-    "step": 630016,
-    "timestamp": 1767494684.497917,
-    "wins_vs_native": {
-      "losses": 23,
-      "ties": 19,
-      "total": 50,
-      "wins": 8
-    },
-    "wins_vs_native_pct": 16.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_640000.pt",
-    "step": 640000,
-    "timestamp": 1767494782.411764,
-    "wins_vs_native": {
-      "losses": 22,
-      "ties": 17,
-      "total": 50,
-      "wins": 11
-    },
-    "wins_vs_native_pct": 22.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_650240.pt",
-    "step": 650240,
-    "timestamp": 1767494873.867527,
-    "wins_vs_native": {
-      "losses": 26,
-      "ties": 17,
-      "total": 50,
-      "wins": 7
-    },
-    "wins_vs_native_pct": 14.000000000000002
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_660224.pt",
-    "step": 660224,
-    "timestamp": 1767494963.118061,
-    "wins_vs_native": {
-      "losses": 22,
-      "ties": 19,
-      "total": 50,
-      "wins": 9
-    },
-    "wins_vs_native_pct": 18.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_670208.pt",
-    "step": 670208,
-    "timestamp": 1767495052.110912,
-    "wins_vs_native": {
-      "losses": 24,
-      "ties": 16,
-      "total": 50,
-      "wins": 10
-    },
-    "wins_vs_native_pct": 20.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_680192.pt",
-    "step": 680192,
-    "timestamp": 1767495139.725965,
-    "wins_vs_native": {
-      "losses": 27,
-      "ties": 18,
-      "total": 50,
-      "wins": 5
-    },
-    "wins_vs_native_pct": 10.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_690176.pt",
-    "step": 690176,
-    "timestamp": 1767495236.1816509,
-    "wins_vs_native": {
-      "losses": 24,
-      "ties": 19,
-      "total": 50,
-      "wins": 7
-    },
-    "wins_vs_native_pct": 14.000000000000002
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_700160.pt",
-    "step": 700160,
-    "timestamp": 1767495328.938354,
-    "wins_vs_native": {
-      "losses": 21,
-      "ties": 20,
-      "total": 50,
-      "wins": 9
-    },
-    "wins_vs_native_pct": 18.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_710144.pt",
-    "step": 710144,
-    "timestamp": 1767495419.422027,
-    "wins_vs_native": {
-      "losses": 25,
-      "ties": 16,
-      "total": 50,
-      "wins": 9
-    },
-    "wins_vs_native_pct": 18.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_720128.pt",
-    "step": 720128,
-    "timestamp": 1767495510.81682,
-    "wins_vs_native": {
-      "losses": 23,
-      "ties": 17,
-      "total": 50,
-      "wins": 10
-    },
-    "wins_vs_native_pct": 20.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_50176.pt",
-    "step": 50176,
-    "timestamp": 1767500888.9183428,
-    "wins_vs_native": {
-      "losses": 22,
-      "ties": 14,
-      "total": 50,
-      "wins": 14
-    },
-    "wins_vs_native_pct": 28.000000000000004
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_100096.pt",
-    "step": 100096,
-    "timestamp": 1767501070.483045,
-    "wins_vs_native": {
-      "losses": 22,
-      "ties": 18,
-      "total": 50,
-      "wins": 10
-    },
-    "wins_vs_native_pct": 20.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_150016.pt",
-    "step": 150016,
-    "timestamp": 1767501309.818917,
-    "wins_vs_native": {
-      "losses": 21,
-      "ties": 19,
-      "total": 50,
-      "wins": 10
-    },
-    "wins_vs_native_pct": 20.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_200192.pt",
-    "step": 200192,
-    "timestamp": 1767501474.427458,
-    "wins_vs_native": {
-      "losses": 20,
-      "ties": 19,
-      "total": 50,
-      "wins": 11
-    },
-    "wins_vs_native_pct": 22.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_250112.pt",
-    "step": 250112,
-    "timestamp": 1767501693.3439739,
-    "wins_vs_native": {
-      "losses": 25,
-      "ties": 15,
-      "total": 50,
-      "wins": 10
-    },
-    "wins_vs_native_pct": 20.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_300032.pt",
-    "step": 300032,
-    "timestamp": 1767501861.216734,
-    "wins_vs_native": {
-      "losses": 24,
-      "ties": 19,
-      "total": 50,
-      "wins": 7
-    },
-    "wins_vs_native_pct": 14.000000000000002
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_350208.pt",
-    "step": 350208,
-    "timestamp": 1767502171.623626,
-    "wins_vs_native": {
-      "losses": 24,
-      "ties": 14,
-      "total": 50,
-      "wins": 12
-    },
-    "wins_vs_native_pct": 24.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_100096.pt",
-    "step": 100096,
-    "timestamp": 1767549869.226024,
-    "wins_vs_native": {
-      "losses": 22,
-      "ties": 18,
-      "total": 50,
-      "wins": 10
-    },
-    "wins_vs_native_pct": 20.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_200192.pt",
-    "step": 200192,
-    "timestamp": 1767550190.0858471,
-    "wins_vs_native": {
-      "losses": 20,
-      "ties": 19,
-      "total": 50,
-      "wins": 11
-    },
-    "wins_vs_native_pct": 22.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_300032.pt",
-    "step": 300032,
-    "timestamp": 1767550500.0998101,
-    "wins_vs_native": {
-      "losses": 24,
-      "ties": 19,
-      "total": 50,
-      "wins": 7
-    },
-    "wins_vs_native_pct": 14.000000000000002
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_400128.pt",
-    "step": 400128,
-    "timestamp": 1767553863.430984,
-    "wins_vs_native": {
-      "losses": 22,
-      "ties": 18,
-      "total": 50,
-      "wins": 10
-    },
-    "wins_vs_native_pct": 20.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_500224.pt",
-    "step": 500224,
-    "timestamp": 1767561939.901599,
-    "wins_vs_native": {
-      "losses": 20,
-      "ties": 18,
+      "ties": 22,
       "total": 50,
       "wins": 12
     },
@@ -1180,52 +74,66 @@
     "instances": 50,
     "policy_checkpoint": "models/checkpoints/policy_ppo_step_600064.pt",
     "step": 600064,
-    "timestamp": 1767562241.773588,
+    "timestamp": 1767888854.9381912,
     "wins_vs_native": {
-      "losses": 24,
+      "losses": 26,
       "ties": 17,
       "total": 50,
-      "wins": 9
+      "wins": 7
     },
-    "wins_vs_native_pct": 18.0
+    "wins_vs_native_pct": 14.000000000000002
   },
   {
     "eval_limit": 50,
     "instances": 50,
     "policy_checkpoint": "models/checkpoints/policy_ppo_step_700160.pt",
     "step": 700160,
-    "timestamp": 1767562535.65479,
+    "timestamp": 1767898315.175504,
     "wins_vs_native": {
-      "losses": 21,
-      "ties": 20,
+      "losses": 25,
+      "ties": 15,
       "total": 50,
-      "wins": 9
+      "wins": 10
     },
-    "wins_vs_native_pct": 18.0
+    "wins_vs_native_pct": 20.0
   },
   {
     "eval_limit": 50,
     "instances": 50,
     "policy_checkpoint": "models/checkpoints/policy_ppo_step_800000.pt",
     "step": 800000,
-    "timestamp": 1767569497.059055,
+    "timestamp": 1767898603.3548648,
     "wins_vs_native": {
-      "losses": 28,
+      "losses": 29,
       "ties": 15,
       "total": 50,
-      "wins": 7
+      "wins": 6
     },
-    "wins_vs_native_pct": 14.000000000000002
+    "wins_vs_native_pct": 12.0
   },
   {
     "eval_limit": 50,
     "instances": 50,
     "policy_checkpoint": "models/checkpoints/policy_ppo_step_900096.pt",
     "step": 900096,
-    "timestamp": 1767571956.795701,
+    "timestamp": 1767902616.685361,
     "wins_vs_native": {
-      "losses": 21,
-      "ties": 17,
+      "losses": 26,
+      "ties": 15,
+      "total": 50,
+      "wins": 9
+    },
+    "wins_vs_native_pct": 18.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_1000192.pt",
+    "step": 1000192,
+    "timestamp": 1767904852.757338,
+    "wins_vs_native": {
+      "losses": 20,
+      "ties": 18,
       "total": 50,
       "wins": 12
     },
@@ -1234,23 +142,9 @@
   {
     "eval_limit": 50,
     "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_1000192.pt",
-    "step": 1000192,
-    "timestamp": 1767572251.1239302,
-    "wins_vs_native": {
-      "losses": 20,
-      "ties": 20,
-      "total": 50,
-      "wins": 10
-    },
-    "wins_vs_native_pct": 20.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
     "policy_checkpoint": "models/checkpoints/policy_ppo_step_1100032.pt",
     "step": 1100032,
-    "timestamp": 1767572808.317899,
+    "timestamp": 1767906569.700462,
     "wins_vs_native": {
       "losses": 26,
       "ties": 16,
@@ -1264,7 +158,21 @@
     "instances": 50,
     "policy_checkpoint": "models/checkpoints/policy_ppo_step_1200128.pt",
     "step": 1200128,
-    "timestamp": 1767573253.831004,
+    "timestamp": 1767908088.815495,
+    "wins_vs_native": {
+      "losses": 24,
+      "ties": 20,
+      "total": 50,
+      "wins": 6
+    },
+    "wins_vs_native_pct": 12.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_1300224.pt",
+    "step": 1300224,
+    "timestamp": 1767908336.446218,
     "wins_vs_native": {
       "losses": 22,
       "ties": 19,
@@ -1276,68 +184,40 @@
   {
     "eval_limit": 50,
     "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_1300224.pt",
-    "step": 1300224,
-    "timestamp": 1767575399.049578,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_1400064.pt",
+    "step": 1400064,
+    "timestamp": 1767908566.376862,
     "wins_vs_native": {
-      "losses": 23,
-      "ties": 17,
+      "losses": 21,
+      "ties": 19,
       "total": 50,
       "wins": 10
     },
     "wins_vs_native_pct": 20.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_1400064.pt",
-    "step": 1400064,
-    "timestamp": 1767575646.955969,
-    "wins_vs_native": {
-      "losses": 20,
-      "ties": 17,
-      "total": 50,
-      "wins": 13
-    },
-    "wins_vs_native_pct": 26.0
   },
   {
     "eval_limit": 50,
     "instances": 50,
     "policy_checkpoint": "models/checkpoints/policy_ppo_step_1500160.pt",
     "step": 1500160,
-    "timestamp": 1767575913.9879801,
+    "timestamp": 1767908902.927097,
     "wins_vs_native": {
-      "losses": 23,
-      "ties": 17,
+      "losses": 27,
+      "ties": 18,
       "total": 50,
-      "wins": 10
+      "wins": 5
     },
-    "wins_vs_native_pct": 20.0
+    "wins_vs_native_pct": 10.0
   },
   {
     "eval_limit": 50,
     "instances": 50,
     "policy_checkpoint": "models/checkpoints/policy_ppo_step_1600000.pt",
     "step": 1600000,
-    "timestamp": 1767576187.220757,
+    "timestamp": 1767909160.730293,
     "wins_vs_native": {
-      "losses": 23,
-      "ties": 18,
-      "total": 50,
-      "wins": 9
-    },
-    "wins_vs_native_pct": 18.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_1700096.pt",
-    "step": 1700096,
-    "timestamp": 1767576542.603683,
-    "wins_vs_native": {
-      "losses": 24,
-      "ties": 18,
+      "losses": 25,
+      "ties": 17,
       "total": 50,
       "wins": 8
     },
@@ -1346,12 +226,26 @@
   {
     "eval_limit": 50,
     "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_1700096.pt",
+    "step": 1700096,
+    "timestamp": 1767924830.657004,
+    "wins_vs_native": {
+      "losses": 17,
+      "ties": 22,
+      "total": 50,
+      "wins": 11
+    },
+    "wins_vs_native_pct": 22.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
     "policy_checkpoint": "models/checkpoints/policy_ppo_step_1800192.pt",
     "step": 1800192,
-    "timestamp": 1767576806.463403,
+    "timestamp": 1767928591.7391338,
     "wins_vs_native": {
-      "losses": 23,
-      "ties": 16,
+      "losses": 22,
+      "ties": 17,
       "total": 50,
       "wins": 11
     },
@@ -1362,38 +256,24 @@
     "instances": 50,
     "policy_checkpoint": "models/checkpoints/policy_ppo_step_1900032.pt",
     "step": 1900032,
-    "timestamp": 1767577244.8232589,
+    "timestamp": 1767935378.8741949,
     "wins_vs_native": {
-      "losses": 15,
-      "ties": 24,
+      "losses": 25,
+      "ties": 16,
       "total": 50,
-      "wins": 11
+      "wins": 9
     },
-    "wins_vs_native_pct": 22.0
+    "wins_vs_native_pct": 18.0
   },
   {
     "eval_limit": 50,
     "instances": 50,
     "policy_checkpoint": "models/checkpoints/policy_ppo_step_2000128.pt",
     "step": 2000128,
-    "timestamp": 1767577712.846761,
+    "timestamp": 1767935708.6479611,
     "wins_vs_native": {
-      "losses": 24,
-      "ties": 15,
-      "total": 50,
-      "wins": 11
-    },
-    "wins_vs_native_pct": 22.0
-  },
-  {
-    "eval_limit": 50,
-    "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_2100224.pt",
-    "step": 2100224,
-    "timestamp": 1767579361.788953,
-    "wins_vs_native": {
-      "losses": 21,
-      "ties": 17,
+      "losses": 20,
+      "ties": 18,
       "total": 50,
       "wins": 12
     },
@@ -1402,23 +282,121 @@
   {
     "eval_limit": 50,
     "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_2100224.pt",
+    "step": 2100224,
+    "timestamp": 1767937354.6021461,
+    "wins_vs_native": {
+      "losses": 12,
+      "ties": 28,
+      "total": 50,
+      "wins": 10
+    },
+    "wins_vs_native_pct": 20.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
     "policy_checkpoint": "models/checkpoints/policy_ppo_step_2200064.pt",
     "step": 2200064,
-    "timestamp": 1767579617.4918778,
+    "timestamp": 1767938417.446393,
     "wins_vs_native": {
-      "losses": 21,
-      "ties": 18,
+      "losses": 22,
+      "ties": 20,
       "total": 50,
-      "wins": 11
+      "wins": 8
     },
-    "wins_vs_native_pct": 22.0
+    "wins_vs_native_pct": 16.0
   },
   {
     "eval_limit": 50,
     "instances": 50,
     "policy_checkpoint": "models/checkpoints/policy_ppo_step_2300160.pt",
     "step": 2300160,
-    "timestamp": 1767579964.210165,
+    "timestamp": 1767938865.074372,
+    "wins_vs_native": {
+      "losses": 25,
+      "ties": 17,
+      "total": 50,
+      "wins": 8
+    },
+    "wins_vs_native_pct": 16.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_2400000.pt",
+    "step": 2400000,
+    "timestamp": 1767944400.5506501,
+    "wins_vs_native": {
+      "losses": 25,
+      "ties": 18,
+      "total": 50,
+      "wins": 7
+    },
+    "wins_vs_native_pct": 14.000000000000002
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_2500096.pt",
+    "step": 2500096,
+    "timestamp": 1767944704.151825,
+    "wins_vs_native": {
+      "losses": 24,
+      "ties": 17,
+      "total": 50,
+      "wins": 9
+    },
+    "wins_vs_native_pct": 18.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_2600192.pt",
+    "step": 2600192,
+    "timestamp": 1767945168.55451,
+    "wins_vs_native": {
+      "losses": 24,
+      "ties": 17,
+      "total": 50,
+      "wins": 9
+    },
+    "wins_vs_native_pct": 18.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_2700032.pt",
+    "step": 2700032,
+    "timestamp": 1767945464.8281941,
+    "wins_vs_native": {
+      "losses": 24,
+      "ties": 16,
+      "total": 50,
+      "wins": 10
+    },
+    "wins_vs_native_pct": 20.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_2800128.pt",
+    "step": 2800128,
+    "timestamp": 1767952909.723376,
+    "wins_vs_native": {
+      "losses": 21,
+      "ties": 20,
+      "total": 50,
+      "wins": 9
+    },
+    "wins_vs_native_pct": 18.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_2900224.pt",
+    "step": 2900224,
+    "timestamp": 1767954321.5983858,
     "wins_vs_native": {
       "losses": 19,
       "ties": 20,
@@ -1430,26 +408,110 @@
   {
     "eval_limit": 50,
     "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_2400000.pt",
-    "step": 2400000,
-    "timestamp": 1767580710.4014971,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_3000064.pt",
+    "step": 3000064,
+    "timestamp": 1767954659.36597,
     "wins_vs_native": {
-      "losses": 19,
-      "ties": 21,
+      "losses": 24,
+      "ties": 17,
       "total": 50,
-      "wins": 10
+      "wins": 9
     },
-    "wins_vs_native_pct": 20.0
+    "wins_vs_native_pct": 18.0
   },
   {
     "eval_limit": 50,
     "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_2500096.pt",
-    "step": 2500096,
-    "timestamp": 1767581077.509693,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_3100160.pt",
+    "step": 3100160,
+    "timestamp": 1767955273.961359,
+    "wins_vs_native": {
+      "losses": 21,
+      "ties": 20,
+      "total": 50,
+      "wins": 9
+    },
+    "wins_vs_native_pct": 18.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_3200000.pt",
+    "step": 3200000,
+    "timestamp": 1767983136.995703,
+    "wins_vs_native": {
+      "losses": 4,
+      "ties": 44,
+      "total": 50,
+      "wins": 2
+    },
+    "wins_vs_native_pct": 4.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_3300096.pt",
+    "step": 3300096,
+    "timestamp": 1767997082.574636,
     "wins_vs_native": {
       "losses": 25,
-      "ties": 17,
+      "ties": 19,
+      "total": 50,
+      "wins": 6
+    },
+    "wins_vs_native_pct": 12.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_3400192.pt",
+    "step": 3400192,
+    "timestamp": 1767997403.914675,
+    "wins_vs_native": {
+      "losses": 20,
+      "ties": 19,
+      "total": 50,
+      "wins": 11
+    },
+    "wins_vs_native_pct": 22.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_3500032.pt",
+    "step": 3500032,
+    "timestamp": 1768000463.6059961,
+    "wins_vs_native": {
+      "losses": 25,
+      "ties": 16,
+      "total": 50,
+      "wins": 9
+    },
+    "wins_vs_native_pct": 18.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_3600128.pt",
+    "step": 3600128,
+    "timestamp": 1768002240.342514,
+    "wins_vs_native": {
+      "losses": 24,
+      "ties": 19,
+      "total": 50,
+      "wins": 7
+    },
+    "wins_vs_native_pct": 14.000000000000002
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_3700224.pt",
+    "step": 3700224,
+    "timestamp": 1768002907.2342982,
+    "wins_vs_native": {
+      "losses": 24,
+      "ties": 18,
       "total": 50,
       "wins": 8
     },
@@ -1458,15 +520,883 @@
   {
     "eval_limit": 50,
     "instances": 50,
-    "policy_checkpoint": "models/checkpoints/policy_ppo_step_2600192.pt",
-    "step": 2600192,
-    "timestamp": 1767581375.314956,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_3800064.pt",
+    "step": 3800064,
+    "timestamp": 1768004754.140157,
     "wins_vs_native": {
-      "losses": 25,
-      "ties": 16,
+      "losses": 24,
+      "ties": 17,
       "total": 50,
       "wins": 9
     },
     "wins_vs_native_pct": 18.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_3900160.pt",
+    "step": 3900160,
+    "timestamp": 1768005495.48655,
+    "wins_vs_native": {
+      "losses": 21,
+      "ties": 17,
+      "total": 50,
+      "wins": 12
+    },
+    "wins_vs_native_pct": 24.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_4000000.pt",
+    "step": 4000000,
+    "timestamp": 1768006708.403349,
+    "wins_vs_native": {
+      "losses": 23,
+      "ties": 18,
+      "total": 50,
+      "wins": 9
+    },
+    "wins_vs_native_pct": 18.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_4100096.pt",
+    "step": 4100096,
+    "timestamp": 1768013057.124114,
+    "wins_vs_native": {
+      "losses": 18,
+      "ties": 22,
+      "total": 50,
+      "wins": 10
+    },
+    "wins_vs_native_pct": 20.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_4200192.pt",
+    "step": 4200192,
+    "timestamp": 1768019107.353459,
+    "wins_vs_native": {
+      "losses": 25,
+      "ties": 19,
+      "total": 50,
+      "wins": 6
+    },
+    "wins_vs_native_pct": 12.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_4300032.pt",
+    "step": 4300032,
+    "timestamp": 1768019405.977629,
+    "wins_vs_native": {
+      "losses": 20,
+      "ties": 16,
+      "total": 50,
+      "wins": 14
+    },
+    "wins_vs_native_pct": 28.000000000000004
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_4400128.pt",
+    "step": 4400128,
+    "timestamp": 1768019773.410296,
+    "wins_vs_native": {
+      "losses": 22,
+      "ties": 18,
+      "total": 50,
+      "wins": 10
+    },
+    "wins_vs_native_pct": 20.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_4500224.pt",
+    "step": 4500224,
+    "timestamp": 1768021389.3033018,
+    "wins_vs_native": {
+      "losses": 21,
+      "ties": 21,
+      "total": 50,
+      "wins": 8
+    },
+    "wins_vs_native_pct": 16.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_4600064.pt",
+    "step": 4600064,
+    "timestamp": 1768022186.5071979,
+    "wins_vs_native": {
+      "losses": 22,
+      "ties": 17,
+      "total": 50,
+      "wins": 11
+    },
+    "wins_vs_native_pct": 22.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_4700160.pt",
+    "step": 4700160,
+    "timestamp": 1768023004.7206059,
+    "wins_vs_native": {
+      "losses": 24,
+      "ties": 17,
+      "total": 50,
+      "wins": 9
+    },
+    "wins_vs_native_pct": 18.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_4800000.pt",
+    "step": 4800000,
+    "timestamp": 1768023273.3502789,
+    "wins_vs_native": {
+      "losses": 24,
+      "ties": 19,
+      "total": 50,
+      "wins": 7
+    },
+    "wins_vs_native_pct": 14.000000000000002
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_4900096.pt",
+    "step": 4900096,
+    "timestamp": 1768024140.9746728,
+    "wins_vs_native": {
+      "losses": 26,
+      "ties": 17,
+      "total": 50,
+      "wins": 7
+    },
+    "wins_vs_native_pct": 14.000000000000002
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_5000192.pt",
+    "step": 5000192,
+    "timestamp": 1768029255.613503,
+    "wins_vs_native": {
+      "losses": 24,
+      "ties": 19,
+      "total": 50,
+      "wins": 7
+    },
+    "wins_vs_native_pct": 14.000000000000002
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_5100032.pt",
+    "step": 5100032,
+    "timestamp": 1768036079.115755,
+    "wins_vs_native": {
+      "losses": 23,
+      "ties": 17,
+      "total": 50,
+      "wins": 10
+    },
+    "wins_vs_native_pct": 20.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_5200128.pt",
+    "step": 5200128,
+    "timestamp": 1768036405.738889,
+    "wins_vs_native": {
+      "losses": 22,
+      "ties": 18,
+      "total": 50,
+      "wins": 10
+    },
+    "wins_vs_native_pct": 20.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_5300224.pt",
+    "step": 5300224,
+    "timestamp": 1768036831.356703,
+    "wins_vs_native": {
+      "losses": 19,
+      "ties": 19,
+      "total": 50,
+      "wins": 12
+    },
+    "wins_vs_native_pct": 24.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_5400064.pt",
+    "step": 5400064,
+    "timestamp": 1768041968.796129,
+    "wins_vs_native": {
+      "losses": 23,
+      "ties": 17,
+      "total": 50,
+      "wins": 10
+    },
+    "wins_vs_native_pct": 20.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_5500160.pt",
+    "step": 5500160,
+    "timestamp": 1768043564.845084,
+    "wins_vs_native": {
+      "losses": 27,
+      "ties": 16,
+      "total": 50,
+      "wins": 7
+    },
+    "wins_vs_native_pct": 14.000000000000002
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_5600000.pt",
+    "step": 5600000,
+    "timestamp": 1768044698.937881,
+    "wins_vs_native": {
+      "losses": 23,
+      "ties": 18,
+      "total": 50,
+      "wins": 9
+    },
+    "wins_vs_native_pct": 18.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_5700096.pt",
+    "step": 5700096,
+    "timestamp": 1768045063.400456,
+    "wins_vs_native": {
+      "losses": 22,
+      "ties": 17,
+      "total": 50,
+      "wins": 11
+    },
+    "wins_vs_native_pct": 22.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_5800192.pt",
+    "step": 5800192,
+    "timestamp": 1768045580.404247,
+    "wins_vs_native": {
+      "losses": 22,
+      "ties": 18,
+      "total": 50,
+      "wins": 10
+    },
+    "wins_vs_native_pct": 20.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_5900032.pt",
+    "step": 5900032,
+    "timestamp": 1768045954.580821,
+    "wins_vs_native": {
+      "losses": 21,
+      "ties": 18,
+      "total": 50,
+      "wins": 11
+    },
+    "wins_vs_native_pct": 22.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_6000128.pt",
+    "step": 6000128,
+    "timestamp": 1768048117.44047,
+    "wins_vs_native": {
+      "losses": 22,
+      "ties": 18,
+      "total": 50,
+      "wins": 10
+    },
+    "wins_vs_native_pct": 20.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_6100224.pt",
+    "step": 6100224,
+    "timestamp": 1768048426.036255,
+    "wins_vs_native": {
+      "losses": 21,
+      "ties": 19,
+      "total": 50,
+      "wins": 10
+    },
+    "wins_vs_native_pct": 20.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_6200064.pt",
+    "step": 6200064,
+    "timestamp": 1768048717.728575,
+    "wins_vs_native": {
+      "losses": 20,
+      "ties": 20,
+      "total": 50,
+      "wins": 10
+    },
+    "wins_vs_native_pct": 20.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_6300160.pt",
+    "step": 6300160,
+    "timestamp": 1768052131.377462,
+    "wins_vs_native": {
+      "losses": 20,
+      "ties": 20,
+      "total": 50,
+      "wins": 10
+    },
+    "wins_vs_native_pct": 20.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_6400000.pt",
+    "step": 6400000,
+    "timestamp": 1768052552.6501791,
+    "wins_vs_native": {
+      "losses": 20,
+      "ties": 20,
+      "total": 50,
+      "wins": 10
+    },
+    "wins_vs_native_pct": 20.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_6500096.pt",
+    "step": 6500096,
+    "timestamp": 1768052940.174198,
+    "wins_vs_native": {
+      "losses": 23,
+      "ties": 19,
+      "total": 50,
+      "wins": 8
+    },
+    "wins_vs_native_pct": 16.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_6600192.pt",
+    "step": 6600192,
+    "timestamp": 1768053292.9137778,
+    "wins_vs_native": {
+      "losses": 26,
+      "ties": 13,
+      "total": 50,
+      "wins": 11
+    },
+    "wins_vs_native_pct": 22.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_6700032.pt",
+    "step": 6700032,
+    "timestamp": 1768053980.896283,
+    "wins_vs_native": {
+      "losses": 22,
+      "ties": 17,
+      "total": 50,
+      "wins": 11
+    },
+    "wins_vs_native_pct": 22.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_6800128.pt",
+    "step": 6800128,
+    "timestamp": 1768059898.88944,
+    "wins_vs_native": {
+      "losses": 31,
+      "ties": 13,
+      "total": 50,
+      "wins": 6
+    },
+    "wins_vs_native_pct": 12.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_6900224.pt",
+    "step": 6900224,
+    "timestamp": 1768068098.993247,
+    "wins_vs_native": {
+      "losses": 22,
+      "ties": 15,
+      "total": 50,
+      "wins": 13
+    },
+    "wins_vs_native_pct": 26.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_7000064.pt",
+    "step": 7000064,
+    "timestamp": 1768069806.9989178,
+    "wins_vs_native": {
+      "losses": 20,
+      "ties": 18,
+      "total": 50,
+      "wins": 12
+    },
+    "wins_vs_native_pct": 24.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_7100160.pt",
+    "step": 7100160,
+    "timestamp": 1768074728.453137,
+    "wins_vs_native": {
+      "losses": 24,
+      "ties": 17,
+      "total": 50,
+      "wins": 9
+    },
+    "wins_vs_native_pct": 18.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_7200000.pt",
+    "step": 7200000,
+    "timestamp": 1768075075.18804,
+    "wins_vs_native": {
+      "losses": 23,
+      "ties": 17,
+      "total": 50,
+      "wins": 10
+    },
+    "wins_vs_native_pct": 20.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_7300096.pt",
+    "step": 7300096,
+    "timestamp": 1768075449.870286,
+    "wins_vs_native": {
+      "losses": 23,
+      "ties": 17,
+      "total": 50,
+      "wins": 10
+    },
+    "wins_vs_native_pct": 20.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_7400192.pt",
+    "step": 7400192,
+    "timestamp": 1768075758.965413,
+    "wins_vs_native": {
+      "losses": 23,
+      "ties": 17,
+      "total": 50,
+      "wins": 10
+    },
+    "wins_vs_native_pct": 20.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_7500032.pt",
+    "step": 7500032,
+    "timestamp": 1768078969.80707,
+    "wins_vs_native": {
+      "losses": 22,
+      "ties": 18,
+      "total": 50,
+      "wins": 10
+    },
+    "wins_vs_native_pct": 20.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_7600128.pt",
+    "step": 7600128,
+    "timestamp": 1768080471.4999292,
+    "wins_vs_native": {
+      "losses": 23,
+      "ties": 18,
+      "total": 50,
+      "wins": 9
+    },
+    "wins_vs_native_pct": 18.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_7700224.pt",
+    "step": 7700224,
+    "timestamp": 1768080866.680117,
+    "wins_vs_native": {
+      "losses": 21,
+      "ties": 17,
+      "total": 50,
+      "wins": 12
+    },
+    "wins_vs_native_pct": 24.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_7800064.pt",
+    "step": 7800064,
+    "timestamp": 1768081266.042615,
+    "wins_vs_native": {
+      "losses": 23,
+      "ties": 16,
+      "total": 50,
+      "wins": 11
+    },
+    "wins_vs_native_pct": 22.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_7900160.pt",
+    "step": 7900160,
+    "timestamp": 1768083063.962667,
+    "wins_vs_native": {
+      "losses": 21,
+      "ties": 18,
+      "total": 50,
+      "wins": 11
+    },
+    "wins_vs_native_pct": 22.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_8000000.pt",
+    "step": 8000000,
+    "timestamp": 1768083382.710171,
+    "wins_vs_native": {
+      "losses": 21,
+      "ties": 18,
+      "total": 50,
+      "wins": 11
+    },
+    "wins_vs_native_pct": 22.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_8100096.pt",
+    "step": 8100096,
+    "timestamp": 1768083742.187305,
+    "wins_vs_native": {
+      "losses": 25,
+      "ties": 20,
+      "total": 50,
+      "wins": 5
+    },
+    "wins_vs_native_pct": 10.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_8200192.pt",
+    "step": 8200192,
+    "timestamp": 1768084487.909199,
+    "wins_vs_native": {
+      "losses": 22,
+      "ties": 20,
+      "total": 50,
+      "wins": 8
+    },
+    "wins_vs_native_pct": 16.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_8300032.pt",
+    "step": 8300032,
+    "timestamp": 1768089203.277934,
+    "wins_vs_native": {
+      "losses": 28,
+      "ties": 16,
+      "total": 50,
+      "wins": 6
+    },
+    "wins_vs_native_pct": 12.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_8400128.pt",
+    "step": 8400128,
+    "timestamp": 1768090888.951089,
+    "wins_vs_native": {
+      "losses": 24,
+      "ties": 18,
+      "total": 50,
+      "wins": 8
+    },
+    "wins_vs_native_pct": 16.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_8500224.pt",
+    "step": 8500224,
+    "timestamp": 1768093724.426126,
+    "wins_vs_native": {
+      "losses": 23,
+      "ties": 17,
+      "total": 50,
+      "wins": 10
+    },
+    "wins_vs_native_pct": 20.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_8600064.pt",
+    "step": 8600064,
+    "timestamp": 1768093988.322463,
+    "wins_vs_native": {
+      "losses": 24,
+      "ties": 17,
+      "total": 50,
+      "wins": 9
+    },
+    "wins_vs_native_pct": 18.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_8700160.pt",
+    "step": 8700160,
+    "timestamp": 1768095584.239717,
+    "wins_vs_native": {
+      "losses": 23,
+      "ties": 17,
+      "total": 50,
+      "wins": 10
+    },
+    "wins_vs_native_pct": 20.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_8800000.pt",
+    "step": 8800000,
+    "timestamp": 1768097961.2578251,
+    "wins_vs_native": {
+      "losses": 22,
+      "ties": 16,
+      "total": 50,
+      "wins": 12
+    },
+    "wins_vs_native_pct": 24.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_8900096.pt",
+    "step": 8900096,
+    "timestamp": 1768098374.279274,
+    "wins_vs_native": {
+      "losses": 23,
+      "ties": 18,
+      "total": 50,
+      "wins": 9
+    },
+    "wins_vs_native_pct": 18.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_9000192.pt",
+    "step": 9000192,
+    "timestamp": 1768100138.0119731,
+    "wins_vs_native": {
+      "losses": 23,
+      "ties": 18,
+      "total": 50,
+      "wins": 9
+    },
+    "wins_vs_native_pct": 18.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_9100032.pt",
+    "step": 9100032,
+    "timestamp": 1768100574.323211,
+    "wins_vs_native": {
+      "losses": 21,
+      "ties": 18,
+      "total": 50,
+      "wins": 11
+    },
+    "wins_vs_native_pct": 22.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_9200128.pt",
+    "step": 9200128,
+    "timestamp": 1768100857.0198898,
+    "wins_vs_native": {
+      "losses": 21,
+      "ties": 21,
+      "total": 50,
+      "wins": 8
+    },
+    "wins_vs_native_pct": 16.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_9300224.pt",
+    "step": 9300224,
+    "timestamp": 1768104086.426955,
+    "wins_vs_native": {
+      "losses": 21,
+      "ties": 19,
+      "total": 50,
+      "wins": 10
+    },
+    "wins_vs_native_pct": 20.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_9400064.pt",
+    "step": 9400064,
+    "timestamp": 1768105711.529361,
+    "wins_vs_native": {
+      "losses": 23,
+      "ties": 17,
+      "total": 50,
+      "wins": 10
+    },
+    "wins_vs_native_pct": 20.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_9500160.pt",
+    "step": 9500160,
+    "timestamp": 1768106603.54608,
+    "wins_vs_native": {
+      "losses": 23,
+      "ties": 19,
+      "total": 50,
+      "wins": 8
+    },
+    "wins_vs_native_pct": 16.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_9600000.pt",
+    "step": 9600000,
+    "timestamp": 1768106874.279892,
+    "wins_vs_native": {
+      "losses": 25,
+      "ties": 18,
+      "total": 50,
+      "wins": 7
+    },
+    "wins_vs_native_pct": 14.000000000000002
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_9700096.pt",
+    "step": 9700096,
+    "timestamp": 1768107974.962202,
+    "wins_vs_native": {
+      "losses": 27,
+      "ties": 15,
+      "total": 50,
+      "wins": 8
+    },
+    "wins_vs_native_pct": 16.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_9800192.pt",
+    "step": 9800192,
+    "timestamp": 1768108401.209406,
+    "wins_vs_native": {
+      "losses": 23,
+      "ties": 19,
+      "total": 50,
+      "wins": 8
+    },
+    "wins_vs_native_pct": 16.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_9900032.pt",
+    "step": 9900032,
+    "timestamp": 1768111071.9343371,
+    "wins_vs_native": {
+      "losses": 26,
+      "ties": 15,
+      "total": 50,
+      "wins": 9
+    },
+    "wins_vs_native_pct": 18.0
+  },
+  {
+    "eval_limit": 50,
+    "instances": 50,
+    "policy_checkpoint": "models/checkpoints/policy_ppo_step_10000000.pt",
+    "step": 10000000,
+    "timestamp": 1768111412.518219,
+    "wins_vs_native": {
+      "losses": 21,
+      "ties": 21,
+      "total": 50,
+      "wins": 8
+    },
+    "wins_vs_native_pct": 16.0
   }
 ]

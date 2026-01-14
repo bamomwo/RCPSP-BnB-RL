@@ -12,7 +12,7 @@ __pycache__/
 /data/1ktrain
 scripts/validate_fix_rcpsp.py
 
-
+models/checkpoints
 models/checkpoints_50k_step
 models/checkpoints_100k_Netres_vnr
 models/checkpoints_100k_netres_vnr_rmod 
