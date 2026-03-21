@@ -1,0 +1,17 @@
+{
+  "root": "data/test",
+  "pattern": "*.RCP",
+  "max_nodes": 2000,
+  "ppo_policy": "models/checkpoints/policy_ppo_step_220160.pt",
+  "bc_policy": "models/policy.pt",
+  "policy_device": "cuda",
+  "policy_max_resources": 4,
+  "limit": 10,
+  "output_dir": "reports/results",
+  "output_name": "summary.txt",
+  "optimal_json": "data/baseline/j30_opt.json",
+  "with_ortools": true,
+  "only_ortools": false,
+  "time_limit": 20,
+  "progress_every": 50
+}

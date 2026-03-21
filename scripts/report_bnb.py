@@ -20,6 +20,34 @@ from rcpsp_bb_rl.data.parsing import load_instance  # noqa: E402
 from rcpsp_bb_rl.data.dataset import list_instance_paths  # noqa: E402
 from rcpsp_bb_rl.models import load_policy_checkpoint  # noqa: E402
 
+DEFAULT_CONFIG = {
+    "root": "data/j30rcp",
+    "pattern": "*.RCP",
+    "max_nodes": 2000,
+    "policy": None,  # deprecated alias for ppo_policy
+    "ppo_policy": None,
+    "bc_policy": None,
+    "policy_device": "cpu",
+    "policy_max_resources": 4,
+    "limit": None,
+    "output_dir": str(PROJECT_ROOT / "reports" / "results"),
+    "output_name": "summary.txt",
+    "optimal_json": None,
+    "with_ortools": False,
+    "only_ortools": False,
+    "time_limit": None,
+    "progress_every": 50,
+}
+
+REPORT_SECTION_DESCRIPTIONS = {
+    "core": "Per-instance makespan/lower-bound/gap table + core gap aggregates.",
+    "opt": "Gap-to-optimal table column and aggregates (requires optimal_json).",
+    "search": "Search-behavior metrics (nodes-to-incumbent, prune ratio, bound gap).",
+    "compare": "PPO vs Native W/L/T comparison summary.",
+    "success": "Solver success-rate summary.",
+    "notes": "Explanatory footer notes.",
+}
+
 
 def run_ortools(
     path: Path,
@@ -40,95 +68,73 @@ def run_ortools(
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Run B&B on a set of RCPSP instances and print a summary table."
+    parser = argparse.ArgumentParser(description="Run B&B benchmark report from a JSON config file.")
+    parser.add_argument("--config", help="Path to JSON config file.")
+    parser.add_argument(
+        "--report",
+        default="all",
+        help="Comma-separated report sections to include. Use 'all' for full report.",
     )
     parser.add_argument(
-        "--root",
-        default="data/j30rcp",
-        help="Directory containing RCPSP instance files.",
-    )
-    parser.add_argument(
-        "--pattern",
-        default="*.RCP",
-        help="Glob pattern to select instance files (applied recursively under root).",
-    )
-    parser.add_argument(
-        "--max-nodes",
-        type=int,
-        default=2000,
-        help="Maximum number of nodes to expand per instance.",
-    )
-    parser.add_argument(
-        "--policy",
-        default=None,
-        help="(Deprecated) Path to a PPO policy checkpoint (.pt). Use --ppo-policy instead.",
-    )
-    parser.add_argument(
-        "--ppo-policy",
-        default=None,
-        help="Optional path to a PPO policy checkpoint (.pt).",
-    )
-    parser.add_argument(
-        "--bc-policy",
-        default=None,
-        help="Optional path to a BC policy checkpoint (.pt).",
-    )
-    parser.add_argument(
-        "--policy-device",
-        default="cpu",
-        help="Torch device for running the policy (e.g., cpu or cuda:0).",
-    )
-    parser.add_argument(
-        "--policy-max-resources",
-        type=int,
-        default=4,
-        help="Pad/truncate resource dimensions to this size for policy features.",
-    )
-    parser.add_argument(
-        "--limit",
-        type=int,
-        default=None,
-        help="Optional limit on number of instances to process.",
-    )
-    parser.add_argument(
-        "--output-dir",
-        default=PROJECT_ROOT / "reports" / "results",
-        help="Directory to write summary text files (default: reports/results).",
-    )
-    parser.add_argument(
-        "--output-name",
-        default="summary.txt",
-        help="Filename for the summary text output.",
-    )
-    parser.add_argument(
-        "--optimal-json",
-        default=None,
-        help="Optional JSON with optimal makespans keyed by instance filename.",
-    )
-    parser.add_argument(
-        "--with-ortools",
+        "--report-list",
         action="store_true",
-        help="Also evaluate an OR-Tools CP-SAT solve for comparison.",
-    )
-    parser.add_argument(
-        "--only-ortools",
-        action="store_true",
-        help="Skip native/PPO/BC runs and only evaluate OR-Tools.",
-    )
-    parser.add_argument(
-        "--time-limit",
-        type=float,
-        default=None,
-        help="Optional wall-clock time limit (seconds) applied to all solvers (native, PPO, BC, OR-Tools).",
-    )
-    parser.add_argument(
-        "--progress-every",
-        type=int,
-        default=50,
-        help="Print progress every N instances (default: 50). Set <=0 to disable.",
+        help="List available report sections and exit.",
     )
     return parser.parse_args()
+
+
+def load_json(path: Path) -> Dict[str, object]:
+    with path.open() as f:
+        return json.load(f)
+
+
+def load_config(path: Path) -> argparse.Namespace:
+    file_cfg = load_json(path)
+    if not isinstance(file_cfg, dict):
+        raise ValueError(f"Config at {path} must be a JSON object.")
+
+    cfg = DEFAULT_CONFIG.copy()
+    cfg.update(file_cfg)
+
+    # Backward-compatible alias: "policy" can stand in for "ppo_policy".
+    if cfg.get("ppo_policy") is None and cfg.get("policy") is not None:
+        cfg["ppo_policy"] = cfg["policy"]
+
+    return argparse.Namespace(**cfg)
+
+
+def parse_report_sections(spec: str) -> set[str]:
+    raw = [part.strip().lower() for part in str(spec).split(",") if part.strip()]
+    if not raw:
+        raise ValueError("Empty --report selection. Use 'all' or a comma-separated list.")
+    if "all" in raw:
+        return {"all"}
+    unknown = [name for name in raw if name not in REPORT_SECTION_DESCRIPTIONS]
+    if unknown:
+        valid = ", ".join(sorted(REPORT_SECTION_DESCRIPTIONS))
+        raise ValueError(f"Unknown --report section(s): {', '.join(unknown)}. Valid: all, {valid}")
+    return set(raw)
+
+
+def resolve_policy_device(requested: str) -> torch.device:
+    req = str(requested).strip().lower()
+    if req == "cuda":
+        if not torch.cuda.is_available():
+            print("[warn] Requested policy_device=cuda but CUDA is unavailable; falling back to cpu.")
+            return torch.device("cpu")
+        return torch.device("cuda")
+    if req == "mps":
+        mps_backend = getattr(torch.backends, "mps", None)
+        has_runtime = (
+            hasattr(torch, "mps")
+            and hasattr(torch.mps, "is_available")
+            and hasattr(torch.mps, "current_device")
+        )
+        if mps_backend is None or not mps_backend.is_available() or not has_runtime:
+            print("[warn] Requested policy_device=mps but this PyTorch build lacks full MPS support; falling back to cpu.")
+            return torch.device("cpu")
+        return torch.device("mps")
+    return torch.device(req)
 
 
 def load_optimal_makespans(path: Optional[str]) -> Optional[Dict[str, int]]:
@@ -147,8 +153,27 @@ def load_optimal_makespans(path: Optional[str]) -> Optional[Dict[str, int]]:
 
 
 def main() -> None:
-    args = parse_args()
-    policy_device = torch.device(args.policy_device)
+    cli_args = parse_args()
+    if cli_args.report_list:
+        print("Available report sections:")
+        for name in sorted(REPORT_SECTION_DESCRIPTIONS):
+            print(f"- {name}: {REPORT_SECTION_DESCRIPTIONS[name]}")
+        print("- all: include every section above.")
+        return
+    if not cli_args.config:
+        raise ValueError("--config is required unless --report-list is used.")
+
+    selected_sections = parse_report_sections(cli_args.report)
+    show_all = "all" in selected_sections
+    show_core = show_all or ("core" in selected_sections)
+    show_opt = show_all or ("opt" in selected_sections)
+    show_search = show_all or ("search" in selected_sections)
+    show_compare = show_all or ("compare" in selected_sections)
+    show_success = show_all or ("success" in selected_sections)
+    show_notes = show_all or ("notes" in selected_sections)
+
+    args = load_config(Path(cli_args.config))
+    policy_device = resolve_policy_device(args.policy_device)
     ppo_path = args.ppo_policy or args.policy
     ppo_model = load_policy_checkpoint(ppo_path, device=policy_device) if ppo_path else None
     bc_model = load_policy_checkpoint(args.bc_policy, device=policy_device) if args.bc_policy else None
@@ -311,20 +336,25 @@ def main() -> None:
             )
 
     solver_labels = [("native", "Native"), ("bc", "BC"), ("ppo", "PPO")]
-    groups = [
-        ("Makespan/Upperbound", "makespan"),
-        ("Lowerbound", "lower_bound"),
-        ("Optimality Gap", "gap"),
-    ]
-    if include_opt_gap:
+    groups: List[Tuple[str, str]] = []
+    if show_core:
+        groups.extend(
+            [
+                ("Makespan/Upperbound", "makespan"),
+                ("Lowerbound", "lower_bound"),
+                ("Optimality Gap", "gap"),
+            ]
+        )
+    if show_opt and include_opt_gap:
         groups.append(("Gap to Optimal", "gap_opt"))
-    groups.extend(
-        [
-            ("Nodes to Incumbent", "nodes_to_inc"),
-            ("Prune Ratio After Inc", "prune_ratio"),
-            ("Bound Gap Closure", "bound_gap"),
-        ]
-    )
+    if show_search:
+        groups.extend(
+            [
+                ("Nodes to Incumbent", "nodes_to_inc"),
+                ("Prune Ratio After Inc", "prune_ratio"),
+                ("Bound Gap Closure", "bound_gap"),
+            ]
+        )
     header2 = [""] + [label for _, label in solver_labels] * len(groups)
 
     def fmt_int(val: Optional[int]) -> str:
@@ -339,71 +369,72 @@ def main() -> None:
     def fmt_float(val: Optional[float]) -> str:
         return "-" if val is None else f"{val:.1f}"
 
-    data_rows: List[List[str]] = []
-    for entry in summary_rows:
-        row: List[str] = [str(entry["instance"])]
-        for group_name, group_key in groups:
-            for key, _ in solver_labels:
-                if group_key in ("makespan", "lower_bound", "nodes_to_inc"):
-                    row.append(fmt_int(entry.get(f"{key}_{group_key}")))
-                elif group_key in ("gap", "gap_opt", "bound_gap"):
-                    row.append(fmt_gap(entry.get(f"{key}_{group_key}")))
-                elif group_key == "prune_ratio":
-                    row.append(fmt_ratio(entry.get(f"{key}_{group_key}")))
-                else:
-                    row.append("-")
-        data_rows.append(row)
+    if groups:
+        data_rows: List[List[str]] = []
+        for entry in summary_rows:
+            row: List[str] = [str(entry["instance"])]
+            for _group_name, group_key in groups:
+                for key, _ in solver_labels:
+                    if group_key in ("makespan", "lower_bound", "nodes_to_inc"):
+                        row.append(fmt_int(entry.get(f"{key}_{group_key}")))
+                    elif group_key in ("gap", "gap_opt", "bound_gap"):
+                        row.append(fmt_gap(entry.get(f"{key}_{group_key}")))
+                    elif group_key == "prune_ratio":
+                        row.append(fmt_ratio(entry.get(f"{key}_{group_key}")))
+                    else:
+                        row.append("-")
+            data_rows.append(row)
 
-    col_widths = []
-    for i, label in enumerate(header2):
-        if i == 0:
-            col_widths.append(len("Instance"))
-        else:
-            col_widths.append(len(label))
-    for row in data_rows:
-        for i, val in enumerate(row):
-            col_widths[i] = max(col_widths[i], len(val))
-
-    group_size = len(solver_labels)
-    separators: List[str] = []
-    for i in range(len(col_widths) - 1):
-        solver_col_idx = i - 1
-        end_of_group = solver_col_idx >= 0 and (solver_col_idx % group_size) == (group_size - 1)
-        separators.append("    " if end_of_group else "  ")
-
-    def fmt_row(cols: List[str]) -> str:
-        parts: List[str] = []
-        for i, val in enumerate(cols):
-            width = col_widths[i]
+        col_widths = []
+        for i, label in enumerate(header2):
             if i == 0:
-                parts.append(val.ljust(width))
+                col_widths.append(len("Instance"))
             else:
-                parts.append(val.rjust(width))
-        out = parts[0] if parts else ""
-        for i in range(1, len(parts)):
-            out += separators[i - 1] + parts[i]
-        return out
+                col_widths.append(len(label))
+        for row in data_rows:
+            for i, val in enumerate(row):
+                col_widths[i] = max(col_widths[i], len(val))
 
-    def span_width(start: int, end: int) -> int:
-        sep_width = sum(len(separators[i]) for i in range(start, end))
-        return sum(col_widths[start : end + 1]) + sep_width
+        group_size = len(solver_labels)
+        separators: List[str] = []
+        for i in range(len(col_widths) - 1):
+            solver_col_idx = i - 1
+            end_of_group = solver_col_idx >= 0 and (solver_col_idx % group_size) == (group_size - 1)
+            separators.append("    " if end_of_group else "  ")
 
-    header1 = "Instance".ljust(col_widths[0])
-    start_idx = 1
-    for group_label, _group_key in groups:
-        end_idx = start_idx + len(solver_labels) - 1
-        header1 += separators[start_idx - 1] + group_label.center(span_width(start_idx, end_idx))
-        start_idx = end_idx + 1
-    header2_line = fmt_row(header2)
+        def fmt_row(cols: List[str]) -> str:
+            parts: List[str] = []
+            for i, val in enumerate(cols):
+                width = col_widths[i]
+                if i == 0:
+                    parts.append(val.ljust(width))
+                else:
+                    parts.append(val.rjust(width))
+            out = parts[0] if parts else ""
+            for i in range(1, len(parts)):
+                out += separators[i - 1] + parts[i]
+            return out
 
-    lines.append("Benchmark-style summary (Native vs BC vs PPO)")
-    total_width = sum(col_widths) + sum(len(sep) for sep in separators)
-    lines.append("-" * total_width)
-    lines.append(header1)
-    lines.append(header2_line)
-    lines.append("-" * total_width)
-    for row in data_rows:
-        lines.append(fmt_row(row))
+        def span_width(start: int, end: int) -> int:
+            sep_width = sum(len(separators[i]) for i in range(start, end))
+            return sum(col_widths[start : end + 1]) + sep_width
+
+        header1 = "Instance".ljust(col_widths[0])
+        start_idx = 1
+        for group_label, _group_key in groups:
+            end_idx = start_idx + len(solver_labels) - 1
+            header1 += separators[start_idx - 1] + group_label.center(span_width(start_idx, end_idx))
+            start_idx = end_idx + 1
+        header2_line = fmt_row(header2)
+
+        lines.append("Benchmark-style summary (Native vs BC vs PPO)")
+        total_width = sum(col_widths) + sum(len(sep) for sep in separators)
+        lines.append("-" * total_width)
+        lines.append(header1)
+        lines.append(header2_line)
+        lines.append("-" * total_width)
+        for row in data_rows:
+            lines.append(fmt_row(row))
 
     # Aggregate comparisons.
     def collect_gaps(
@@ -440,9 +471,12 @@ def main() -> None:
         solved = sum(1 for r in summary_rows if r.get(key) is not None)
         return solved / len(summary_rows) if summary_rows else 0.0
 
-    if include_ppo or include_bc_display or include_native or include_ortools:
+    render_any_aggregates = (
+        (show_core or show_opt or show_search or show_compare or show_success)
+        and (include_ppo or include_bc_display or include_native or include_ortools)
+    )
+    if render_any_aggregates:
         lines.append("")
-        lines.append("Aggregates:")
 
         show_wins = include_ppo and include_native
         agg_header = ["Solver", "Median Gap", "Mean Gap"]
@@ -489,38 +523,40 @@ def main() -> None:
                 fmt_pct(pct_within(gaps, 5.0), digits=0),
             ]
 
-        agg_rows: List[List[str]] = []
-        if include_native:
-            agg_rows.append(build_row("Native", gap_native))
-        if include_bc_display:
-            agg_rows.append(build_row("BC", gap_bc))
-        if include_ppo:
-            agg_rows.append(build_row("PPO", gap_ppo, wins_pct))
+        if show_core:
+            lines.append("Aggregates (Optimality Gap):")
+            agg_rows: List[List[str]] = []
+            if include_native:
+                agg_rows.append(build_row("Native", gap_native))
+            if include_bc_display:
+                agg_rows.append(build_row("BC", gap_bc))
+            if include_ppo:
+                agg_rows.append(build_row("PPO", gap_ppo, wins_pct))
 
-        agg_col_widths = [len(h) for h in agg_header]
-        for row in agg_rows:
-            for i, val in enumerate(row):
-                agg_col_widths[i] = max(agg_col_widths[i], len(val))
+            agg_col_widths = [len(h) for h in agg_header]
+            for row in agg_rows:
+                for i, val in enumerate(row):
+                    agg_col_widths[i] = max(agg_col_widths[i], len(val))
 
-        def fmt_agg_row(row: List[str]) -> str:
-            parts: List[str] = []
-            for i, val in enumerate(row):
-                width = agg_col_widths[i]
-                if i == 0:
-                    parts.append(val.ljust(width))
-                else:
-                    parts.append(val.rjust(width))
-            return "  ".join(parts)
+            def fmt_agg_row(row: List[str]) -> str:
+                parts: List[str] = []
+                for i, val in enumerate(row):
+                    width = agg_col_widths[i]
+                    if i == 0:
+                        parts.append(val.ljust(width))
+                    else:
+                        parts.append(val.rjust(width))
+                return "  ".join(parts)
 
-        lines.append("-" * (sum(agg_col_widths) + 2 * (len(agg_col_widths) - 1)))
-        lines.append(fmt_agg_row(agg_header))
-        lines.append("-" * (sum(agg_col_widths) + 2 * (len(agg_col_widths) - 1)))
-        for row in agg_rows:
-            lines.append(fmt_agg_row(row))
+            lines.append("-" * (sum(agg_col_widths) + 2 * (len(agg_col_widths) - 1)))
+            lines.append(fmt_agg_row(agg_header))
+            lines.append("-" * (sum(agg_col_widths) + 2 * (len(agg_col_widths) - 1)))
+            for row in agg_rows:
+                lines.append(fmt_agg_row(row))
 
-        lines.append("Gaps computed as (upper-lower)/max(1, lower) in percentage.")
+            lines.append("Gaps computed as (upper-lower)/max(1, lower) in percentage.")
 
-        if include_opt_gap:
+        if show_opt and include_opt_gap:
             gap_opt_native = collect_gaps("native_gap_opt") if include_native else []
             gap_opt_bc = collect_gaps("bc_gap_opt") if include_bc_display else []
             gap_opt_ppo = collect_gaps("ppo_gap_opt") if include_ppo else []
@@ -579,72 +615,77 @@ def main() -> None:
             if include_ppo:
                 lines.append(fmt_opt_row(build_row_no_wins("PPO", gap_opt_ppo_nt)))
 
-        nodes_native = collect_vals("native_nodes_to_inc") if include_native else []
-        nodes_bc = collect_vals("bc_nodes_to_inc") if include_bc_display else []
-        nodes_ppo = collect_vals("ppo_nodes_to_inc") if include_ppo else []
-        prune_native = collect_vals("native_prune_ratio") if include_native else []
-        prune_bc = collect_vals("bc_prune_ratio") if include_bc_display else []
-        prune_ppo = collect_vals("ppo_prune_ratio") if include_ppo else []
-        bound_native = collect_vals("native_bound_gap") if include_native else []
-        bound_bc = collect_vals("bc_bound_gap") if include_bc_display else []
-        bound_ppo = collect_vals("ppo_bound_gap") if include_ppo else []
+        if show_search:
+            nodes_native = collect_vals("native_nodes_to_inc") if include_native else []
+            nodes_bc = collect_vals("bc_nodes_to_inc") if include_bc_display else []
+            nodes_ppo = collect_vals("ppo_nodes_to_inc") if include_ppo else []
+            prune_native = collect_vals("native_prune_ratio") if include_native else []
+            prune_bc = collect_vals("bc_prune_ratio") if include_bc_display else []
+            prune_ppo = collect_vals("ppo_prune_ratio") if include_ppo else []
+            bound_native = collect_vals("native_bound_gap") if include_native else []
+            bound_bc = collect_vals("bc_bound_gap") if include_bc_display else []
+            bound_ppo = collect_vals("ppo_bound_gap") if include_ppo else []
 
-        lines.append("")
-        lines.append("Aggregates (Search Metrics):")
-        search_header = [
-            "Solver",
-            "Median Nodes to Inc",
-            "Mean Nodes to Inc",
-            "Mean Prune Ratio",
-            "Median Bound Gap",
-            "Mean Bound Gap",
-        ]
-
-        def build_search_row(label: str, nodes: List[float], prunes: List[float], bounds: List[float]) -> List[str]:
-            return [
-                label,
-                fmt_int(gap_stat(nodes, statistics.median)),
-                fmt_float(gap_stat(nodes, statistics.mean)),
-                fmt_pct(gap_stat(prunes, statistics.mean)),
-                fmt_pct(gap_stat(bounds, statistics.median)),
-                fmt_pct(gap_stat(bounds, statistics.mean)),
+            lines.append("")
+            lines.append("Aggregates (Search Metrics):")
+            search_header = [
+                "Solver",
+                "Median Nodes to Inc",
+                "Mean Nodes to Inc",
+                "Mean Prune Ratio",
+                "Median Bound Gap",
+                "Mean Bound Gap",
             ]
 
-        search_rows: List[List[str]] = []
-        if include_native:
-            search_rows.append(build_search_row("Native", nodes_native, prune_native, bound_native))
-        if include_bc_display:
-            search_rows.append(build_search_row("BC", nodes_bc, prune_bc, bound_bc))
-        if include_ppo:
-            search_rows.append(build_search_row("PPO", nodes_ppo, prune_ppo, bound_ppo))
+            def build_search_row(label: str, nodes: List[float], prunes: List[float], bounds: List[float]) -> List[str]:
+                return [
+                    label,
+                    fmt_int(gap_stat(nodes, statistics.median)),
+                    fmt_float(gap_stat(nodes, statistics.mean)),
+                    fmt_pct(gap_stat(prunes, statistics.mean)),
+                    fmt_pct(gap_stat(bounds, statistics.median)),
+                    fmt_pct(gap_stat(bounds, statistics.mean)),
+                ]
 
-        search_col_widths = [len(h) for h in search_header]
-        for row in search_rows:
-            for i, val in enumerate(row):
-                search_col_widths[i] = max(search_col_widths[i], len(val))
+            search_rows: List[List[str]] = []
+            if include_native:
+                search_rows.append(build_search_row("Native", nodes_native, prune_native, bound_native))
+            if include_bc_display:
+                search_rows.append(build_search_row("BC", nodes_bc, prune_bc, bound_bc))
+            if include_ppo:
+                search_rows.append(build_search_row("PPO", nodes_ppo, prune_ppo, bound_ppo))
 
-        def fmt_search_row(row: List[str]) -> str:
-            parts: List[str] = []
-            for i, val in enumerate(row):
-                width = search_col_widths[i]
-                if i == 0:
-                    parts.append(val.ljust(width))
-                else:
-                    parts.append(val.rjust(width))
-            return "  ".join(parts)
+            search_col_widths = [len(h) for h in search_header]
+            for row in search_rows:
+                for i, val in enumerate(row):
+                    search_col_widths[i] = max(search_col_widths[i], len(val))
 
-        lines.append("-" * (sum(search_col_widths) + 2 * (len(search_col_widths) - 1)))
-        lines.append(fmt_search_row(search_header))
-        lines.append("-" * (sum(search_col_widths) + 2 * (len(search_col_widths) - 1)))
-        for row in search_rows:
-            lines.append(fmt_search_row(row))
+            def fmt_search_row(row: List[str]) -> str:
+                parts: List[str] = []
+                for i, val in enumerate(row):
+                    width = search_col_widths[i]
+                    if i == 0:
+                        parts.append(val.ljust(width))
+                    else:
+                        parts.append(val.rjust(width))
+                return "  ".join(parts)
 
-        lines.append(
-            "Search metrics: nodes to first incumbent (expanded), prune ratio after incumbent, "
-            "bound gap closure as (incumbent-best_bound)/incumbent."
-        )
+            lines.append("-" * (sum(search_col_widths) + 2 * (len(search_col_widths) - 1)))
+            lines.append(fmt_search_row(search_header))
+            lines.append("-" * (sum(search_col_widths) + 2 * (len(search_col_widths) - 1)))
+            for row in search_rows:
+                lines.append(fmt_search_row(row))
 
-        if include_ppo and include_native:
+            lines.append(
+                "Search metrics: nodes to first incumbent (expanded), prune ratio after incumbent, "
+                "bound gap closure as (incumbent-best_bound)/incumbent."
+            )
+
+        elif show_opt and not include_opt_gap:
+            lines.append("")
+            lines.append("Aggregates (Gap to Optimal): unavailable (provide --optimal-json in config).")
+
+        if show_compare and include_ppo and include_native:
             no_tie_total = wins + losses
             wins_pct_no_ties = (wins / no_tie_total * 100) if no_tie_total else None
             ties_pct = (ties / comparisons_total * 100) if comparisons_total else None
@@ -654,31 +695,33 @@ def main() -> None:
                 f"(wins/all={fmt_pct(wins_pct)}, wins/no-ties={fmt_pct(wins_pct_no_ties)}, ties={fmt_pct(ties_pct)})"
             )
 
-        success_bits = []
-        if include_native:
-            success_bits.append(f"Native success: {success_rate('native_makespan')*100:.1f}%")
-        if include_ppo:
-            success_bits.append(f"PPO success: {success_rate('ppo_makespan')*100:.1f}%")
-        if include_bc_display:
-            success_bits.append(f"BC success: {success_rate('bc_makespan')*100:.1f}%")
-        if include_ortools:
-            success_bits.append(f"OR-Tools success: {success_rate('ortools_makespan')*100:.1f}%")
-        if success_bits:
-            lines.append("Success rates: " + ", ".join(success_bits))
+        if show_success:
+            success_bits = []
+            if include_native:
+                success_bits.append(f"Native success: {success_rate('native_makespan')*100:.1f}%")
+            if include_ppo:
+                success_bits.append(f"PPO success: {success_rate('ppo_makespan')*100:.1f}%")
+            if include_bc_display:
+                success_bits.append(f"BC success: {success_rate('bc_makespan')*100:.1f}%")
+            if include_ortools:
+                success_bits.append(f"OR-Tools success: {success_rate('ortools_makespan')*100:.1f}%")
+            if success_bits:
+                lines.append("Success rates: " + ", ".join(success_bits))
 
-    if include_ppo:
-        lines.append("")
-        lines.append("Note: PPO columns were generated using the trained policy;")
-        lines.append("Native columns come from the native B&B branching.")
-    if include_bc_display:
-        if include_bc:
-            lines.append("Note: BC columns were generated using the BC policy checkpoint.")
-        else:
-            lines.append("Note: BC columns are populated from OR-Tools because no BC policy was provided.")
-    if include_ortools:
-        lines.append("Note: OR-Tools columns are produced via CP-SAT (may be optimal or best-found).")
-        if time_limit_all is not None:
-            lines.append("Note: OR-Tools lower bounds are omitted when a time limit is set.")
+    if show_notes:
+        if include_ppo:
+            lines.append("")
+            lines.append("Note: PPO columns were generated using the trained policy;")
+            lines.append("Native columns come from the native B&B branching.")
+        if include_bc_display:
+            if include_bc:
+                lines.append("Note: BC columns were generated using the BC policy checkpoint.")
+            else:
+                lines.append("Note: BC columns are populated from OR-Tools because no BC policy was provided.")
+        if include_ortools:
+            lines.append("Note: OR-Tools columns are produced via CP-SAT (may be optimal or best-found).")
+            if time_limit_all is not None:
+                lines.append("Note: OR-Tools lower bounds are omitted when a time limit is set.")
 
     # Print to stdout.
     for line in lines:

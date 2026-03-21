@@ -20,10 +20,10 @@ SRC_PATH = PROJECT_ROOT / "src"
 if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
-from rcpsp_bb_rl.data.dataset import list_instance_paths  # noqa: E402
-from rcpsp_bb_rl.models import PolicyMLP, load_policy_checkpoint  # noqa: E402
-from rcpsp_bb_rl.rl import BranchingEnv  # noqa: E402
-from rcpsp_bb_rl.bnb.eval import evaluate_bnb_suite, list_eval_instances  # noqa: E402
+from rcpsp_bb_rl.data.dataset import list_instance_paths  
+from rcpsp_bb_rl.models import PolicyMLP, load_policy_checkpoint  
+from rcpsp_bb_rl.rl import BranchingEnv  
+from rcpsp_bb_rl.bnb.eval import evaluate_bnb_suite, list_eval_instances  
 
 
 def parse_args() -> argparse.Namespace:
