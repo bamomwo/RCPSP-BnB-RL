@@ -1,0 +1,18 @@
+{
+  "notes": "Structural catalog only. Lower-bound formulas are intentionally not implemented yet.",
+  "lower_bounds": [
+    {"id": "lb_cp", "name": "Critical Path", "family": "precedence"},
+    {"id": "lb02", "name": "Resource Workload R1", "family": "resource"},
+    {"id": "lb03", "name": "Resource Workload R2", "family": "resource"},
+    {"id": "lb04", "name": "Resource Workload R3", "family": "resource"},
+    {"id": "lb05", "name": "Resource Workload R4", "family": "resource"},
+    {"id": "lb06", "name": "Max Resource Workload", "family": "resource"},
+    {"id": "lb07", "name": "Composite CP+Resource", "family": "composite"},
+    {"id": "lb08", "name": "Pair Workload R1+R2", "family": "resource-pair"},
+    {"id": "lb09", "name": "Pair Workload R1+R3", "family": "resource-pair"},
+    {"id": "lb10", "name": "Pair Workload R1+R4", "family": "resource-pair"},
+    {"id": "lb11", "name": "Pair Workload R2+R3", "family": "resource-pair"},
+    {"id": "lb12", "name": "Pair Workload R2+R4", "family": "resource-pair"},
+    {"id": "lb13", "name": "Pair Workload R3+R4", "family": "resource-pair"}
+  ]
+}

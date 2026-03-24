@@ -8,7 +8,7 @@ SRC_PATH = PROJECT_ROOT / "src"
 if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
-from rcpsp_bb_rl.bnb.teacher import generate_trace, solve_optimal_schedule, write_trace  # noqa: E402
+from rcpsp_bb_rl.data.teacher import generate_trace, solve_optimal_schedule, write_trace  # noqa: E402
 from rcpsp_bb_rl.data.dataset import list_instance_paths  # noqa: E402
 from rcpsp_bb_rl.data.parsing import load_instance  # noqa: E402
 

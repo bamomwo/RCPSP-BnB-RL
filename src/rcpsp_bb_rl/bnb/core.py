@@ -1,11 +1,12 @@
-import math
+from __future__ import annotations
+
 import time
-from collections import deque
 from dataclasses import dataclass
-from math import inf
-from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple
+from typing import Callable, Dict, List, Optional, Set, Tuple
 
 from rcpsp_bb_rl.data.parsing import Activity, RCPSPInstance
+from rcpsp_bb_rl.bnb.lower_bounds import lower_bound
+from rcpsp_bb_rl.bnb.precedence_utils import build_predecessors, compute_ready_set
 
 
 @dataclass
@@ -41,24 +42,6 @@ class SolverResult:
     first_incumbent_expanded: Optional[int]
 
 
-def build_predecessors(instance: RCPSPInstance) -> Dict[int, Set[int]]:
-    preds: Dict[int, Set[int]] = {act_id: set() for act_id in instance.activities}
-    for act_id, activity in instance.activities.items():
-        for succ in activity.successors:
-            preds[succ].add(act_id)
-    return preds
-
-
-def compute_ready_set(
-    unscheduled: Set[int], scheduled: Set[int], predecessors: Dict[int, Set[int]]
-) -> Set[int]:
-    ready: Set[int] = set()
-    for act_id in unscheduled:
-        if predecessors.get(act_id, set()).issubset(scheduled):
-            ready.add(act_id)
-    return ready
-
-
 def current_makespan(scheduled: Dict[int, ScheduleEntry]) -> int:
     return max((entry.finish for entry in scheduled.values()), default=0)
 
@@ -70,7 +53,9 @@ def resource_feasible(
     act_id: int,
     start: int,
 ) -> bool:
-    """Check if scheduling act_id at start time fits resource capacities."""
+    """
+    Check whether scheduling activity act_id at start violates renewable capacities.
+    """
     duration = activities[act_id].duration
     finish = start + duration
     reqs = activities[act_id].resources
@@ -93,7 +78,9 @@ def earliest_feasible_start(
     act_id: int,
     incumbent: Optional[int],
 ) -> Optional[int]:
-    """Find the earliest start time that satisfies precedence and resources."""
+    """
+    Earliest time satisfying precedence and renewable resource feasibility.
+    """
     if not predecessors.get(act_id):
         earliest = 0
     else:
@@ -105,83 +92,25 @@ def earliest_feasible_start(
 
     t = earliest
     while t <= horizon:
-        if resource_feasible(instance.activities, instance.resource_caps, scheduled, act_id, t):
+        if resource_feasible(
+            instance.activities,
+            instance.resource_caps,
+            scheduled,
+            act_id,
+            t,
+        ):
             return t
         t += 1
     return None
 
 
-def lower_bound(
-    instance: RCPSPInstance,
-    unscheduled: Iterable[int],
-    scheduled: Dict[int, ScheduleEntry],
-) -> int:
-    """
-    Lower bound on makespan: max(precedence-based, resource-based).
-    """
-    return max(
-        _precedence_lower_bound(instance, scheduled),
-        _resource_lower_bound(instance, unscheduled, scheduled),
-    )
-
-
-def _precedence_lower_bound(
-    instance: RCPSPInstance,
-    scheduled: Dict[int, ScheduleEntry],
-) -> int:
-    preds = build_predecessors(instance)
-    succs: Dict[int, Iterable[int]] = {
-        act_id: activity.successors for act_id, activity in instance.activities.items()
-    }
-    in_deg = {act_id: len(preds[act_id]) for act_id in instance.activities}
-
-    queue = deque(act_id for act_id, deg in in_deg.items() if deg == 0)
-    earliest_finish: Dict[int, int] = {}
-
-    while queue:
-        act_id = queue.popleft()
-        pred_finish = max((earliest_finish[p] for p in preds[act_id]), default=0)
-        if act_id in scheduled:
-            entry = scheduled[act_id]
-            est = max(pred_finish, entry.start)
-            eft = max(entry.finish, est + entry.duration)
-        else:
-            est = pred_finish
-            eft = est + instance.activities[act_id].duration
-        earliest_finish[act_id] = eft
-
-        for succ in succs[act_id]:
-            in_deg[succ] -= 1
-            if in_deg[succ] == 0:
-                queue.append(succ)
-
-    return max(earliest_finish.values(), default=0)
-
-
-def _resource_lower_bound(
-    instance: RCPSPInstance,
-    unscheduled: Iterable[int],
-    scheduled: Dict[int, ScheduleEntry],
-) -> int:
-    cur = current_makespan(scheduled)
-    max_inc = 0
-    for r, cap in enumerate(instance.resource_caps):
-        if cap <= 0:
-            continue
-        energy = sum(
-            instance.activities[a].duration * instance.activities[a].resources[r]
-            for a in unscheduled
-        )
-        if energy > 0:
-            max_inc = max(max_inc, int(math.ceil(energy / cap)))
-    return cur + max_inc
-
-
-ReadyOrderFn = Callable[[BBNode, Optional[int]], Iterable[int]]
+ReadyOrderFn = Callable[[BBNode, Optional[int]], List[int]]
 
 
 class BnBSolver:
-    """Simple DFS-based branch-and-bound for RCPSP."""
+    """
+    Simple DFS-based branch-and-bound solver for RCPSP.
+    """
 
     def __init__(self, instance: RCPSPInstance) -> None:
         self.instance = instance
@@ -203,6 +132,7 @@ class BnBSolver:
     ) -> SolverResult:
         unscheduled = set(self.instance.activities.keys())
         ready = compute_ready_set(unscheduled, set(), self.predecessors)
+
         root_id = self._new_node_id()
         root = BBNode(
             node_id=root_id,
@@ -225,6 +155,7 @@ class BnBSolver:
         nodes_pruned_after_incumbent = 0
         first_incumbent_expanded: Optional[int] = None
         seen_incumbent = False
+
         order_fn = order_ready_fn or (lambda node, _inc: sorted(node.ready))
         start_time_monotonic = time.perf_counter()
 
@@ -236,13 +167,6 @@ class BnBSolver:
         while stack and nodes_expanded < max_nodes and not time_exceeded():
             node_id = stack.pop()
             node = self.nodes[node_id]
-
-            if node.lower_bound is None:
-                node.status = "pruned"
-                nodes_pruned += 1
-                if seen_incumbent:
-                    nodes_pruned_after_incumbent += 1
-                continue
 
             incumbent = best_makespan
             if incumbent is not None and node.lower_bound >= incumbent:
@@ -277,8 +201,7 @@ class BnBSolver:
 
             ready_order = list(order_fn(node, best_makespan))
 
-            # Push in reverse: DFS pops LIFO, so reversing makes the highest-priority
-            # (first in ready_order, e.g., top policy score) expand first.
+            # Reverse push for DFS/LIFO.
             for act_id in reversed(ready_order):
                 est_start = earliest_feasible_start(
                     self.instance,
@@ -299,6 +222,7 @@ class BnBSolver:
                     finish=finish,
                     duration=duration,
                 )
+
                 child_unscheduled = set(node.unscheduled)
                 child_unscheduled.discard(act_id)
 
@@ -308,7 +232,12 @@ class BnBSolver:
                     self.predecessors,
                 )
 
-                child_lb = lower_bound(self.instance, child_unscheduled, child_scheduled)
+                child_lb = lower_bound(
+                    self.instance,
+                    child_unscheduled,
+                    child_scheduled,
+                )
+
                 child_id = self._new_node_id()
                 child_node = BBNode(
                     node_id=child_id,
@@ -320,6 +249,7 @@ class BnBSolver:
                     action=f"act {act_id}@{est_start}",
                     depth=node.depth + 1,
                 )
+
                 self.nodes.append(child_node)
                 self.edges.append((node_id, child_id))
                 stack.append(child_id)

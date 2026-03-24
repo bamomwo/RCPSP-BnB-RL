@@ -15,7 +15,7 @@ from rcpsp_bb_rl.bnb.core import (
     earliest_feasible_start,
     lower_bound,
 )
-from rcpsp_bb_rl.bnb.policy_guidance import _build_record_for_node  # re-use feature construction
+from rcpsp_bb_rl.rl.policy_guidance import _build_record_for_node  # re-use feature construction
 from rcpsp_bb_rl.data.featurize import candidate_features, global_features
 from rcpsp_bb_rl.data.parsing import RCPSPInstance, load_instance
 from rcpsp_bb_rl.data.trajectory_dataset import TrajectoryRecord

@@ -3,7 +3,7 @@
   "pattern": "*.jsonl",
   "batch_size": 32,
   "lr": 0.0001,
-  "hidden_sizes": [512, 256, 128],
+  "hidden_sizes": [1024, 512, 256],
   "dropout": 0.1,
   "val_frac": 0.2,
   "max_resources": 4,
