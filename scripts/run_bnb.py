@@ -10,7 +10,7 @@ SRC_PATH = PROJECT_ROOT / "src"
 if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
-from rcpsp_bb_rl.rl.policy_guidance import make_policy_order_fn  # noqa: E402
+from rcpsp_bb_rl.bnb.branching_order import make_order_fn  # noqa: E402
 from rcpsp_bb_rl.bnb.core import BnBSolver  # noqa: E402
 from rcpsp_bb_rl.data.parsing import load_instance  # noqa: E402
 from rcpsp_bb_rl.models import load_policy_checkpoint  # noqa: E402
@@ -69,7 +69,8 @@ def main() -> None:
     if args.policy:
         device = torch.device(args.policy_device)
         policy = load_policy_checkpoint(args.policy, device=device)
-        order_fn = make_policy_order_fn(
+        order_fn = make_order_fn(
+            "policy",
             instance=instance,
             model=policy,
             max_resources=args.policy_max_resources,

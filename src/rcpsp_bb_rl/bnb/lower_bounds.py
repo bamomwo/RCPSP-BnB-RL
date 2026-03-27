@@ -1,42 +1,18 @@
 from __future__ import annotations
 
-from typing import Callable, Dict, Iterable, List, Mapping, Tuple
+from typing import TYPE_CHECKING, Callable, Dict, Iterable, List, Mapping, Tuple
 
-from rcpsp_bb_rl.data.parsing import RCPSPInstance
-from rcpsp_bb_rl.bnb.precedence_utils import build_predecessors, topological_order
+from rcpsp_bb_rl.bnb.precedence import build_predecessors, topological_order
+from rcpsp_bb_rl.bnb.scheduling import (
+    entry_duration as _entry_duration,
+    entry_finish as _entry_finish,
+    entry_start as _entry_start,
+)
 
+if TYPE_CHECKING:
+    from rcpsp_bb_rl.data.parsing import RCPSPInstance
 
-LowerBoundFn = Callable[[RCPSPInstance, Iterable[int], Mapping[int, object]], int]
-
-
-# -----------------------------------------------------------------------------
-# Helpers for scheduled entries
-# -----------------------------------------------------------------------------
-
-def _entry_start(entry: object) -> int:
-    if hasattr(entry, "start"):
-        return int(getattr(entry, "start"))
-    if isinstance(entry, Mapping):
-        return int(entry.get("start", 0))
-    raise TypeError("Scheduled entry must provide a start time.")
-
-
-def _entry_duration(entry: object) -> int:
-    if hasattr(entry, "duration"):
-        return int(getattr(entry, "duration"))
-    if isinstance(entry, Mapping):
-        return int(entry.get("duration", 0))
-    raise TypeError("Scheduled entry must provide a duration.")
-
-
-def _entry_finish(entry: object) -> int:
-    if hasattr(entry, "finish"):
-        return int(getattr(entry, "finish"))
-    if isinstance(entry, Mapping):
-        if "finish" in entry:
-            return int(entry["finish"])
-        return _entry_start(entry) + _entry_duration(entry)
-    raise TypeError("Scheduled entry must provide a finish time or start+duration.")
+LowerBoundFn = Callable[[object, Iterable[int], Mapping[int, object]], int]
 
 
 # -----------------------------------------------------------------------------

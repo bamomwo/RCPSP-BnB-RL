@@ -1,8 +1,9 @@
 from __future__ import annotations
 from collections import deque
-from typing import Dict, Iterable, List, Mapping, Sequence, Set, Tuple
+from typing import TYPE_CHECKING, Dict, Iterable, List, Mapping, Sequence, Set, Tuple
 
-from rcpsp_bb_rl.data.parsing import RCPSPInstance
+if TYPE_CHECKING:
+    from rcpsp_bb_rl.data.parsing import RCPSPInstance
 
 
 def build_predecessors(instance: RCPSPInstance) -> Dict[int, Set[int]]:
