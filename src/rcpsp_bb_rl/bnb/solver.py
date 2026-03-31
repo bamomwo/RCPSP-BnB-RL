@@ -81,7 +81,7 @@ class BnBSolver:
         max_nodes: int = 10000,
         order_ready_fn: Optional[ReadyOrderFn] = None,
         time_limit_s: Optional[float] = None,
-        lb_id: str = DEFAULT_LOWER_BOUND_ID,
+        lb_spec: object = DEFAULT_LOWER_BOUND_ID,
     ) -> SolverResult:
         unscheduled = set(self.instance.activities.keys())
         ready = compute_ready_set(unscheduled, set(), self.predecessors)
@@ -92,7 +92,7 @@ class BnBSolver:
             scheduled={},
             ready=ready,
             unscheduled=unscheduled,
-            lower_bound=lower_bound(self.instance, unscheduled, {}, lb_id=lb_id),
+            lower_bound=lower_bound(self.instance, unscheduled, {}, lb_id=lb_spec),
             parent_id=None,
             action=None,
             depth=0,
@@ -192,7 +192,7 @@ class BnBSolver:
                     self.instance,
                     child_unscheduled,
                     child_scheduled,
-                    lb_id=lb_id,
+                    lb_id=lb_spec,
                 )
 
                 child_id = self._new_node_id()
@@ -229,7 +229,7 @@ def solve_serial(
     max_nodes: int = 10000,
     order_ready_fn: Optional[ReadyOrderFn] = None,
     time_limit_s: Optional[float] = None,
-    lb_id: str = DEFAULT_LOWER_BOUND_ID,
+    lb_spec: object = DEFAULT_LOWER_BOUND_ID,
 ) -> SolverResult:
     solver = BnBSolver(
         instance=instance,
@@ -239,7 +239,7 @@ def solve_serial(
         max_nodes=max_nodes,
         order_ready_fn=order_ready_fn,
         time_limit_s=time_limit_s,
-        lb_id=lb_id,
+        lb_spec=lb_spec,
     )
 
 
@@ -249,7 +249,7 @@ def solve_parallel(
     order_ready_fn: Optional[ReadyOrderFn] = None,
     time_limit_s: Optional[float] = None,
     max_children: Optional[int] = None,
-    lb_id: str = DEFAULT_LOWER_BOUND_ID,
+    lb_spec: object = DEFAULT_LOWER_BOUND_ID,
 ) -> SolverResult:
     solver = BnBSolver(
         instance=instance,
@@ -259,5 +259,5 @@ def solve_parallel(
         max_nodes=max_nodes,
         order_ready_fn=order_ready_fn,
         time_limit_s=time_limit_s,
-        lb_id=lb_id,
+        lb_spec=lb_spec,
     )

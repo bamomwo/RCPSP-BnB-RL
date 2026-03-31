@@ -12,7 +12,12 @@ if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
 from rcpsp_bb_rl.bnb.branching_order import make_order_fn  # noqa: E402
-from rcpsp_bb_rl.bnb.lower_bounds import DEFAULT_LOWER_BOUND_ID, list_lower_bound_ids  # noqa: E402
+from rcpsp_bb_rl.bnb.lower_bounds import (  # noqa: E402
+    DEFAULT_LOWER_BOUND_ID,
+    format_lower_bound_spec,
+    list_lower_bound_ids,
+    normalize_lower_bound_spec,
+)
 from rcpsp_bb_rl.bnb.solver import BnBSolver, SolverResult  # noqa: E402
 from rcpsp_bb_rl.data.dataset import list_instance_paths  # noqa: E402
 from rcpsp_bb_rl.data.parsing import load_instance  # noqa: E402
@@ -24,7 +29,7 @@ REQUIRED_CONFIG_KEYS = {
 
 OPTIONAL_CONFIG_KEYS = {
     "time_limit_s",
-    "lower_bound_id",
+    "lower_bound",
     "policy_path",
     "policy_device",
     "policy_max_resources",
@@ -132,7 +137,7 @@ def resolve_policy_device(requested: str):
 def validate_and_resolve(
     args: argparse.Namespace,
     cfg: Dict[str, Any],
-) -> tuple[int, Optional[float], Optional[str], str, int, str]:
+) -> tuple[int, Optional[float], Optional[str], str, int, List[str]]:
     max_nodes = int(args.max_nodes if args.max_nodes is not None else cfg["max_nodes"])
     if max_nodes <= 0:
         raise ValueError("max_nodes must be > 0.")
@@ -148,16 +153,15 @@ def validate_and_resolve(
     if policy_max_resources <= 0:
         raise ValueError("policy_max_resources must be > 0.")
 
-    lb_id = (
-        str(args.lower_bound).strip()
-        if args.lower_bound is not None
-        else str(cfg.get("lower_bound_id", DEFAULT_LOWER_BOUND_ID)).strip()
-    )
-    known_lb_ids = set(list_lower_bound_ids())
-    if lb_id not in known_lb_ids:
-        raise ValueError(
-            f"Unknown lower_bound_id '{lb_id}'. Available: {', '.join(sorted(known_lb_ids))}"
-        )
+    raw_lb_spec: object
+    if args.lower_bound is not None:
+        raw_lb_spec = args.lower_bound
+    elif "lower_bound" in cfg:
+        raw_lb_spec = cfg.get("lower_bound")
+    else:
+        raw_lb_spec = DEFAULT_LOWER_BOUND_ID
+
+    lb_spec = normalize_lower_bound_spec(raw_lb_spec)
 
     return (
         max_nodes,
@@ -165,7 +169,7 @@ def validate_and_resolve(
         (None if policy_path is None else str(policy_path)),
         policy_device,
         policy_max_resources,
-        lb_id,
+        lb_spec,
     )
 
 
@@ -181,7 +185,7 @@ def compute_global_lower_bound(result: SolverResult) -> Optional[int]:
 def main() -> None:
     args = parse_args()
     cfg = load_run_config(Path(args.config))
-    max_nodes, time_limit_s, policy_path, policy_device, policy_max_resources, lb_id = validate_and_resolve(args, cfg)
+    max_nodes, time_limit_s, policy_path, policy_device, policy_max_resources, lb_spec = validate_and_resolve(args, cfg)
     paths = resolve_paths(args, cfg)
 
     progress_every = int(cfg.get("progress_every", 1))
@@ -217,7 +221,7 @@ def main() -> None:
             max_nodes=max_nodes,
             order_ready_fn=order_fn,
             time_limit_s=time_limit_s,
-            lb_id=lb_id,
+            lb_spec=lb_spec,
         )
         elapsed = time.perf_counter() - t0
 
@@ -284,7 +288,7 @@ def main() -> None:
     print("-" * (sum(col_widths) + 2 * (len(col_widths) - 1)))
     for row in table_rows:
         print(fmt_row(row))
-    print(f"\nNote: lower bound used = {lb_id}")
+    print(f"\nNote: lower bound used = {format_lower_bound_spec(lb_spec)}")
 
 
 if __name__ == "__main__":

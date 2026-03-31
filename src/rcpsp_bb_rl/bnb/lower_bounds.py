@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Callable, Dict, Iterable, List, Mapping, Tuple
 
 from rcpsp_bb_rl.bnb.precedence import build_predecessors, topological_order
@@ -187,6 +188,44 @@ def get_lower_bound_fn(lb_id: str) -> LowerBoundFn:
         raise KeyError(f"Unknown lower bound '{lb_id}'. Available: [{known}]") from exc
 
 
+def normalize_lower_bound_spec(lb_spec: object = DEFAULT_LOWER_BOUND_ID) -> List[str]:
+    """
+    Normalize lower-bound selection into a validated non-empty list of LB ids.
+
+    Accepted forms:
+    - "lb_cp"
+    - "lb_cp,lb_cc"
+    - ["lb_cp", "lb_cc"]
+    """
+    if lb_spec is None:
+        raw_ids = [DEFAULT_LOWER_BOUND_ID]
+    elif isinstance(lb_spec, str):
+        parts = [part.strip() for part in lb_spec.split(",")]
+        raw_ids = [part for part in parts if part]
+    elif isinstance(lb_spec, Sequence):
+        raw_ids = [str(item).strip() for item in lb_spec if str(item).strip()]
+    else:
+        raise TypeError("lower bound spec must be a string, list/tuple of strings, or None.")
+
+    if not raw_ids:
+        raise ValueError("lower bound spec cannot be empty.")
+
+    known = set(LOWER_BOUND_FNS.keys())
+    unknown = [lb_id for lb_id in raw_ids if lb_id not in known]
+    if unknown:
+        names = ", ".join(sorted(known))
+        raise ValueError(f"Unknown lower bound id(s): {', '.join(unknown)}. Available: {names}")
+
+    return raw_ids
+
+
+def format_lower_bound_spec(lb_spec: object = DEFAULT_LOWER_BOUND_ID) -> str:
+    ids = normalize_lower_bound_spec(lb_spec)
+    if len(ids) == 1:
+        return ids[0]
+    return "max(" + ", ".join(ids) + ")"
+
+
 def lower_bound(
     instance: RCPSPInstance,
     unscheduled: Iterable[int],
@@ -195,6 +234,17 @@ def lower_bound(
 ) -> int:
     """
     Compute the requested lower bound.
+
+    `lb_id` may be:
+    - one lower-bound id (e.g. "lb_cp")
+    - a comma-separated string (e.g. "lb_cp,lb_cc")
+    - a sequence of ids (e.g. ["lb_cp", "lb_cc"])
+
+    Composite semantics: max over selected bounds.
     """
-    fn = get_lower_bound_fn(lb_id)
-    return fn(instance, unscheduled, scheduled)
+    lb_ids = normalize_lower_bound_spec(lb_id)
+    values = [
+        get_lower_bound_fn(bound_id)(instance, unscheduled, scheduled)
+        for bound_id in lb_ids
+    ]
+    return max(values)
