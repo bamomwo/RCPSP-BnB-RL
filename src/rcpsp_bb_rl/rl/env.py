@@ -6,15 +6,10 @@ from typing import Dict, Iterable, List, Optional, Sequence
 
 import torch
 
-from rcpsp_bb_rl.bnb.core import (
-    BBNode,
-    ScheduleEntry,
-    build_predecessors,
-    compute_ready_set,
-    current_makespan,
-    earliest_feasible_start,
-    lower_bound,
-)
+from rcpsp_bb_rl.bnb.lower_bounds import lower_bound
+from rcpsp_bb_rl.bnb.precedence import build_predecessors, compute_ready_set
+from rcpsp_bb_rl.bnb.scheduling import earliest_feasible_start
+from rcpsp_bb_rl.bnb.solver import BBNode, ScheduleEntry, current_makespan
 from rcpsp_bb_rl.rl.policy_guidance import _build_record_for_node  # re-use feature construction
 from rcpsp_bb_rl.data.featurize import candidate_features, global_features
 from rcpsp_bb_rl.data.parsing import RCPSPInstance, load_instance

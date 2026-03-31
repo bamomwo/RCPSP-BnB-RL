@@ -1,0 +1,10 @@
+{
+  "max_nodes": 2000,
+  "time_limit_s": null,
+  "policy_path": null,
+  "policy_device": "cpu",
+  "policy_max_resources": 4,
+  "instance_patterns_config": "config/instance_patterns.json",
+  "progress_every": 1,
+  "limit": null
+}

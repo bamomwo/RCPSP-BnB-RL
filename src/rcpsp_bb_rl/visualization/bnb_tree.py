@@ -3,7 +3,7 @@ from typing import Dict, Tuple
 
 from graphviz import Digraph
 
-from rcpsp_bb_rl.bnb.core import BBNode
+from rcpsp_bb_rl.bnb.solver import BBNode
 
 
 STATUS_COLORS: Dict[str, str] = {

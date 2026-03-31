@@ -6,14 +6,10 @@ from typing import Dict, Iterable, List, Optional
 
 from ortools.sat.python import cp_model
 
-from rcpsp_bb_rl.bnb.core import (
-    ScheduleEntry,
-    build_predecessors,
-    compute_ready_set,
-    current_makespan,
-    earliest_feasible_start,
-    lower_bound,
-)
+from rcpsp_bb_rl.bnb.lower_bounds import lower_bound
+from rcpsp_bb_rl.bnb.precedence import build_predecessors, compute_ready_set
+from rcpsp_bb_rl.bnb.scheduling import earliest_feasible_start
+from rcpsp_bb_rl.bnb.solver import ScheduleEntry, current_makespan
 from rcpsp_bb_rl.data.parsing import RCPSPInstance
 
 

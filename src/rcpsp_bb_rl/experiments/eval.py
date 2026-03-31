@@ -7,8 +7,8 @@ from typing import Dict, Iterable, List, Optional, Tuple
 
 import torch
 
-from rcpsp_bb_rl.bnb.core import BnBSolver
 from rcpsp_bb_rl.bnb.branching_order import make_order_fn
+from rcpsp_bb_rl.bnb.solver import BnBSolver
 from rcpsp_bb_rl.data.dataset import list_instance_paths
 from rcpsp_bb_rl.data.parsing import load_instance
 
