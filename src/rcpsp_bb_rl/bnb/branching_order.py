@@ -30,7 +30,7 @@ def make_lower_bound_order_fn(
     *,
     instance: RCPSPInstance,
     predecessors: Optional[Mapping[int, Set[int]]] = None,
-    lb_id: str = DEFAULT_LOWER_BOUND_ID,
+    lb_id: object = DEFAULT_LOWER_BOUND_ID,
 ) -> ReadyOrderFn:
     """
     Order ready activities by child-node lower bound (ascending, then activity ID).
@@ -131,7 +131,7 @@ def make_order_fn(kind: str, **kwargs) -> ReadyOrderFn:
         return make_lower_bound_order_fn(
             instance=kwargs["instance"],
             predecessors=kwargs.get("predecessors"),
-            lb_id=str(kwargs.get("lb_id", DEFAULT_LOWER_BOUND_ID)),
+            lb_id=kwargs.get("lb_id", DEFAULT_LOWER_BOUND_ID),
         )
 
     if normalized == "policy":

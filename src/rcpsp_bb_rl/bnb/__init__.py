@@ -30,6 +30,15 @@ from rcpsp_bb_rl.bnb.lower_bounds import (
     get_lower_bound_fn,
     list_lower_bound_ids,
 )
+from rcpsp_bb_rl.bnb.dominance import (
+    ALL_RULE_IDS,
+    DominanceConfig,
+    DominanceEngine,
+    DominanceStats,
+    build_dominance_engine,
+    format_dominance_spec,
+    normalize_dominance_spec,
+)
 
 __all__ = [
     "BBNode",
@@ -54,4 +63,11 @@ __all__ = [
     "LOWER_BOUND_FNS",
     "get_lower_bound_fn",
     "list_lower_bound_ids",
+    "ALL_RULE_IDS",
+    "DominanceConfig",
+    "DominanceStats",
+    "DominanceEngine",
+    "normalize_dominance_spec",
+    "format_dominance_spec",
+    "build_dominance_engine",
 ]

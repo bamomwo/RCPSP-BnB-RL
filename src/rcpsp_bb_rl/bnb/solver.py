@@ -9,6 +9,7 @@ from rcpsp_bb_rl.bnb.branching import (
     ReadyOrderFn,
     SerialBranchingScheme,
 )
+from rcpsp_bb_rl.bnb.dominance import build_dominance_engine, normalize_dominance_spec
 from rcpsp_bb_rl.bnb.lower_bounds import DEFAULT_LOWER_BOUND_ID, lower_bound
 from rcpsp_bb_rl.bnb.precedence import build_predecessors, compute_ready_set
 from rcpsp_bb_rl.bnb.scheduling import earliest_feasible_start, resource_feasible
@@ -48,6 +49,10 @@ class SolverResult:
     nodes_expanded_after_incumbent: int
     nodes_pruned_after_incumbent: int
     first_incumbent_expanded: Optional[int]
+    dominance_enabled: bool
+    dominance_rules: Tuple[str, ...]
+    dominance_pruned_children: int
+    dominance_pruned_by_rule: Dict[str, int]
 
 
 def current_makespan(scheduled: Dict[int, ScheduleEntry]) -> int:
@@ -78,13 +83,20 @@ class BnBSolver:
 
     def solve(
         self,
-        max_nodes: int = 10000,
+        max_nodes: Optional[int] = None,
         order_ready_fn: Optional[ReadyOrderFn] = None,
         time_limit_s: Optional[float] = None,
         lb_spec: object = DEFAULT_LOWER_BOUND_ID,
+        dominance: object = False,
     ) -> SolverResult:
         unscheduled = set(self.instance.activities.keys())
         ready = compute_ready_set(unscheduled, set(), self.predecessors)
+        dominance_cfg = normalize_dominance_spec(dominance)
+        dominance_engine = build_dominance_engine(
+            instance=self.instance,
+            predecessors=self.predecessors,
+            dominance=dominance_cfg,
+        )
 
         root_id = self._new_node_id()
         root = BBNode(
@@ -98,6 +110,7 @@ class BnBSolver:
             depth=0,
         )
         self.nodes.append(root)
+        dominance_engine.register_state(root.unscheduled, root.scheduled, root.lower_bound)
 
         stack: List[int] = [root_id]
         best_makespan: Optional[int] = None
@@ -116,7 +129,7 @@ class BnBSolver:
                 return False
             return (time.perf_counter() - start_time_monotonic) >= time_limit_s
 
-        while stack and nodes_expanded < max_nodes and not time_exceeded():
+        while stack and ((max_nodes is None) or (nodes_expanded < max_nodes)) and not time_exceeded():
             node_id = stack.pop()
             node = self.nodes[node_id]
 
@@ -195,6 +208,17 @@ class BnBSolver:
                     lb_id=lb_spec,
                 )
 
+                pruned_rule = dominance_engine.prune_child(
+                    parent_scheduled=node.scheduled,
+                    child_scheduled=child_scheduled,
+                    child_unscheduled=child_unscheduled,
+                    child_lb=child_lb,
+                    act_id=act_id,
+                    child_start=est_start,
+                )
+                if pruned_rule is not None:
+                    continue
+
                 child_id = self._new_node_id()
                 child_node = BBNode(
                     node_id=child_id,
@@ -221,15 +245,20 @@ class BnBSolver:
             nodes_expanded_after_incumbent=nodes_expanded_after_incumbent,
             nodes_pruned_after_incumbent=nodes_pruned_after_incumbent,
             first_incumbent_expanded=first_incumbent_expanded,
+            dominance_enabled=dominance_cfg.enabled,
+            dominance_rules=tuple(dominance_cfg.rules),
+            dominance_pruned_children=dominance_engine.stats.pruned_children,
+            dominance_pruned_by_rule=dict(dominance_engine.stats.pruned_by_rule),
         )
 
 
 def solve_serial(
     instance: RCPSPInstance,
-    max_nodes: int = 10000,
+    max_nodes: Optional[int] = None,
     order_ready_fn: Optional[ReadyOrderFn] = None,
     time_limit_s: Optional[float] = None,
     lb_spec: object = DEFAULT_LOWER_BOUND_ID,
+    dominance: object = False,
 ) -> SolverResult:
     solver = BnBSolver(
         instance=instance,
@@ -240,16 +269,18 @@ def solve_serial(
         order_ready_fn=order_ready_fn,
         time_limit_s=time_limit_s,
         lb_spec=lb_spec,
+        dominance=dominance,
     )
 
 
 def solve_parallel(
     instance: RCPSPInstance,
-    max_nodes: int = 10000,
+    max_nodes: Optional[int] = None,
     order_ready_fn: Optional[ReadyOrderFn] = None,
     time_limit_s: Optional[float] = None,
     max_children: Optional[int] = None,
     lb_spec: object = DEFAULT_LOWER_BOUND_ID,
+    dominance: object = False,
 ) -> SolverResult:
     solver = BnBSolver(
         instance=instance,
@@ -260,4 +291,5 @@ def solve_parallel(
         order_ready_fn=order_ready_fn,
         time_limit_s=time_limit_s,
         lb_spec=lb_spec,
+        dominance=dominance,
     )

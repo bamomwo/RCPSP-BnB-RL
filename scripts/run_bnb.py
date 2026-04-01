@@ -18,21 +18,26 @@ from rcpsp_bb_rl.bnb.lower_bounds import (  # noqa: E402
     list_lower_bound_ids,
     normalize_lower_bound_spec,
 )
+from rcpsp_bb_rl.bnb.dominance import format_dominance_spec, normalize_dominance_spec  # noqa: E402
 from rcpsp_bb_rl.bnb.solver import BnBSolver, SolverResult  # noqa: E402
 from rcpsp_bb_rl.data.dataset import list_instance_paths  # noqa: E402
 from rcpsp_bb_rl.data.parsing import load_instance  # noqa: E402
 
 REQUIRED_CONFIG_KEYS = {
-    "max_nodes",
     "instance_patterns_config",
 }
 
+SUPPORTED_BRANCHING_ORDERS = {"activity_id", "lower_bound", "policy"}
+
 OPTIONAL_CONFIG_KEYS = {
+    "max_nodes",
     "time_limit_s",
     "lower_bound",
+    "branching_order",
     "policy_path",
     "policy_device",
     "policy_max_resources",
+    "dominance",
     "progress_every",
     "limit",
 }
@@ -48,7 +53,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--policy",
         default=None,
-        help="Path to a policy checkpoint. If omitted, classical branching is used.",
+        help="Policy checkpoint override. Providing this forces branching_order=policy for this run.",
     )
 
     src_group = parser.add_mutually_exclusive_group(required=True)
@@ -56,13 +61,26 @@ def parse_args() -> argparse.Namespace:
     src_group.add_argument("--root", help="Directory containing RCPSP instances.")
 
     # Optional explicit overrides.
-    parser.add_argument("--max-nodes", type=int, default=None, help="Max nodes override.")
+    parser.add_argument(
+        "--max-nodes",
+        type=int,
+        default=None,
+        help="Max nodes override. Omit to run until full search completion.",
+    )
     parser.add_argument("--time-limit-s", type=float, default=None, help="Time limit override.")
     parser.add_argument("--limit", type=int, default=None, help="Instance limit override for --root runs.")
     parser.add_argument(
         "--lower-bound",
         default=None,
         help=f"Lower bound id override. Available: {', '.join(list_lower_bound_ids())}.",
+    )
+    parser.add_argument(
+        "--dominance",
+        default=None,
+        help=(
+            "Dominance override. Accepted: off|on|all|"
+            "set_based,contradiction,extended_global_shift"
+        ),
     )
     return parser.parse_args()
 
@@ -137,21 +155,46 @@ def resolve_policy_device(requested: str):
 def validate_and_resolve(
     args: argparse.Namespace,
     cfg: Dict[str, Any],
-) -> tuple[int, Optional[float], Optional[str], str, int, List[str]]:
-    max_nodes = int(args.max_nodes if args.max_nodes is not None else cfg["max_nodes"])
-    if max_nodes <= 0:
-        raise ValueError("max_nodes must be > 0.")
+) -> tuple[Optional[int], Optional[float], str, Optional[str], str, int, List[str], object]:
+    raw_max_nodes = args.max_nodes if args.max_nodes is not None else cfg.get("max_nodes")
+    max_nodes: Optional[int]
+    if raw_max_nodes is None:
+        max_nodes = None
+    else:
+        max_nodes = int(raw_max_nodes)
+        if max_nodes <= 0:
+            raise ValueError("max_nodes must be > 0 when provided.")
 
     raw_time_limit = args.time_limit_s if args.time_limit_s is not None else cfg.get("time_limit_s")
     time_limit_s = None if raw_time_limit is None else float(raw_time_limit)
     if time_limit_s is not None and time_limit_s <= 0:
         raise ValueError("time_limit_s must be > 0 when provided.")
 
-    policy_path = None if args.policy is None else str(args.policy)
+    branch_order_raw = str(cfg.get("branching_order", "activity_id")).strip().lower()
+    branch_order = "activity_id" if branch_order_raw == "classical" else branch_order_raw
+    if branch_order not in SUPPORTED_BRANCHING_ORDERS:
+        raise ValueError(
+            "branching_order must be one of: "
+            + ", ".join(sorted(SUPPORTED_BRANCHING_ORDERS))
+            + " (or 'classical' as alias for activity_id)."
+        )
+
+    policy_path: Optional[str]
+    if args.policy is not None:
+        branch_order = "policy"
+        policy_path = str(args.policy)
+    else:
+        policy_path = cfg.get("policy_path")
+        policy_path = None if policy_path is None else str(policy_path)
+
     policy_device = str(cfg.get("policy_device", "cpu"))
     policy_max_resources = int(cfg.get("policy_max_resources", 4))
     if policy_max_resources <= 0:
         raise ValueError("policy_max_resources must be > 0.")
+    if branch_order == "policy" and not policy_path:
+        raise ValueError(
+            "branching_order=policy requires a policy checkpoint via config 'policy_path' or --policy."
+        )
 
     raw_lb_spec: object
     if args.lower_bound is not None:
@@ -162,14 +205,24 @@ def validate_and_resolve(
         raw_lb_spec = DEFAULT_LOWER_BOUND_ID
 
     lb_spec = normalize_lower_bound_spec(raw_lb_spec)
+    raw_dom_spec: object
+    if args.dominance is not None:
+        raw_dom_spec = args.dominance
+    elif "dominance" in cfg:
+        raw_dom_spec = cfg.get("dominance")
+    else:
+        raw_dom_spec = False
+    dominance_spec = normalize_dominance_spec(raw_dom_spec)
 
     return (
         max_nodes,
         time_limit_s,
+        branch_order,
         (None if policy_path is None else str(policy_path)),
         policy_device,
         policy_max_resources,
         lb_spec,
+        dominance_spec,
     )
 
 
@@ -185,7 +238,7 @@ def compute_global_lower_bound(result: SolverResult) -> Optional[int]:
 def main() -> None:
     args = parse_args()
     cfg = load_run_config(Path(args.config))
-    max_nodes, time_limit_s, policy_path, policy_device, policy_max_resources, lb_spec = validate_and_resolve(args, cfg)
+    max_nodes, time_limit_s, branch_order, policy_path, policy_device, policy_max_resources, lb_spec, dominance_spec = validate_and_resolve(args, cfg)
     paths = resolve_paths(args, cfg)
 
     progress_every = int(cfg.get("progress_every", 1))
@@ -194,7 +247,7 @@ def main() -> None:
 
     policy_model = None
     device = None
-    use_policy = policy_path is not None
+    use_policy = branch_order == "policy"
     if use_policy:
         from rcpsp_bb_rl.models import load_policy_checkpoint
 
@@ -215,6 +268,13 @@ def main() -> None:
                 device=device,
                 predecessors=solver.predecessors,
             )
+        elif branch_order == "lower_bound":
+            order_fn = make_order_fn(
+                "lower_bound",
+                instance=instance,
+                predecessors=solver.predecessors,
+                lb_id=lb_spec,
+            )
 
         t0 = time.perf_counter()
         result = solver.solve(
@@ -222,6 +282,7 @@ def main() -> None:
             order_ready_fn=order_fn,
             time_limit_s=time_limit_s,
             lb_spec=lb_spec,
+            dominance=dominance_spec,
         )
         elapsed = time.perf_counter() - t0
 
@@ -288,7 +349,55 @@ def main() -> None:
     print("-" * (sum(col_widths) + 2 * (len(col_widths) - 1)))
     for row in table_rows:
         print(fmt_row(row))
+
+    if len(rows) > 1:
+        def avg_int_field(key: str) -> Optional[float]:
+            vals = [float(row[key]) for row in rows if row.get(key) is not None]
+            if not vals:
+                return None
+            return sum(vals) / len(vals)
+
+        def avg_float_field(key: str) -> Optional[float]:
+            vals = [float(row[key]) for row in rows]
+            if not vals:
+                return None
+            return sum(vals) / len(vals)
+
+        avg_makespan = avg_int_field("makespan")
+        avg_lowerbound = avg_int_field("lowerbound")
+        avg_cpu_time = avg_float_field("cpu_time_s")
+
+        avg_headers = headers
+        avg_row = [
+            "Average",
+            "-" if avg_makespan is None else f"{avg_makespan:.3f}",
+            "-" if avg_lowerbound is None else f"{avg_lowerbound:.3f}",
+            "-" if avg_cpu_time is None else f"{avg_cpu_time:.3f}",
+        ]
+        avg_col_widths = [len(h) for h in avg_headers]
+        for i, cell in enumerate(avg_row):
+            avg_col_widths[i] = max(avg_col_widths[i], len(cell))
+
+        def fmt_avg(values: List[str]) -> str:
+            return (
+                values[0].ljust(avg_col_widths[0])
+                + "  "
+                + values[1].rjust(avg_col_widths[1])
+                + "  "
+                + values[2].rjust(avg_col_widths[2])
+                + "  "
+                + values[3].rjust(avg_col_widths[3])
+            )
+
+        print("")
+        print("Average Summary")
+        print(fmt_avg(avg_headers))
+        print("-" * (sum(avg_col_widths) + 2 * (len(avg_col_widths) - 1)))
+        print(fmt_avg(avg_row))
+
+    print(f"Note: branching order used = {branch_order}")
     print(f"\nNote: lower bound used = {format_lower_bound_spec(lb_spec)}")
+    print(f"Note: dominance used = {format_dominance_spec(dominance_spec)}")
 
 
 if __name__ == "__main__":
