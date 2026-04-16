@@ -1,0 +1,9 @@
+
+Instance     Makespan  Lowerbound  CPU-Time[sec.]
+-------------------------------------------------
+j3010_9.RCP        49          49           0.031
+Note: branching order used = lower_bound
+Note: search strategy used = ubs
+
+Note: lower bound used = lb_cp
+Note: dominance used = off

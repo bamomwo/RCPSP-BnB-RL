@@ -88,6 +88,8 @@ class BnBSolver:
         time_limit_s: Optional[float] = None,
         lb_spec: object = DEFAULT_LOWER_BOUND_ID,
         dominance: object = False,
+        target_makespan: Optional[int] = None,
+        stop_on_first_solution: bool = False,
     ) -> SolverResult:
         unscheduled = set(self.instance.activities.keys())
         ready = compute_ready_set(unscheduled, set(), self.predecessors)
@@ -113,6 +115,15 @@ class BnBSolver:
         dominance_engine.register_state(root.unscheduled, root.scheduled, root.lower_bound)
 
         stack: List[int] = [root_id]
+        if target_makespan is not None and target_makespan < 0:
+            raise ValueError("target_makespan must be >= 0 when provided.")
+
+        incumbent_bound: Optional[int]
+        if target_makespan is None:
+            incumbent_bound = None
+        else:
+            incumbent_bound = int(target_makespan) + 1
+
         best_makespan: Optional[int] = None
         best_schedule: Optional[Dict[int, ScheduleEntry]] = None
         nodes_expanded = 0
@@ -130,10 +141,13 @@ class BnBSolver:
             return (time.perf_counter() - start_time_monotonic) >= time_limit_s
 
         while stack and ((max_nodes is None) or (nodes_expanded < max_nodes)) and not time_exceeded():
+            if stop_on_first_solution and best_makespan is not None:
+                break
+
             node_id = stack.pop()
             node = self.nodes[node_id]
 
-            incumbent = best_makespan
+            incumbent = incumbent_bound
             if incumbent is not None and node.lower_bound >= incumbent:
                 node.status = "pruned"
                 nodes_pruned += 1
@@ -144,7 +158,8 @@ class BnBSolver:
             if not node.unscheduled:
                 node.status = "solution"
                 makespan = current_makespan(node.scheduled)
-                if best_makespan is None or makespan < best_makespan:
+                if incumbent_bound is None or makespan < incumbent_bound:
+                    incumbent_bound = makespan
                     best_makespan = makespan
                     best_schedule = node.scheduled
                     if not seen_incumbent:
@@ -166,7 +181,7 @@ class BnBSolver:
 
             acts = self.branching_scheme.choose_activities(
                 node=node,
-                incumbent=best_makespan,
+                incumbent=incumbent_bound,
                 order_ready_fn=order_ready_fn,
             )
 
@@ -177,7 +192,7 @@ class BnBSolver:
                     self.predecessors,
                     node.scheduled,
                     act_id,
-                    best_makespan,
+                    incumbent_bound,
                 )
                 if est_start is None:
                     continue
@@ -259,6 +274,8 @@ def solve_serial(
     time_limit_s: Optional[float] = None,
     lb_spec: object = DEFAULT_LOWER_BOUND_ID,
     dominance: object = False,
+    target_makespan: Optional[int] = None,
+    stop_on_first_solution: bool = False,
 ) -> SolverResult:
     solver = BnBSolver(
         instance=instance,
@@ -270,6 +287,8 @@ def solve_serial(
         time_limit_s=time_limit_s,
         lb_spec=lb_spec,
         dominance=dominance,
+        target_makespan=target_makespan,
+        stop_on_first_solution=stop_on_first_solution,
     )
 
 
@@ -281,6 +300,8 @@ def solve_parallel(
     max_children: Optional[int] = None,
     lb_spec: object = DEFAULT_LOWER_BOUND_ID,
     dominance: object = False,
+    target_makespan: Optional[int] = None,
+    stop_on_first_solution: bool = False,
 ) -> SolverResult:
     solver = BnBSolver(
         instance=instance,
@@ -292,4 +313,6 @@ def solve_parallel(
         time_limit_s=time_limit_s,
         lb_spec=lb_spec,
         dominance=dominance,
+        target_makespan=target_makespan,
+        stop_on_first_solution=stop_on_first_solution,
     )

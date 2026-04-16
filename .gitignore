@@ -17,3 +17,6 @@ models/checkpoints_50k_step
 models/checkpoints_100k_Netres_vnr
 models/checkpoints_100k_netres_vnr_rmod 
 
+lb.txt
+run_bnb.py
+scripts/report_bnb_bounds.py

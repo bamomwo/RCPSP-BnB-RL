@@ -39,6 +39,13 @@ from rcpsp_bb_rl.bnb.dominance import (
     format_dominance_spec,
     normalize_dominance_spec,
 )
+from rcpsp_bb_rl.bnb.search_strategy import (
+    LowerBoundSearchStrategy,
+    SearchPassResult,
+    SearchStrategyResult,
+    UpperBoundSearchStrategy,
+    build_search_strategy,
+)
 
 __all__ = [
     "BBNode",
@@ -70,4 +77,9 @@ __all__ = [
     "normalize_dominance_spec",
     "format_dominance_spec",
     "build_dominance_engine",
+    "SearchPassResult",
+    "SearchStrategyResult",
+    "UpperBoundSearchStrategy",
+    "LowerBoundSearchStrategy",
+    "build_search_strategy",
 ]

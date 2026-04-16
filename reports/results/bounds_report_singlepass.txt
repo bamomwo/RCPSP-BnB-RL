@@ -1,0 +1,9 @@
+
+Instance     Makespan  lb_cp  lb_cc  lb_cs
+------------------------------------------
+j3010_9.RCP        49     49     30     49
+
+Note: branching order used = lower_bound
+Note: search strategy used = ubs
+Note: dominance used = off
+Note: lower bounds shown = lb_cp, lb_cc, lb_cs
