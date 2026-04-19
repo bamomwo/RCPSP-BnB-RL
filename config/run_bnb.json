@@ -1,7 +1,7 @@
 {
   "max_nodes": null,
   "branching_order": "lower_bound",
-  "time_limit_s": 1,
+  "time_limit_s": 60,
   "policy_path": null,
   "policy_device": "cpu",
   "policy_max_resources": 4,

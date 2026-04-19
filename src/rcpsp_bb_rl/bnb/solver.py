@@ -35,6 +35,7 @@ class BBNode:
     parent_id: Optional[int]
     action: Optional[str]
     depth: int
+    current_time: int = 0
     status: str = "pending"  # pending | expanded | pruned | solution
 
 
@@ -110,9 +111,15 @@ class BnBSolver:
             parent_id=None,
             action=None,
             depth=0,
+            current_time=0,
         )
         self.nodes.append(root)
-        dominance_engine.register_state(root.unscheduled, root.scheduled, root.lower_bound)
+        dominance_engine.register_state(
+            root.unscheduled,
+            root.scheduled,
+            root.lower_bound,
+            current_time=root.current_time,
+        )
 
         stack: List[int] = [root_id]
         if target_makespan is not None and target_makespan < 0:
@@ -167,35 +174,110 @@ class BnBSolver:
                         seen_incumbent = True
                 continue
 
-            if not node.ready:
-                node.status = "pruned"
-                nodes_pruned += 1
-                if seen_incumbent:
-                    nodes_pruned_after_incumbent += 1
-                continue
+            is_parallel = isinstance(self.branching_scheme, ParallelBranchingScheme)
+            acts: List[int] = []
+            if is_parallel:
+                while True:
+                    decision = self.branching_scheme.decide(
+                        node=node,
+                        instance=self.instance,
+                        predecessors=self.predecessors,
+                        incumbent=incumbent_bound,
+                        order_ready_fn=order_ready_fn,
+                    )
+                    if decision.start_activities:
+                        completed_now = {
+                            act_id
+                            for act_id, entry in node.scheduled.items()
+                            if entry.finish <= node.current_time
+                        }
+                        node.ready = compute_ready_set(
+                            node.unscheduled,
+                            completed_now,
+                            self.predecessors,
+                        )
+                        acts = list(decision.start_activities)
+                        break
+
+                    if decision.next_time is None:
+                        node.status = "pruned"
+                        nodes_pruned += 1
+                        if seen_incumbent:
+                            nodes_pruned_after_incumbent += 1
+                        break
+
+                    node.current_time = int(decision.next_time)
+                    completed_now = {
+                        act_id
+                        for act_id, entry in node.scheduled.items()
+                        if entry.finish <= node.current_time
+                    }
+                    node.ready = compute_ready_set(
+                        node.unscheduled,
+                        completed_now,
+                        self.predecessors,
+                    )
+
+                    if incumbent_bound is not None and node.current_time >= incumbent_bound:
+                        node.status = "pruned"
+                        nodes_pruned += 1
+                        if seen_incumbent:
+                            nodes_pruned_after_incumbent += 1
+                        break
+
+                    if time_exceeded():
+                        break
+
+                if node.status == "pruned" or not acts:
+                    continue
+            else:
+                if not node.ready:
+                    node.status = "pruned"
+                    nodes_pruned += 1
+                    if seen_incumbent:
+                        nodes_pruned_after_incumbent += 1
+                    continue
+
+                acts = self.branching_scheme.choose_activities(
+                    node=node,
+                    incumbent=incumbent_bound,
+                    order_ready_fn=order_ready_fn,
+                )
 
             node.status = "expanded"
             nodes_expanded += 1
             if seen_incumbent:
                 nodes_expanded_after_incumbent += 1
 
-            acts = self.branching_scheme.choose_activities(
-                node=node,
-                incumbent=incumbent_bound,
-                order_ready_fn=order_ready_fn,
-            )
-
             # Reverse push for DFS/LIFO.
             for act_id in reversed(acts):
-                est_start = earliest_feasible_start(
-                    self.instance,
-                    self.predecessors,
-                    node.scheduled,
-                    act_id,
-                    incumbent_bound,
-                )
-                if est_start is None:
-                    continue
+                if is_parallel:
+                    est_start = int(node.current_time)
+                    completed_now = {
+                        aid
+                        for aid, entry in node.scheduled.items()
+                        if entry.finish <= est_start
+                    }
+                    if not self.predecessors.get(act_id, set()).issubset(completed_now):
+                        continue
+                    if not resource_feasible(
+                        self.instance.activities,
+                        self.instance.resource_caps,
+                        node.scheduled,
+                        act_id,
+                        est_start,
+                    ):
+                        continue
+                else:
+                    est_start = earliest_feasible_start(
+                        self.instance,
+                        self.predecessors,
+                        node.scheduled,
+                        act_id,
+                        incumbent_bound,
+                    )
+                    if est_start is None:
+                        continue
 
                 duration = self.instance.activities[act_id].duration
                 finish = est_start + duration
@@ -210,11 +292,24 @@ class BnBSolver:
                 child_unscheduled = set(node.unscheduled)
                 child_unscheduled.discard(act_id)
 
-                child_ready = compute_ready_set(
-                    child_unscheduled,
-                    set(child_scheduled.keys()),
-                    self.predecessors,
-                )
+                child_time = int(node.current_time) if is_parallel else 0
+                if is_parallel:
+                    completed_child = {
+                        aid
+                        for aid, entry in child_scheduled.items()
+                        if entry.finish <= child_time
+                    }
+                    child_ready = compute_ready_set(
+                        child_unscheduled,
+                        completed_child,
+                        self.predecessors,
+                    )
+                else:
+                    child_ready = compute_ready_set(
+                        child_unscheduled,
+                        set(child_scheduled.keys()),
+                        self.predecessors,
+                    )
 
                 child_lb = lower_bound(
                     self.instance,
@@ -230,6 +325,8 @@ class BnBSolver:
                     child_lb=child_lb,
                     act_id=act_id,
                     child_start=est_start,
+                    parent_time=int(node.current_time),
+                    child_time=child_time,
                 )
                 if pruned_rule is not None:
                     continue
@@ -244,6 +341,7 @@ class BnBSolver:
                     parent_id=node_id,
                     action=f"act {act_id}@{est_start}",
                     depth=node.depth + 1,
+                    current_time=child_time,
                 )
 
                 self.nodes.append(child_node)

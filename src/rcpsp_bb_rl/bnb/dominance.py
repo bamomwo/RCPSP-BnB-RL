@@ -9,14 +9,26 @@ if TYPE_CHECKING:
     from rcpsp_bb_rl.data.parsing import RCPSPInstance
 
 DominanceRuleId = str
+SerialStateSignature = Tuple[frozenset[int], Tuple[Tuple[int, int, int], ...]]
+ParallelCutsetSignature = Tuple[int, frozenset[int], Tuple[Tuple[int, int, int], ...]]
 
 RULE_SET_BASED = "set_based"
 RULE_CONTRADICTION = "contradiction"
 RULE_EXTENDED_GLOBAL_SHIFT = "extended_global_shift"
-ALL_RULE_IDS = (
+RULE_PAR_CUTSET = "par_cutset"
+RULE_PAR_LEFT_SHIFT = "par_left_shift"
+SERIAL_RULE_IDS = (
     RULE_SET_BASED,
     RULE_CONTRADICTION,
     RULE_EXTENDED_GLOBAL_SHIFT,
+)
+PARALLEL_RULE_IDS = (
+    RULE_PAR_CUTSET,
+    RULE_PAR_LEFT_SHIFT,
+)
+ALL_RULE_IDS = (
+    *SERIAL_RULE_IDS,
+    *PARALLEL_RULE_IDS,
 )
 
 
@@ -42,7 +54,9 @@ def normalize_dominance_spec(spec: object = False) -> DominanceConfig:
 
     Accepted forms:
     - False / None / "off" / "none" / "0"
-    - True / "on" / "all" / "1"
+    - True / "on" / "1" / "serial"
+    - "parallel"
+    - "all"
     - "set_based,contradiction"
     - ["set_based", "extended_global_shift"]
     """
@@ -53,13 +67,17 @@ def normalize_dominance_spec(spec: object = False) -> DominanceConfig:
         return DominanceConfig(enabled=False, rules=())
 
     if isinstance(spec, bool):
-        return DominanceConfig(enabled=spec, rules=ALL_RULE_IDS if spec else ())
+        return DominanceConfig(enabled=spec, rules=SERIAL_RULE_IDS if spec else ())
 
     if isinstance(spec, str):
         raw = spec.strip().lower()
         if raw in {"", "off", "none", "false", "0", "no"}:
             return DominanceConfig(enabled=False, rules=())
-        if raw in {"on", "all", "true", "1", "yes"}:
+        if raw in {"on", "true", "1", "yes", "serial"}:
+            return DominanceConfig(enabled=True, rules=SERIAL_RULE_IDS)
+        if raw == "parallel":
+            return DominanceConfig(enabled=True, rules=PARALLEL_RULE_IDS)
+        if raw == "all":
             return DominanceConfig(enabled=True, rules=ALL_RULE_IDS)
         parts = tuple(part.strip().lower() for part in raw.split(",") if part.strip())
         if not parts:
@@ -71,6 +89,12 @@ def normalize_dominance_spec(spec: object = False) -> DominanceConfig:
         parts = tuple(str(item).strip().lower() for item in spec if str(item).strip())
         if not parts:
             return DominanceConfig(enabled=False, rules=())
+        if len(parts) == 1 and parts[0] == "serial":
+            return DominanceConfig(enabled=True, rules=SERIAL_RULE_IDS)
+        if len(parts) == 1 and parts[0] == "parallel":
+            return DominanceConfig(enabled=True, rules=PARALLEL_RULE_IDS)
+        if len(parts) == 1 and parts[0] == "all":
+            return DominanceConfig(enabled=True, rules=ALL_RULE_IDS)
         _validate_rules(parts)
         return DominanceConfig(enabled=True, rules=parts)
 
@@ -81,6 +105,10 @@ def format_dominance_spec(spec: object = False) -> str:
     cfg = normalize_dominance_spec(spec)
     if not cfg.enabled:
         return "off"
+    if cfg.rules == SERIAL_RULE_IDS:
+        return "serial"
+    if cfg.rules == PARALLEL_RULE_IDS:
+        return "parallel"
     if cfg.rules == ALL_RULE_IDS:
         return "all"
     return ",".join(cfg.rules)
@@ -96,7 +124,7 @@ def _validate_rules(rules: Iterable[str]) -> None:
 def _schedule_signature(
     unscheduled: Set[int],
     scheduled: Mapping[int, object],
-) -> Tuple[frozenset[int], Tuple[Tuple[int, int, int], ...]]:
+) -> SerialStateSignature:
     """
     Canonical signature for duplicate-state elimination.
 
@@ -110,6 +138,21 @@ def _schedule_signature(
         )
     )
     return frozenset(int(a) for a in unscheduled), entries
+
+
+def _parallel_cutset_signature(
+    unscheduled: Set[int],
+    scheduled: Mapping[int, object],
+    current_time: int,
+) -> ParallelCutsetSignature:
+    t = int(current_time)
+    entries = tuple(
+        sorted(
+            (int(act_id), int(entry_start(entry)), int(entry_finish(entry)))
+            for act_id, entry in scheduled.items()
+        )
+    )
+    return int(t), frozenset(int(a) for a in unscheduled), entries
 
 
 class DominanceEngine:
@@ -133,23 +176,32 @@ class DominanceEngine:
         self.predecessors = predecessors
         self.config = config
         self.stats = DominanceStats()
-        self._best_lb_by_signature: MutableMapping[
-            Tuple[frozenset[int], Tuple[Tuple[int, int, int], ...]],
-            int,
-        ] = {}
+        self._best_lb_by_signature: MutableMapping[SerialStateSignature, int] = {}
+        self._seen_cutset_signatures: Set[ParallelCutsetSignature] = set()
 
     def register_state(
         self,
         unscheduled: Set[int],
         scheduled: Mapping[int, object],
         lower_bound: int,
+        current_time: int = 0,
     ) -> None:
-        if not self.config.enabled or RULE_SET_BASED not in self.config.rules:
+        if not self.config.enabled:
             return
-        signature = _schedule_signature(unscheduled, scheduled)
-        prev = self._best_lb_by_signature.get(signature)
-        if prev is None or int(lower_bound) < prev:
-            self._best_lb_by_signature[signature] = int(lower_bound)
+
+        if RULE_SET_BASED in self.config.rules:
+            signature = _schedule_signature(unscheduled, scheduled)
+            prev = self._best_lb_by_signature.get(signature)
+            if prev is None or int(lower_bound) < prev:
+                self._best_lb_by_signature[signature] = int(lower_bound)
+
+        if RULE_PAR_CUTSET in self.config.rules:
+            signature = _parallel_cutset_signature(
+                unscheduled,
+                scheduled,
+                int(current_time),
+            )
+            self._seen_cutset_signatures.add(signature)
 
     def prune_child(
         self,
@@ -160,6 +212,8 @@ class DominanceEngine:
         child_lb: int,
         act_id: int,
         child_start: int,
+        parent_time: int = 0,
+        child_time: int = 0,
     ) -> Optional[DominanceRuleId]:
         if not self.config.enabled:
             return None
@@ -177,8 +231,30 @@ class DominanceEngine:
                 if self._extended_global_shift_dominated(parent_scheduled, act_id, child_start):
                     self.stats.record_prune(RULE_EXTENDED_GLOBAL_SHIFT)
                     return RULE_EXTENDED_GLOBAL_SHIFT
+            elif rule_id == RULE_PAR_CUTSET:
+                if self._par_cutset_dominated(
+                    child_unscheduled,
+                    child_scheduled,
+                    child_time,
+                ):
+                    self.stats.record_prune(RULE_PAR_CUTSET)
+                    return RULE_PAR_CUTSET
+            elif rule_id == RULE_PAR_LEFT_SHIFT:
+                if self._par_left_shift_dominated(
+                    parent_scheduled,
+                    act_id,
+                    child_start,
+                    parent_time,
+                ):
+                    self.stats.record_prune(RULE_PAR_LEFT_SHIFT)
+                    return RULE_PAR_LEFT_SHIFT
 
-        self.register_state(child_unscheduled, child_scheduled, child_lb)
+        self.register_state(
+            child_unscheduled,
+            child_scheduled,
+            child_lb,
+            current_time=child_time,
+        )
         return None
 
     def _set_based_dominated(
@@ -232,6 +308,39 @@ class DominanceEngine:
         if the chosen start is not globally left-shifted versus the parent
         schedule, the child is considered dominated.
         """
+        est = earliest_feasible_start(
+            instance=self.instance,
+            predecessors=self.predecessors,
+            scheduled=parent_scheduled,
+            act_id=act_id,
+            incumbent=None,
+        )
+        if est is None:
+            return True
+        return int(child_start) > int(est)
+
+    def _par_cutset_dominated(
+        self,
+        child_unscheduled: Set[int],
+        child_scheduled: Mapping[int, object],
+        child_time: int,
+    ) -> bool:
+        signature = _parallel_cutset_signature(
+            child_unscheduled,
+            child_scheduled,
+            int(child_time),
+        )
+        return signature in self._seen_cutset_signatures
+
+    def _par_left_shift_dominated(
+        self,
+        parent_scheduled: Mapping[int, object],
+        act_id: int,
+        child_start: int,
+        parent_time: int,
+    ) -> bool:
+        if int(child_start) < int(parent_time):
+            return True
         est = earliest_feasible_start(
             instance=self.instance,
             predecessors=self.predecessors,

@@ -145,6 +145,12 @@ class LowerBoundSearchStrategy:
             if self.initial_lower_bound is not None
             else _compute_root_lower_bound(instance, lb_spec)
         )
+        # TODO: temporary debug log; delete later.
+        print(
+            f"[lbs] initial_lb={initial_lb} "
+            f"(override={'yes' if self.initial_lower_bound is not None else 'no'}), "
+            f"lb_spec={lb_spec}"
+        )
         if initial_lb < 0:
             raise ValueError("initial_lower_bound must be >= 0.")
 
@@ -197,6 +203,10 @@ class LowerBoundSearchStrategy:
                 )
 
             artificial_upper_bound = current_target + 1
+            # TODO: temporary debug log; delete later.
+            print(
+                f"[lbs] pass={pass_index} target={current_target} artificial_ub={artificial_upper_bound}"
+            )
             result = solver_fn(
                 instance=instance,
                 max_nodes=remaining_nodes,
