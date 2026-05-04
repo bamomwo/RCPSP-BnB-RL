@@ -59,11 +59,6 @@ def parse_args() -> argparse.Namespace:
         description="Run branch-and-bound (single instance or directory batch)."
     )
     parser.add_argument("--config", required=True, help="Path to run config JSON.")
-    parser.add_argument(
-        "--policy",
-        default=None,
-        help="Policy checkpoint override. Providing this forces branching_order=policy for this run.",
-    )
 
     src_group = parser.add_mutually_exclusive_group(required=True)
     src_group.add_argument("--instance", help="Path to one RCPSP instance file.")
@@ -78,7 +73,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--time-limit-s", type=float, default=None, help="Time limit override.")
     parser.add_argument(
-        "--branching-scheme",
+        "--branching",
+        dest="branching_scheme",
         default=None,
         help="Branching scheme override. Supported: serial|parallel.",
     )
@@ -124,6 +120,15 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Optional baseline JSON path with optimal makespans "
             "(e.g. data/baseline/j30_opt.json) for gap-to-optimal reporting."
+        ),
+    )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        default=False,
+        help=(
+            "Print a per-instance debug report: incumbent history, pruning breakdown, "
+            "complete schedule distribution. Intended for single-instance investigation."
         ),
     )
     return parser.parse_args()
@@ -277,13 +282,8 @@ def validate_and_resolve(
             + " (or 'classical' as alias for activity_id)."
         )
 
-    policy_path: Optional[str]
-    if args.policy is not None:
-        branch_order = "policy"
-        policy_path = str(args.policy)
-    else:
-        policy_path = cfg.get("policy_path")
-        policy_path = None if policy_path is None else str(policy_path)
+    policy_path: Optional[str] = cfg.get("policy_path")
+    policy_path = None if policy_path is None else str(policy_path)
 
     policy_device = str(cfg.get("policy_device", "cpu"))
     policy_max_resources = int(cfg.get("policy_max_resources", 4))
@@ -291,7 +291,7 @@ def validate_and_resolve(
         raise ValueError("policy_max_resources must be > 0.")
     if branch_order == "policy" and not policy_path:
         raise ValueError(
-            "branching_order=policy requires a policy checkpoint via config 'policy_path' or --policy."
+            "branching_order=policy requires 'policy_path' to be set in the config."
         )
 
     raw_lb_spec: object
@@ -383,6 +383,72 @@ def compute_global_lower_bound(result: SolverResult) -> Optional[int]:
     return None
 
 
+def print_debug_report(instance_name: str, result: SolverResult) -> None:
+    from collections import Counter
+
+    di = result.debug_info
+    if di is None:
+        print("[debug] No debug info available (was --debug passed to the solver?)")
+        return
+
+    W = 60
+    sep = "=" * W
+    thin = "-" * W
+
+    print(sep)
+    print(f"DEBUG: {instance_name}")
+    print(sep)
+
+    # Pruning breakdown
+    print()
+    print("Pruning breakdown")
+    print(thin)
+    total_pruned = di.lb_pruned + di.dominance_pruned
+    print(f"  LB pruned                   : {di.lb_pruned}")
+    print(f"  Dominance pruned            : {di.dominance_pruned}")
+    if result.dominance_enabled and result.dominance_pruned_by_rule:
+        for rule, count in sorted(result.dominance_pruned_by_rule.items()):
+            print(f"    {rule:<28}: {count}")
+    print(f"  Total pruned                : {total_pruned}")
+    print(thin)
+
+    # Branching decisions
+    print()
+    print(f"Branching decisions           : {result.nodes_expanded}")
+    print(thin)
+
+    # Complete schedules
+    n_complete = len(di.all_makespans)
+    print()
+    print(f"Complete schedules evaluated  : {n_complete}")
+    print(thin)
+    if n_complete > 0:
+        best_ms = min(di.all_makespans)
+        worst_ms = max(di.all_makespans)
+        dist = Counter(di.all_makespans)
+        dist_str = "  ".join(f"{ms}:{cnt}" for ms, cnt in sorted(dist.items()))
+        print(f"  Best makespan found         : {best_ms}")
+        print(f"  Worst makespan found        : {worst_ms}")
+        print(f"  Makespan distribution: {dist_str}")
+
+    # Incumbent history
+    print()
+    print("Incumbent history (order found)")
+    print(thin)
+    if di.incumbent_history:
+        for ev in di.incumbent_history:
+            print(
+                f"  #{ev.rank:<3} makespan={ev.makespan:<6}"
+                f"  at node={ev.nodes_expanded:<8}"
+                f"  depth={ev.depth}"
+            )
+    else:
+        print("  (no incumbent found)")
+
+    print(sep)
+    print()
+
+
 def main() -> None:
     args = parse_args()
     cfg = load_run_config(Path(args.config))
@@ -413,7 +479,7 @@ def main() -> None:
     device = None
     use_policy = branch_order == "policy"
     if use_policy:
-        from rcpsp_bb_rl.models import load_policy_checkpoint
+        from rcpsp_bb_rl.ml.models import load_policy_checkpoint
 
         device = resolve_policy_device(policy_device)
         policy_model = load_policy_checkpoint(policy_path, device=device)
@@ -464,6 +530,7 @@ def main() -> None:
                 dominance=dominance,
                 target_makespan=target_makespan,
                 stop_on_first_solution=stop_on_first_solution,
+                debug=args.debug,
             )
 
         t0 = time.perf_counter()
@@ -481,6 +548,9 @@ def main() -> None:
             dominance=dominance_spec,
         )
         elapsed = time.perf_counter() - t0
+
+        if args.debug and strategy_result.last_solver_result is not None:
+            print_debug_report(path.name, strategy_result.last_solver_result)
 
         mk = strategy_result.best_makespan
         if strategy_result.strategy_name == "lbs":

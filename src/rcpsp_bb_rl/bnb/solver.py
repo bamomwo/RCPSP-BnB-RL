@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple
 
 from rcpsp_bb_rl.bnb.branching import (
@@ -12,7 +12,7 @@ from rcpsp_bb_rl.bnb.branching import (
 from rcpsp_bb_rl.bnb.dominance import build_dominance_engine, normalize_dominance_spec
 from rcpsp_bb_rl.bnb.lower_bounds import DEFAULT_LOWER_BOUND_ID, lower_bound
 from rcpsp_bb_rl.bnb.precedence import build_predecessors, compute_ready_set
-from rcpsp_bb_rl.bnb.scheduling import earliest_feasible_start, resource_feasible
+from rcpsp_bb_rl.bnb.scheduling import build_profile, earliest_feasible_start, resource_feasible
 
 if TYPE_CHECKING:
     from rcpsp_bb_rl.data.parsing import RCPSPInstance
@@ -40,6 +40,23 @@ class BBNode:
 
 
 @dataclass
+class IncumbentEvent:
+    """Records a single improvement to the best known makespan."""
+    rank: int               # 1-based index of this improvement
+    makespan: int
+    nodes_expanded: int     # how many nodes had been expanded when this was found
+    depth: int              # depth of the solution node in the tree
+
+
+@dataclass
+class DebugInfo:
+    incumbent_history: List[IncumbentEvent] = field(default_factory=list)
+    all_makespans: List[int] = field(default_factory=list)   # every complete schedule seen
+    lb_pruned: int = 0
+    dominance_pruned: int = 0
+
+
+@dataclass
 class SolverResult:
     best_makespan: Optional[int]
     best_schedule: Optional[Dict[int, ScheduleEntry]]
@@ -54,6 +71,7 @@ class SolverResult:
     dominance_rules: Tuple[str, ...]
     dominance_pruned_children: int
     dominance_pruned_by_rule: Dict[str, int]
+    debug_info: Optional[DebugInfo] = None
 
 
 def current_makespan(scheduled: Dict[int, ScheduleEntry]) -> int:
@@ -91,6 +109,7 @@ class BnBSolver:
         dominance: object = False,
         target_makespan: Optional[int] = None,
         stop_on_first_solution: bool = False,
+        debug: bool = False,
     ) -> SolverResult:
         unscheduled = set(self.instance.activities.keys())
         ready = compute_ready_set(unscheduled, set(), self.predecessors)
@@ -139,6 +158,7 @@ class BnBSolver:
         nodes_pruned_after_incumbent = 0
         first_incumbent_expanded: Optional[int] = None
         seen_incumbent = False
+        debug_info: Optional[DebugInfo] = DebugInfo() if debug else None
 
         start_time_monotonic = time.perf_counter()
 
@@ -158,6 +178,8 @@ class BnBSolver:
             if incumbent is not None and node.lower_bound >= incumbent:
                 node.status = "pruned"
                 nodes_pruned += 1
+                if debug_info is not None:
+                    debug_info.lb_pruned += 1
                 if seen_incumbent:
                     nodes_pruned_after_incumbent += 1
                 continue
@@ -165,10 +187,19 @@ class BnBSolver:
             if not node.unscheduled:
                 node.status = "solution"
                 makespan = current_makespan(node.scheduled)
+                if debug_info is not None:
+                    debug_info.all_makespans.append(makespan)
                 if incumbent_bound is None or makespan < incumbent_bound:
                     incumbent_bound = makespan
                     best_makespan = makespan
                     best_schedule = node.scheduled
+                    if debug_info is not None:
+                        debug_info.incumbent_history.append(IncumbentEvent(
+                            rank=len(debug_info.incumbent_history) + 1,
+                            makespan=makespan,
+                            nodes_expanded=nodes_expanded,
+                            depth=node.depth,
+                        ))
                     if not seen_incumbent:
                         first_incumbent_expanded = nodes_expanded
                         seen_incumbent = True
@@ -249,6 +280,16 @@ class BnBSolver:
             if seen_incumbent:
                 nodes_expanded_after_incumbent += 1
 
+            # Build the resource profile once for this node; reused across all children.
+            horizon_hint = sum(act.duration for act in self.instance.activities.values())
+            node_horizon = incumbent_bound if incumbent_bound is not None else horizon_hint
+            node_profile = build_profile(
+                self.instance.activities,
+                self.instance.resource_caps,
+                node.scheduled,
+                horizon=node_horizon,
+            )
+
             # Reverse push for DFS/LIFO.
             for act_id in reversed(acts):
                 if is_parallel:
@@ -266,6 +307,7 @@ class BnBSolver:
                         node.scheduled,
                         act_id,
                         est_start,
+                        profile=node_profile,
                     ):
                         continue
                 else:
@@ -275,6 +317,7 @@ class BnBSolver:
                         node.scheduled,
                         act_id,
                         incumbent_bound,
+                        profile=node_profile,
                     )
                     if est_start is None:
                         continue
@@ -329,6 +372,8 @@ class BnBSolver:
                     child_time=child_time,
                 )
                 if pruned_rule is not None:
+                    if debug_info is not None:
+                        debug_info.dominance_pruned += 1
                     continue
 
                 child_id = self._new_node_id()
@@ -362,6 +407,7 @@ class BnBSolver:
             dominance_rules=tuple(dominance_cfg.rules),
             dominance_pruned_children=dominance_engine.stats.pruned_children,
             dominance_pruned_by_rule=dict(dominance_engine.stats.pruned_by_rule),
+            debug_info=debug_info,
         )
 
 
@@ -374,6 +420,7 @@ def solve_serial(
     dominance: object = False,
     target_makespan: Optional[int] = None,
     stop_on_first_solution: bool = False,
+    debug: bool = False,
 ) -> SolverResult:
     solver = BnBSolver(
         instance=instance,
@@ -387,6 +434,7 @@ def solve_serial(
         dominance=dominance,
         target_makespan=target_makespan,
         stop_on_first_solution=stop_on_first_solution,
+        debug=debug,
     )
 
 
@@ -400,6 +448,7 @@ def solve_parallel(
     dominance: object = False,
     target_makespan: Optional[int] = None,
     stop_on_first_solution: bool = False,
+    debug: bool = False,
 ) -> SolverResult:
     solver = BnBSolver(
         instance=instance,
@@ -413,4 +462,5 @@ def solve_parallel(
         dominance=dominance,
         target_makespan=target_makespan,
         stop_on_first_solution=stop_on_first_solution,
+        debug=debug,
     )

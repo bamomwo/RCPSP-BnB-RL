@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Dict, Iterable, Mapping, MutableMapping, Optional, Sequence, Set, Tuple
 
-from rcpsp_bb_rl.bnb.scheduling import earliest_feasible_start, entry_finish, entry_start
+from rcpsp_bb_rl.bnb.scheduling import build_profile, earliest_feasible_start, entry_finish, entry_start
 
 if TYPE_CHECKING:
     from rcpsp_bb_rl.data.parsing import RCPSPInstance
@@ -303,17 +303,20 @@ class DominanceEngine:
         act_id: int,
         child_start: int,
     ) -> bool:
-        """
-        Conservative global-shift check:
-        if the chosen start is not globally left-shifted versus the parent
-        schedule, the child is considered dominated.
-        """
+        horizon_hint = sum(act.duration for act in self.instance.activities.values())
+        parent_profile = build_profile(
+            self.instance.activities,
+            self.instance.resource_caps,
+            parent_scheduled,
+            horizon=horizon_hint,
+        )
         est = earliest_feasible_start(
             instance=self.instance,
             predecessors=self.predecessors,
             scheduled=parent_scheduled,
             act_id=act_id,
             incumbent=None,
+            profile=parent_profile,
         )
         if est is None:
             return True
@@ -341,12 +344,20 @@ class DominanceEngine:
     ) -> bool:
         if int(child_start) < int(parent_time):
             return True
+        horizon_hint = sum(act.duration for act in self.instance.activities.values())
+        parent_profile = build_profile(
+            self.instance.activities,
+            self.instance.resource_caps,
+            parent_scheduled,
+            horizon=horizon_hint,
+        )
         est = earliest_feasible_start(
             instance=self.instance,
             predecessors=self.predecessors,
             scheduled=parent_scheduled,
             act_id=act_id,
             incumbent=None,
+            profile=parent_profile,
         )
         if est is None:
             return True

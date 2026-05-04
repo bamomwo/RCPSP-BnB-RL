@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, List, Mapping, Optional, Sequence, Set
 
 from rcpsp_bb_rl.bnb.branching_order import NodeLike, ReadyOrderFn, order_by_activity_id
-from rcpsp_bb_rl.bnb.scheduling import entry_finish, resource_feasible
+from rcpsp_bb_rl.bnb.scheduling import build_profile, entry_finish, resource_feasible
 
 if TYPE_CHECKING:
     from rcpsp_bb_rl.data.parsing import RCPSPInstance
@@ -64,6 +64,16 @@ class ParallelBranchingScheme:
         incumbent: Optional[int],
     ) -> Set[int]:
         completed = self._completed_at_time(scheduled, t)
+
+        horizon_hint = sum(act.duration for act in instance.activities.values())
+        node_horizon = incumbent if incumbent is not None else horizon_hint
+        profile = build_profile(
+            instance.activities,
+            instance.resource_caps,
+            scheduled,
+            horizon=node_horizon,
+        )
+
         eligible: Set[int] = set()
         for act_id in unscheduled:
             if not predecessors.get(act_id, set()).issubset(completed):
@@ -74,6 +84,7 @@ class ParallelBranchingScheme:
                 scheduled,
                 act_id,
                 t,
+                profile=profile,
             ):
                 continue
             if incumbent is not None:

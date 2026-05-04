@@ -4,10 +4,16 @@ from rcpsp_bb_rl.bnb.solver import (
     ScheduleEntry,
     SolverResult,
     current_makespan,
-    earliest_feasible_start,
-    resource_feasible,
     solve_parallel,
     solve_serial,
+)
+from rcpsp_bb_rl.bnb.scheduling import (
+    ResourceProfile,
+    build_profile,
+    earliest_feasible_start,
+    entry_finish,
+    entry_start,
+    resource_feasible,
 )
 from rcpsp_bb_rl.bnb.precedence import (
     build_predecessors,
@@ -62,7 +68,11 @@ __all__ = [
     "build_predecessors",
     "compute_ready_set",
     "current_makespan",
+    "ResourceProfile",
+    "build_profile",
     "earliest_feasible_start",
+    "entry_start",
+    "entry_finish",
     "resource_feasible",
     "solve_serial",
     "solve_parallel",

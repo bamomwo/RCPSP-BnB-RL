@@ -4,11 +4,11 @@ from typing import TYPE_CHECKING, Callable, List, Mapping, Optional, Protocol, S
 
 from rcpsp_bb_rl.bnb.lower_bounds import DEFAULT_LOWER_BOUND_ID, lower_bound
 from rcpsp_bb_rl.bnb.precedence import build_predecessors
-from rcpsp_bb_rl.bnb.scheduling import earliest_feasible_start
+from rcpsp_bb_rl.bnb.scheduling import build_profile, earliest_feasible_start
 
 if TYPE_CHECKING:
     from rcpsp_bb_rl.data.parsing import RCPSPInstance
-    from rcpsp_bb_rl.models import PolicyMLP
+    from rcpsp_bb_rl.ml.models import BranchingTransformer
 
 
 class NodeLike(Protocol):
@@ -49,6 +49,15 @@ def make_lower_bound_order_fn(
                 "lower_bound ordering requires node.scheduled and node.unscheduled fields."
             )
 
+        horizon_hint = sum(act.duration for act in instance.activities.values())
+        node_horizon = incumbent if incumbent is not None else horizon_hint
+        node_profile = build_profile(
+            instance.activities,
+            instance.resource_caps,
+            scheduled,
+            horizon=node_horizon,
+        )
+
         scored: List[tuple[int, int]] = []
         infeasible: List[int] = []
         for act_id in ready_sorted:
@@ -58,6 +67,7 @@ def make_lower_bound_order_fn(
                 scheduled=scheduled,
                 act_id=act_id,
                 incumbent=incumbent,
+                profile=node_profile,
             )
             if est_start is None:
                 infeasible.append(act_id)
@@ -91,7 +101,7 @@ def make_lower_bound_order_fn(
 def make_policy_order_fn(
     *,
     instance: RCPSPInstance,
-    model: PolicyMLP,
+    model: BranchingTransformer,
     max_resources: int = 4,
     device: object = "cpu",
     predecessors=None,
@@ -100,7 +110,7 @@ def make_policy_order_fn(
     Thin wrapper around rl.policy_guidance.make_policy_order_fn.
     Keeps policy logic in the RL module while exposing a unified B&B API.
     """
-    from rcpsp_bb_rl.rl.policy_guidance import make_policy_order_fn as _make_policy_order_fn
+    from rcpsp_bb_rl.ml.rl.policy_guidance import make_policy_order_fn as _make_policy_order_fn
 
     return _make_policy_order_fn(
         instance=instance,

@@ -20,9 +20,9 @@ SRC_PATH = PROJECT_ROOT / "src"
 if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
-from rcpsp_bb_rl.data.dataset import list_instance_paths  
-from rcpsp_bb_rl.models import PolicyMLP, load_policy_checkpoint  
-from rcpsp_bb_rl.rl import BranchingEnv  
+from rcpsp_bb_rl.data.dataset import list_instance_paths
+from rcpsp_bb_rl.ml.models import PolicyMLP, load_policy_checkpoint
+from rcpsp_bb_rl.ml.rl import BranchingEnv
 from rcpsp_bb_rl.experiments.eval import evaluate_bnb_suite, list_eval_instances  
 
 

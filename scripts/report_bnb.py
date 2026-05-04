@@ -15,10 +15,10 @@ if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
 from rcpsp_bb_rl.experiments.eval import run_instance  # noqa: E402
-from rcpsp_bb_rl.data.teacher import solve_optimal_schedule  # noqa: E402
+from rcpsp_bb_rl.ml.il.teacher import solve_optimal_schedule  # noqa: E402
 from rcpsp_bb_rl.data.parsing import load_instance  # noqa: E402
 from rcpsp_bb_rl.data.dataset import list_instance_paths  # noqa: E402
-from rcpsp_bb_rl.models import load_policy_checkpoint  # noqa: E402
+from rcpsp_bb_rl.ml.models import load_policy_checkpoint  # noqa: E402
 
 DEFAULT_CONFIG = {
     "root": "data/j30rcp",

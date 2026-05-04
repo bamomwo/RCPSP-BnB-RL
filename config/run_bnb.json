@@ -1,13 +1,13 @@
 {
   "max_nodes": null,
-  "branching_order": "lower_bound",
+  "branching_order": "policy",
   "time_limit_s": 60,
-  "policy_path": null,
+  "policy_path": "models/policy_bc.pt",
   "policy_device": "cpu",
   "policy_max_resources": 4,
   "search_strategy": "ubs",
   "lbs_initial_lower_bound": null,
-  "dominance": false,
+  "dominance": "set_based",
   "instance_patterns_config": "config/instance_patterns.json",
   "progress_every": 1,
   "limit": null
