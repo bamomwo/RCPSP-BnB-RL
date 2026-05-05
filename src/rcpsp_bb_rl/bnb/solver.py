@@ -19,6 +19,30 @@ if TYPE_CHECKING:
 
 
 @dataclass
+class StepContext:
+    """
+    Accumulated statistics between two consecutive order_ready_fn calls.
+
+    The solver populates this before each call to order_ready_fn so the RL
+    environment can compute per-step rewards without reimplementing B&B logic.
+
+    Fields
+    ------
+    incumbent_before  : best makespan at the previous branching decision
+    incumbent_after   : best makespan just before this branching decision
+                        (may have improved due to solutions found while advancing)
+    lb_pruned         : LB-pruned nodes since the last branching decision
+    dom_pruned        : dominance-pruned children since the last branching decision
+    nodes_expanded    : total nodes expanded so far (including this one)
+    """
+    incumbent_before: Optional[int]
+    incumbent_after: Optional[int]
+    lb_pruned: int
+    dom_pruned: int
+    nodes_expanded: int
+
+
+@dataclass
 class ScheduleEntry:
     start: int
     finish: int
@@ -71,6 +95,7 @@ class SolverResult:
     dominance_rules: Tuple[str, ...]
     dominance_pruned_children: int
     dominance_pruned_by_rule: Dict[str, int]
+    done_reason: str = "search_exhausted"  # "search_exhausted" | "time_limit"
     debug_info: Optional[DebugInfo] = None
 
 
@@ -160,12 +185,38 @@ class BnBSolver:
         seen_incumbent = False
         debug_info: Optional[DebugInfo] = DebugInfo() if debug else None
 
+        # Counters that accumulate between consecutive order_ready_fn calls.
+        # Reset each time we are about to call order_ready_fn.
+        _step_lb_pruned: int = 0
+        _step_dom_pruned: int = 0
+        _step_incumbent_before: Optional[int] = None
+
         start_time_monotonic = time.perf_counter()
 
         def time_exceeded() -> bool:
             if time_limit_s is None:
                 return False
             return (time.perf_counter() - start_time_monotonic) >= time_limit_s
+
+        def _make_step_context() -> StepContext:
+            return StepContext(
+                incumbent_before=_step_incumbent_before,
+                incumbent_after=best_makespan,
+                lb_pruned=_step_lb_pruned,
+                dom_pruned=_step_dom_pruned,
+                nodes_expanded=nodes_expanded,
+            )
+
+        def _wrapped_order_fn(node: BBNode, incumbent: Optional[int]) -> List[int]:
+            """Inject StepContext into order_ready_fn when it accepts it."""
+            if order_ready_fn is None:
+                from rcpsp_bb_rl.bnb.branching_order import order_by_activity_id
+                return order_by_activity_id(node, incumbent)
+            import inspect
+            sig = inspect.signature(order_ready_fn)
+            if len(sig.parameters) >= 3:
+                return list(order_ready_fn(node, incumbent, _make_step_context()))
+            return list(order_ready_fn(node, incumbent))
 
         while stack and ((max_nodes is None) or (nodes_expanded < max_nodes)) and not time_exceeded():
             if stop_on_first_solution and best_makespan is not None:
@@ -178,6 +229,7 @@ class BnBSolver:
             if incumbent is not None and node.lower_bound >= incumbent:
                 node.status = "pruned"
                 nodes_pruned += 1
+                _step_lb_pruned += 1
                 if debug_info is not None:
                     debug_info.lb_pruned += 1
                 if seen_incumbent:
@@ -207,6 +259,8 @@ class BnBSolver:
 
             is_parallel = isinstance(self.branching_scheme, ParallelBranchingScheme)
             acts: List[int] = []
+            # Snapshot incumbent before any order_ready_fn call for this node.
+            _step_incumbent_before = best_makespan
             if is_parallel:
                 while True:
                     decision = self.branching_scheme.decide(
@@ -214,7 +268,7 @@ class BnBSolver:
                         instance=self.instance,
                         predecessors=self.predecessors,
                         incumbent=incumbent_bound,
-                        order_ready_fn=order_ready_fn,
+                        order_ready_fn=_wrapped_order_fn,
                     )
                     if decision.start_activities:
                         completed_now = {
@@ -233,6 +287,7 @@ class BnBSolver:
                     if decision.next_time is None:
                         node.status = "pruned"
                         nodes_pruned += 1
+                        _step_lb_pruned += 1
                         if seen_incumbent:
                             nodes_pruned_after_incumbent += 1
                         break
@@ -252,6 +307,7 @@ class BnBSolver:
                     if incumbent_bound is not None and node.current_time >= incumbent_bound:
                         node.status = "pruned"
                         nodes_pruned += 1
+                        _step_lb_pruned += 1
                         if seen_incumbent:
                             nodes_pruned_after_incumbent += 1
                         break
@@ -265,6 +321,7 @@ class BnBSolver:
                 if not node.ready:
                     node.status = "pruned"
                     nodes_pruned += 1
+                    _step_lb_pruned += 1
                     if seen_incumbent:
                         nodes_pruned_after_incumbent += 1
                     continue
@@ -272,8 +329,11 @@ class BnBSolver:
                 acts = self.branching_scheme.choose_activities(
                     node=node,
                     incumbent=incumbent_bound,
-                    order_ready_fn=order_ready_fn,
+                    order_ready_fn=_wrapped_order_fn,
                 )
+                # Reset per-step counters after the branching decision is made.
+                _step_lb_pruned = 0
+                _step_dom_pruned = 0
 
             node.status = "expanded"
             nodes_expanded += 1
@@ -374,6 +434,7 @@ class BnBSolver:
                 if pruned_rule is not None:
                     if debug_info is not None:
                         debug_info.dominance_pruned += 1
+                    _step_dom_pruned += 1
                     continue
 
                 child_id = self._new_node_id()
@@ -393,6 +454,8 @@ class BnBSolver:
                 self.edges.append((node_id, child_id))
                 stack.append(child_id)
 
+        solver_done_reason = "time_limit" if (stack and time_exceeded()) else "search_exhausted"
+
         return SolverResult(
             best_makespan=best_makespan,
             best_schedule=best_schedule,
@@ -407,6 +470,7 @@ class BnBSolver:
             dominance_rules=tuple(dominance_cfg.rules),
             dominance_pruned_children=dominance_engine.stats.pruned_children,
             dominance_pruned_by_rule=dict(dominance_engine.stats.pruned_by_rule),
+            done_reason=solver_done_reason,
             debug_info=debug_info,
         )
 

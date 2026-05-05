@@ -1,7 +1,7 @@
 {
   "max_nodes": null,
   "branching_order": "policy",
-  "time_limit_s": 60,
+  "time_limit_s": 120,
   "policy_path": "models/policy_bc.pt",
   "policy_device": "cpu",
   "policy_max_resources": 4,

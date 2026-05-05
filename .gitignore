@@ -10,6 +10,7 @@ __pycache__/
 /reports/eval_stats/wins_vs_native_NetRes_VNR_100k_step.json 
 
 /data/1ktrain
+/data/eval/j30h
 scripts/validate_fix_rcpsp.py
 
 models/checkpoints
