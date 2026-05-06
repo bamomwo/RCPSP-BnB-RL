@@ -1,0 +1,30 @@
+
+Instance      Makespan  Lowerbound  Optimal  GapOpt[%]  CPU-Time[sec.]
+----------------------------------------------------------------------
+J3010_1.RCP         42          41       42       0.0%          60.165
+J3010_10.RCP        41          37       41       0.0%          60.771
+J3010_2.RCP         56          52       56       0.0%          61.049
+J3010_3.RCP         65          61       62       4.8%          60.825
+J3010_4.RCP         59          53       58       1.7%          60.874
+J3010_5.RCP         43          41       41       4.9%          60.815
+J3010_6.RCP         46          40       44       4.5%          60.831
+J3010_7.RCP         49          47       49       0.0%          60.852
+J3010_8.RCP         58          50       54       7.4%          61.813
+J3010_9.RCP         49          49       49       0.0%           0.329
+
+Average Summary
+Instance  Makespan  Lowerbound  Optimal  GapOpt[%]  CPU-Time[sec.]
+------------------------------------------------------------------
+Average     50.800      47.100   49.600     2.339%          54.832
+
+Comparison Summary
+Instances total: 10
+Solved: 5/10 (50.0%)
+Mean gap to optimal: 2.34%
+Note: branching order used = lower_bound
+Note: branching scheme used = serial
+Note: search strategy used = ubs
+
+Note: lower bound used = lb_cp
+Note: dominance used = set_based
+Note: optimal baseline JSON used = data/baseline/j30_opt.json
