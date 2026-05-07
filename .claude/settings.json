@@ -1,8 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(python3 -c \"import rcpsp_bb_rl.bnb.scheduling\")",
-      "Bash(xargs ls -lh)"
-    ]
-  }
-}
