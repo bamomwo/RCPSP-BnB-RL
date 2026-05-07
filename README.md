@@ -1,68 +1,80 @@
 # RCPSP Branch-and-Bound RL
 
-An ML project for training and evaluating a branching policy for RCPSP branch-and-bound:
-- Naive B&B: depth-first with deterministic ready ordering.
-- Teacher: CP-SAT produces optimal trajectories used for supervision.
-- Learned policy: trained on optimal trajectories and plugged into BnBSolver to decide branching (via `--policy`).
-- Reporting: compare native vs policy-guided runs and save summaries under `reports/bnb_reports`.
+A learned branching policy for the Resource-Constrained Project Scheduling Problem (RCPSP), trained to replace classic branching order methods inside a Branch-and-Bound (B&B) solver.
+
+## Background & Approach
+
+RCPSP is the problem of scheduling a set of activities with known durations, precedence constraints, and resource requirements to minimize project makespan (Blazewicz et al., 1983). We utlize the branch and bound procedure in solving this problem where we specifcially learn a branching policy to optimize search. A robust branching policy drastically reduces the search tree, enables aggressive pruning and faster convergence. We show that a machine learning policy outperforms classic branching order methods leading to better optimal search. 
+
+We train a transformer-based branching policy in two stages: supervised imitation learning on optimal trajectories from OR-Tools CP-SAT, followed by PPO reinforcement learning to improve late-search navigation.
 
 ## Layout
-- `src/rcpsp_bb_rl/`: Python package for data loading, modeling, and utilities.
-- `scripts/`: Entry points for experiments and tooling (add more as needed).
-- `configs/`: Experiment/training configs (placeholder).
-- `data/`: Input data; `raw` holds source `.RCP` instances, `processed` for derived artifacts. Data is gitignored.
-- `notebooks/`: Exploratory analysis.
-- `models/`: Saved checkpoints.
-- `reports/figures/`: Generated visualizations.
+
+```
+src/rcpsp_bb_rl/
+  bnb/        B&B core: solver, branching, lower bounds, dominance, search strategy
+  ml/
+    models/   BranchingTransformer (policy + value heads)
+    il/       Featurization, trajectory generation, teacher policy
+    rl/       BranchingEnv (PPO environment), policy guidance
+scripts/
+  log_teacher_traces.py   Generate optimal trajectories via CP-SAT
+  train_bc.py             Train imitation learning policy
+  train_ppo.py            PPO fine-tuning from BC checkpoint
+  run_bnb.py              Run and evaluate the B&B solver
+config/                   JSON configs for solver, BC training, PPO training
+data/
+  train/                  Training instances (1kNetRes, keepopt)
+  eval/                   Held-out evaluation sets (J30, J60, J90, J120)
+  trajectories/           CP-SAT teacher traces (JSONL)
+models/                   Saved checkpoints
+```
+
+## Dependencies
+
+Create and activate a virtual environment:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+```
+
+Install dependencies:
+
+```bash
+pip install torch numpy ortools
+```
 
 ## Quickstart
-Visualize an RCPSP precedence graph (ensure dependencies like `networkx` and `graphviz` are installed):
+
+Generate teacher trajectories from training instances:
 
 ```bash
-python scripts/visualize_rcpsp.py --instance data/j30rcp/J301_1.RCP --output-dir reports/figures --format pdf
+python scripts/log_teacher_traces.py --root data/train/1kNetRes --pattern "*.rcp" --output-dir data/trajectories/1kNetRes
 ```
 
-Run the simple B&B solver and visualize its search tree:
+Train the imitation learning policy:
 
 ```bash
-python scripts/run_bnb.py --instance data/j30rcp/J301_1.RCP --max-nodes 2000 --output-dir reports/figures
+python scripts/train_bc.py --config config/train_bc.json
 ```
-Log teacher trajectories from CP-SAT (if you need to generate training data):
+
+Fine-tune with PPO:
 
 ```bash
-PYTHONPATH=src python scripts/log_teacher_traces.py --root data/j30rcp --pattern '*.RCP' --output-dir data/trajectories
+python scripts/train_ppo.py --config config/train_ppo.json
 ```
 
-Train the supervised policy on the logged trajectories:
+Run the solver with the learned policy:
 
 ```bash
-PYTHONPATH=src python scripts/train_bc.py --trajectories-dir data/trajectories --output models/policy.pt
+python scripts/run_bnb.py --config config/run_bnb.json
 ```
 
-Run the solver with a learned branching policy (expects `models/policy.pt` saved by `scripts/train_bc.py`):
+## Configuration
 
-```bash
-PYTHONPATH=src python scripts/run_bnb.py --instance data/j30rcp/J301_1.RCP --policy models/policy.pt --policy-max-resources 4 --policy-device cpu
-```
+`config/run_bnb.json` — Solver settings: branching order, time limit, dominance rules, policy path.
 
+`config/train_bc.json` — BC training: trajectory directory, model architecture, learning rate, epochs.
 
-Batch-report B&B results across a directory of instances (native only by default):
-
-```bash
-python scripts/report_bnb.py --root data/j30rcp --pattern '*.RCP' --max-nodes 2000
-```
-
-Compare native vs policy-guided branching and save a text summary:
-
-```bash
-PYTHONPATH=src python scripts/report_bnb.py --root data/j30rcp --pattern '*.RCP' --max-nodes 2000 --policy models/policy.pt --output-dir reports/bnb_reports --output-name summary.txt
-```
-
-Evaluate only OR-Tools (CP-SAT) on the first 20 instances under `data/1kNetRes`, with a 1-second per-instance time limit:
-
-```bash
-python scripts/report_bnb.py --root data/1kNetRes --pattern "*.rcp" --limit 20 --only-ortools --ortools-time-limit 1
-```
-This skips the native/policy B&B runs and reports the OR-Tools makespan/time columns only.
-
-The scripts parse instances, build precedence graphs, and can render search trees with Graphviz. Add future training/evaluation entry points under `scripts/` and reuse shared code from `src/rcpsp_bb_rl/`.
+`config/train_ppo.json` — PPO training: BC checkpoint, reward coefficients, rollout and update settings.
