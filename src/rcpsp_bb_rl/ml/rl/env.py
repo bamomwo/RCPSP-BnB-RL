@@ -37,17 +37,23 @@ class RewardConfig:
 
     Reward at each branching step:
         r = -step_cost
-          + prune_coeff * (lb_pruned + dom_pruned since last step)
           + [if incumbent improved]:
-                inc_coeff * (old_inc - new_inc)
+                inc_coeff * (old_inc - new_inc) / max(1, n_since_last / threshold)
               + gap_coeff * (old_gap - new_gap) / old_gap
+          + [if n_since_last > threshold]:
+                -stuck_penalty
           + [if done AND search_exhausted]:
                 exhausted_coeff / nodes_expanded
+
+    where
+        n_since_last = nodes expanded since the previous incumbent improvement
+        threshold    = stuck_k * n_activities
     """
     step_cost: float = 0.01
-    prune_coeff: float = 0.1
     inc_coeff: float = 1.0
     gap_coeff: float = 2.0
+    stuck_penalty: float = 0.05
+    stuck_k: int = 150
     exhausted_coeff: float = 10.0
 
 
@@ -106,6 +112,8 @@ class BranchingEnv:
         # Set at reset()
         self.instance: Optional[RCPSPInstance] = None
         self._episode_stats: EpisodeStats = EpisodeStats()
+        self._stuck_threshold: int = 0
+        self._last_incumbent_nodes: int = 0
 
         # Step-level state written by the callback, read by step()
         self._pending_node: Optional[BBNode] = None
@@ -190,20 +198,19 @@ class BranchingEnv:
         reward += r_step
         breakdown["step"] = r_step
 
-        # 2. Pruning signal (dense)
-        total_pruned = ctx.lb_pruned + ctx.dom_pruned
-        r_prune = cfg.prune_coeff * total_pruned
-        reward += r_prune
-        breakdown["prune"] = r_prune
-
-        # 3 & 4. Incumbent improvement + gap closure
+        # 2. Incumbent improvement + gap closure (scaled by stuck duration)
         r_inc = 0.0
         r_gap = 0.0
         old_inc = ctx.incumbent_before
         new_inc = ctx.incumbent_after
-        if old_inc is not None and new_inc is not None and new_inc < old_inc:
+        improved = old_inc is not None and new_inc is not None and new_inc < old_inc
+        n_since_last = nodes_expanded - self._last_incumbent_nodes
+        threshold = self._stuck_threshold
+
+        if improved:
             improvement = float(old_inc - new_inc)
-            r_inc = cfg.inc_coeff * improvement
+            scale = max(1.0, n_since_last / threshold) if threshold > 0 else 1.0
+            r_inc = cfg.inc_coeff * improvement / scale
 
             old_gap = float(old_inc - node_lb)
             new_gap = float(new_inc - node_lb)
@@ -215,7 +222,14 @@ class BranchingEnv:
         breakdown["incumbent"] = r_inc
         breakdown["gap_closure"] = r_gap
 
-        # 5. Search exhaustion bonus
+        # 3. Stuck penalty: flat dense cost once past threshold between incumbents.
+        r_stuck = 0.0
+        if threshold > 0 and n_since_last > threshold:
+            r_stuck = -cfg.stuck_penalty
+            reward += r_stuck
+        breakdown["stuck"] = r_stuck
+
+        # 4. Search exhaustion bonus
         r_exhausted = 0.0
         if done and done_reason == "search_exhausted" and nodes_expanded > 0:
             r_exhausted = cfg.exhausted_coeff / nodes_expanded
@@ -301,6 +315,8 @@ class BranchingEnv:
         self._steps = 0
         self._done = False
         self._done_reason = "unknown"
+        self._last_incumbent_nodes = 0
+        self._stuck_threshold = self.reward_cfg.stuck_k * len(self.instance.activities)
 
         self._solver_gen = self._run_solver(self.instance)
         msg = next(self._solver_gen)
@@ -397,6 +413,12 @@ class BranchingEnv:
             done_reason=done_reason,
             nodes_expanded=ctx.nodes_expanded,
         )
+
+        # Reset stuck counter when incumbent improves (after reward scaling uses it).
+        if old_inc is None and new_inc is not None:
+            self._last_incumbent_nodes = ctx.nodes_expanded
+        elif old_inc is not None and new_inc is not None and new_inc < old_inc:
+            self._last_incumbent_nodes = ctx.nodes_expanded
 
         if done:
             self._done = True

@@ -3,6 +3,7 @@
 __pycache__/
 *.
 .claude
+.gitignore
 /reports/figures/*
 /reports/eval_plots/eval_trends_100k_Netres_vnr.png
 /reports/eval_plots/eval_trends_Netres_vnr_100k_rmod.png

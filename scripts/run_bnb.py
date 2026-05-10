@@ -579,15 +579,8 @@ def main() -> None:
 
         if progress_every > 0:
             is_last = idx == len(paths)
-            if len(paths) == 1:
-                if is_last or (idx % progress_every == 0):
-                    print(f"[{idx}/{len(paths)}] processed {path.name}", file=sys.stderr)
-            else:
-                # Keep multi-instance logs compact by default:
-                # if progress_every == 1, print only the final aggregate line.
-                should_print = is_last if progress_every == 1 else (is_last or (idx % progress_every == 0))
-                if should_print:
-                    print(f"[{idx}/{len(paths)}] processed", file=sys.stderr)
+            if is_last or (idx % progress_every == 0):
+                print(f"[{idx}/{len(paths)}] processed {path.name}", file=sys.stderr)
 
     def fmt_int(val: Optional[int]) -> str:
         return "-" if val is None else str(int(val))

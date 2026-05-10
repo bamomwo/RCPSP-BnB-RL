@@ -284,9 +284,10 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "time_limit_s": 60.0,
     # Reward
     "step_cost": 0.01,
-    "prune_coeff": 0.1,
     "inc_coeff": 1.0,
     "gap_coeff": 2.0,
+    "stuck_penalty": 0.05,
+    "stuck_k": 150,
     "exhausted_coeff": 10.0,
     # Eval
     "eval_every_steps": 20_000,
@@ -374,9 +375,10 @@ def main() -> None:
     # --- Reward config ---
     reward_cfg = RewardConfig(
         step_cost=float(config["step_cost"]),
-        prune_coeff=float(config["prune_coeff"]),
         inc_coeff=float(config["inc_coeff"]),
         gap_coeff=float(config["gap_coeff"]),
+        stuck_penalty=float(config["stuck_penalty"]),
+        stuck_k=int(config["stuck_k"]),
         exhausted_coeff=float(config["exhausted_coeff"]),
     )
 
@@ -651,8 +653,7 @@ def main() -> None:
                 print(f"[Checkpoint] best   → {best_model_path}  (gap={best_mean_gap:.2f}%)")
             print(f"{sep}\n")
 
-    # ---- Save final model ----
-    save_policy_checkpoint(ac.model, str(save_path), extra={"train_config": config})
+    # ---- Final model save skipped; best model is saved during evaluation ----
     elapsed = time.perf_counter() - t_start
 
     # ---- Final evaluation ----
@@ -693,7 +694,6 @@ def main() -> None:
     print(f"\n{'='*80}")
     print(f"  Training complete")
     print(f"  steps={global_step:,}  episodes={episode_count:,}  updates={update_count:,}  elapsed={elapsed:.0f}s")
-    print(f"  final model  → {save_path}")
     if eval_log:
         best_entry = min(eval_log, key=lambda e: e["mean_gap"])
         print(f"  best gap     : {best_entry['mean_gap']:.2f}% at step {best_entry['step']:,}")
