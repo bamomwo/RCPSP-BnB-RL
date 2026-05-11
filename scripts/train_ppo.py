@@ -288,7 +288,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "gap_coeff": 2.0,
     "stuck_penalty": 0.05,
     "stuck_k": 150,
-    "exhausted_coeff": 10.0,
+    "exhausted_per_activity": 1.0,
     # Eval
     "eval_every_steps": 20_000,
     "eval_root": None,
@@ -379,7 +379,7 @@ def main() -> None:
         gap_coeff=float(config["gap_coeff"]),
         stuck_penalty=float(config["stuck_penalty"]),
         stuck_k=int(config["stuck_k"]),
-        exhausted_coeff=float(config["exhausted_coeff"]),
+        exhausted_per_activity=float(config["exhausted_per_activity"]),
     )
 
     # --- Output paths ---
@@ -480,16 +480,23 @@ def main() -> None:
                 stats = env.episode_stats
                 episode_count += 1
                 elapsed = time.perf_counter() - t_start
+                bd = stats.reward_breakdown
                 print(
-                    f"[Episode {episode_count}] done  "
-                    f"steps={episode_steps}  "
-                    f"reward={episode_reward:.2f}  "
-                    f"best_ms={stats.best_makespan}  "
-                    f"inc={stats.incumbent_improvements}  "
-                    f"nodes={stats.nodes_expanded}  "
-                    f"reason={stats.done_reason}  "
+                    f"[Episode {episode_count}] Done  "
+                    f"Instance={current_instance_path.name}  "
+                    f"Reason={stats.done_reason}  "
+                    f"Steps={episode_steps}  "
+                    f"Nodes={stats.nodes_expanded}  "
+                    f"Best_Ms={stats.best_makespan}  "
+                    f"Incumbents={stats.incumbents_found}  "
+                    f"Reward={episode_reward:+.2f}  "
+                    f"(step={bd.get('step', 0.0):+.2f} "
+                    f"inc={bd.get('incumbent', 0.0):+.2f} "
+                    f"stuck={bd.get('stuck', 0.0):+.2f} "
+                    f"optimal={bd.get('exhausted', 0.0):+.2f})  "
                     f"elapsed={elapsed:.0f}s"
                 )
+                print()
                 if global_step < total_env_steps:
                     current_instance_path = next_instance()
                     obs = env.reset(instance=load_instance(current_instance_path))

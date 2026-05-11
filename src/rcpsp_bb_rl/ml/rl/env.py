@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -43,18 +43,19 @@ class RewardConfig:
           + [if n_since_last > threshold]:
                 -stuck_penalty
           + [if done AND search_exhausted]:
-                exhausted_coeff / nodes_expanded
+                exhausted_per_activity * n_activities
 
     where
-        n_since_last = nodes expanded since the previous incumbent improvement
-        threshold    = stuck_k * n_activities
+        n_since_last   = nodes expanded since the previous incumbent improvement
+        threshold      = stuck_k * n_activities
+        n_activities   = len(instance.activities) (includes source/sink)
     """
     step_cost: float = 0.01
     inc_coeff: float = 1.0
     gap_coeff: float = 2.0
     stuck_penalty: float = 0.05
     stuck_k: int = 150
-    exhausted_coeff: float = 10.0
+    exhausted_per_activity: float = 1.0
 
 
 @dataclass
@@ -63,13 +64,23 @@ class EpisodeStats:
     nodes_expanded: int = 0
     nodes_pruned: int = 0
     dominance_pruned: int = 0
-    incumbent_improvements: int = 0
+    incumbents_found: int = 0
     first_incumbent_node: Optional[int] = None
     first_incumbent_makespan: Optional[int] = None
+    last_incumbent_node: Optional[int] = None
+    last_incumbent_makespan: Optional[int] = None
     best_makespan: Optional[int] = None
     final_gap: Optional[float] = None
     done_reason: str = "unknown"
     total_reward: float = 0.0
+    reward_breakdown: Dict[str, float] = field(default_factory=lambda: {
+        "step": 0.0,
+        "incumbent": 0.0,
+        "gap_closure": 0.0,
+        "stuck": 0.0,
+        "exhausted": 0.0,
+    })
+    stuck_nodes: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -114,6 +125,7 @@ class BranchingEnv:
         self._episode_stats: EpisodeStats = EpisodeStats()
         self._stuck_threshold: int = 0
         self._last_incumbent_nodes: int = 0
+        self._n_activities: int = 0
 
         # Step-level state written by the callback, read by step()
         self._pending_node: Optional[BBNode] = None
@@ -229,10 +241,10 @@ class BranchingEnv:
             reward += r_stuck
         breakdown["stuck"] = r_stuck
 
-        # 4. Search exhaustion bonus
+        # 4. Search exhaustion bonus: flat, scaled by instance size.
         r_exhausted = 0.0
-        if done and done_reason == "search_exhausted" and nodes_expanded > 0:
-            r_exhausted = cfg.exhausted_coeff / nodes_expanded
+        if done and done_reason == "search_exhausted":
+            r_exhausted = cfg.exhausted_per_activity * self._n_activities
             reward += r_exhausted
         breakdown["exhausted"] = r_exhausted
 
@@ -316,7 +328,8 @@ class BranchingEnv:
         self._done = False
         self._done_reason = "unknown"
         self._last_incumbent_nodes = 0
-        self._stuck_threshold = self.reward_cfg.stuck_k * len(self.instance.activities)
+        self._n_activities = len(self.instance.activities)
+        self._stuck_threshold = self.reward_cfg.stuck_k * self._n_activities
 
         self._solver_gen = self._run_solver(self.instance)
         msg = next(self._solver_gen)
@@ -380,15 +393,19 @@ class BranchingEnv:
         self._episode_stats.dominance_pruned += ctx.dom_pruned
 
         if old_inc is not None and new_inc is not None and new_inc < old_inc:
-            self._episode_stats.incumbent_improvements += 1
+            self._episode_stats.incumbents_found += 1
             if self._episode_stats.first_incumbent_node is None:
                 self._episode_stats.first_incumbent_node = ctx.nodes_expanded
                 self._episode_stats.first_incumbent_makespan = new_inc
+            self._episode_stats.last_incumbent_node = ctx.nodes_expanded
+            self._episode_stats.last_incumbent_makespan = new_inc
         elif old_inc is None and new_inc is not None:
-            self._episode_stats.incumbent_improvements += 1
+            self._episode_stats.incumbents_found += 1
             if self._episode_stats.first_incumbent_node is None:
                 self._episode_stats.first_incumbent_node = ctx.nodes_expanded
                 self._episode_stats.first_incumbent_makespan = new_inc
+            self._episode_stats.last_incumbent_node = ctx.nodes_expanded
+            self._episode_stats.last_incumbent_makespan = new_inc
 
         # Determine done
         done = False
@@ -413,6 +430,16 @@ class BranchingEnv:
             done_reason=done_reason,
             nodes_expanded=ctx.nodes_expanded,
         )
+
+        # Accumulate reward breakdown for end-of-episode logging.
+        for key, value in breakdown.items():
+            self._episode_stats.reward_breakdown[key] = (
+                self._episode_stats.reward_breakdown.get(key, 0.0) + value
+            )
+        # Track how many nodes were spent past the stuck threshold this step.
+        n_since_last = ctx.nodes_expanded - self._last_incumbent_nodes
+        if self._stuck_threshold > 0 and n_since_last > self._stuck_threshold:
+            self._episode_stats.stuck_nodes += 1
 
         # Reset stuck counter when incumbent improves (after reward scaling uses it).
         if old_inc is None and new_inc is not None:

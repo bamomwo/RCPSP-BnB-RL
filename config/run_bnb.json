@@ -2,7 +2,7 @@
   "max_nodes": null,
   "branching_order": "policy",
   "time_limit_s": 60,
-  "policy_path": "models/best/policy_bc.pt",
+  "policy_path": "models/best/policy_ppo_1m_nr.pt",
   "policy_device": "cpu",
   "policy_max_resources": 4,
   "search_strategy": "ubs",

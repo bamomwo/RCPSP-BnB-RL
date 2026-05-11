@@ -1,6 +1,6 @@
 {
-  "root": "data/train/1kNetRes",
-  "pattern": "*.rcp",
+  "root": "data/eval/j60rcp",
+  "pattern": "*.RCP",
   "max_instances": null,
   "max_resources": 4,
   "dominance": "set_based",
@@ -24,14 +24,14 @@
   "lr": 3e-4,
   "max_grad_norm": 0.5,
   "target_kl": 0.02,
-  "time_limit_s": 60.0,
+  "time_limit_s": 180.0,
 
   "step_cost": 0.01,
   "inc_coeff": 1.0,
   "gap_coeff": 2.0,
   "stuck_penalty": 0.05,
   "stuck_k": 150,
-  "exhausted_coeff": 10.0,
+  "exhausted_per_activity": 1.0,
 
   "eval_every_steps": 200000,
   "eval_root": "data/eval/j30/j30_10",
