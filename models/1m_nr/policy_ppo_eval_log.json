@@ -1,0 +1,39 @@
+[
+  {
+    "step": 200704,
+    "solved_frac": 0.5,
+    "mean_gap": 3.5296560827638723,
+    "mean_nodes": 22804.6
+  },
+  {
+    "step": 400384,
+    "solved_frac": 0.1,
+    "mean_gap": 6.964413026181232,
+    "mean_nodes": 23362.4
+  },
+  {
+    "step": 600064,
+    "solved_frac": 0.3,
+    "mean_gap": 6.810366914276406,
+    "mean_nodes": 23428.9
+  },
+  {
+    "step": 800768,
+    "solved_frac": 0.3,
+    "mean_gap": 5.6560112708543215,
+    "mean_nodes": 23573.8
+  },
+  {
+    "step": 1000000,
+    "solved_frac": 0.3,
+    "mean_gap": 6.1157773403764875,
+    "mean_nodes": 23665.6
+  },
+  {
+    "step": 1000000,
+    "final": true,
+    "solved_frac": 0.3,
+    "mean_gap": 6.1157773403764875,
+    "mean_nodes": 23548.6
+  }
+]
