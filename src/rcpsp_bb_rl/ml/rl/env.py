@@ -64,7 +64,7 @@ class EpisodeStats:
     nodes_expanded: int = 0
     nodes_pruned: int = 0
     dominance_pruned: int = 0
-    incumbents_found: int = 0
+    incumbent_improvements: int = 0
     first_incumbent_node: Optional[int] = None
     first_incumbent_makespan: Optional[int] = None
     last_incumbent_node: Optional[int] = None
@@ -393,14 +393,13 @@ class BranchingEnv:
         self._episode_stats.dominance_pruned += ctx.dom_pruned
 
         if old_inc is not None and new_inc is not None and new_inc < old_inc:
-            self._episode_stats.incumbents_found += 1
+            self._episode_stats.incumbent_improvements += 1
             if self._episode_stats.first_incumbent_node is None:
                 self._episode_stats.first_incumbent_node = ctx.nodes_expanded
                 self._episode_stats.first_incumbent_makespan = new_inc
             self._episode_stats.last_incumbent_node = ctx.nodes_expanded
             self._episode_stats.last_incumbent_makespan = new_inc
         elif old_inc is None and new_inc is not None:
-            self._episode_stats.incumbents_found += 1
             if self._episode_stats.first_incumbent_node is None:
                 self._episode_stats.first_incumbent_node = ctx.nodes_expanded
                 self._episode_stats.first_incumbent_makespan = new_inc

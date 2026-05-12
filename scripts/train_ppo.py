@@ -488,7 +488,7 @@ def main() -> None:
                     f"Steps={episode_steps}  "
                     f"Nodes={stats.nodes_expanded}  "
                     f"Best_Ms={stats.best_makespan}  "
-                    f"Incumbents={stats.incumbents_found}  "
+                    f"Inc_Improves={stats.incumbent_improvements}  "
                     f"Reward={episode_reward:+.2f}  "
                     f"(step={bd.get('step', 0.0):+.2f} "
                     f"inc={bd.get('incumbent', 0.0):+.2f} "

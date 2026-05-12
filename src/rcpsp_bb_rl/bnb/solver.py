@@ -199,13 +199,21 @@ class BnBSolver:
             return (time.perf_counter() - start_time_monotonic) >= time_limit_s
 
         def _make_step_context() -> StepContext:
-            return StepContext(
+            nonlocal _step_incumbent_before, _step_lb_pruned, _step_dom_pruned
+            ctx = StepContext(
                 incumbent_before=_step_incumbent_before,
                 incumbent_after=best_makespan,
                 lb_pruned=_step_lb_pruned,
                 dom_pruned=_step_dom_pruned,
                 nodes_expanded=nodes_expanded,
             )
+            # Snapshot state for the *next* branching call. Any incumbent
+            # improvement or pruning that happens between now and the next
+            # call will then show up as a delta relative to these values.
+            _step_incumbent_before = best_makespan
+            _step_lb_pruned = 0
+            _step_dom_pruned = 0
+            return ctx
 
         def _wrapped_order_fn(node: BBNode, incumbent: Optional[int]) -> List[int]:
             """Inject StepContext into order_ready_fn when it accepts it."""
@@ -259,8 +267,6 @@ class BnBSolver:
 
             is_parallel = isinstance(self.branching_scheme, ParallelBranchingScheme)
             acts: List[int] = []
-            # Snapshot incumbent before any order_ready_fn call for this node.
-            _step_incumbent_before = best_makespan
             if is_parallel:
                 while True:
                     decision = self.branching_scheme.decide(
@@ -331,9 +337,6 @@ class BnBSolver:
                     incumbent=incumbent_bound,
                     order_ready_fn=_wrapped_order_fn,
                 )
-                # Reset per-step counters after the branching decision is made.
-                _step_lb_pruned = 0
-                _step_dom_pruned = 0
 
             node.status = "expanded"
             nodes_expanded += 1
