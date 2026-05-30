@@ -34,12 +34,17 @@ class StepContext:
     lb_pruned         : LB-pruned nodes since the last branching decision
     dom_pruned        : dominance-pruned children since the last branching decision
     nodes_expanded    : total nodes expanded so far (including this one)
+    proof_burden      : sum over open stack nodes of max(0, incumbent - node.lb)
+                        — total dangerous remaining search space at this moment.
+                        Zero when no incumbent exists, or when the stack contains
+                        no node with lb < incumbent.
     """
     incumbent_before: Optional[int]
     incumbent_after: Optional[int]
     lb_pruned: int
     dom_pruned: int
     nodes_expanded: int
+    proof_burden: int
 
 
 @dataclass
@@ -96,6 +101,7 @@ class SolverResult:
     dominance_pruned_children: int
     dominance_pruned_by_rule: Dict[str, int]
     done_reason: str = "search_exhausted"  # "search_exhausted" | "time_limit"
+    final_proof_burden: int = 0  # sum(incumbent - lb) over open stack nodes at termination
     debug_info: Optional[DebugInfo] = None
 
 
@@ -198,6 +204,17 @@ class BnBSolver:
                 return False
             return (time.perf_counter() - start_time_monotonic) >= time_limit_s
 
+        def _compute_proof_burden() -> int:
+            """Sum of (incumbent - node.lb) over open stack nodes with lb < incumbent."""
+            if best_makespan is None:
+                return 0
+            total = 0
+            for nid in stack:
+                lb = self.nodes[nid].lower_bound
+                if lb < best_makespan:
+                    total += best_makespan - lb
+            return total
+
         def _make_step_context() -> StepContext:
             nonlocal _step_incumbent_before, _step_lb_pruned, _step_dom_pruned
             ctx = StepContext(
@@ -206,6 +223,7 @@ class BnBSolver:
                 lb_pruned=_step_lb_pruned,
                 dom_pruned=_step_dom_pruned,
                 nodes_expanded=nodes_expanded,
+                proof_burden=_compute_proof_burden(),
             )
             # Snapshot state for the *next* branching call. Any incumbent
             # improvement or pruning that happens between now and the next
@@ -458,6 +476,7 @@ class BnBSolver:
                 stack.append(child_id)
 
         solver_done_reason = "time_limit" if (stack and time_exceeded()) else "search_exhausted"
+        final_proof_burden = _compute_proof_burden()
 
         return SolverResult(
             best_makespan=best_makespan,
@@ -474,6 +493,7 @@ class BnBSolver:
             dominance_pruned_children=dominance_engine.stats.pruned_children,
             dominance_pruned_by_rule=dict(dominance_engine.stats.pruned_by_rule),
             done_reason=solver_done_reason,
+            final_proof_burden=final_proof_burden,
             debug_info=debug_info,
         )
 

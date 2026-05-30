@@ -25,3 +25,7 @@ lb.txt
 CLAUDE.md
 run_bnb.py
 scripts/report_bnb_bounds.py
+
+
+baseline.py
+reward.txt

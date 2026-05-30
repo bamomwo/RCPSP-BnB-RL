@@ -33,29 +33,30 @@ class StepOutput:
 @dataclass
 class RewardConfig:
     """
-    All reward coefficients in one place so train_ppo.py can pass them cleanly.
+    Proof-oriented reward coefficients (see reward.txt for full design).
 
     Reward at each branching step:
         r = -step_cost
-          + [if incumbent improved]:
-                inc_coeff * (old_inc - new_inc) / max(1, n_since_last / threshold)
-              + gap_coeff * (old_gap - new_gap) / old_gap
-          + [if n_since_last > threshold]:
-                -stuck_penalty
-          + [if done AND search_exhausted]:
-                exhausted_per_activity * n_activities
+          + [if first incumbent appeared at this step]:
+                first_inc_coeff * (cp_lb / first_incumbent)
+          + [if an incumbent exists at the start of the step]:
+                proof_coeff *
+                (proof_burden_before - proof_burden_after)
+                / max(1, nodes_expanded_delta)
+          + [if done AND search_exhausted AND best_makespan is not None]:
+                proof_bonus
 
     where
-        n_since_last   = nodes expanded since the previous incumbent improvement
-        threshold      = stuck_k * n_activities
-        n_activities   = len(instance.activities) (includes source/sink)
+        cp_lb              = root critical-path lower bound (computed at reset)
+        first_incumbent    = makespan of the first complete schedule found
+        proof_burden       = sum over open stack nodes of max(0, incumbent - lb)
+        nodes_expanded_delta = nodes expanded between this branching decision
+                               and the next decision (or termination)
     """
     step_cost: float = 0.01
-    inc_coeff: float = 1.0
-    gap_coeff: float = 2.0
-    stuck_penalty: float = 0.05
-    stuck_k: int = 150
-    exhausted_per_activity: float = 1.0
+    first_inc_coeff: float = 3.0
+    proof_coeff: float = 1.0
+    proof_bonus: float = 30.0
 
 
 @dataclass
@@ -75,12 +76,10 @@ class EpisodeStats:
     total_reward: float = 0.0
     reward_breakdown: Dict[str, float] = field(default_factory=lambda: {
         "step": 0.0,
-        "incumbent": 0.0,
-        "gap_closure": 0.0,
-        "stuck": 0.0,
-        "exhausted": 0.0,
+        "first_incumbent": 0.0,
+        "proof_burden": 0.0,
+        "proof_bonus": 0.0,
     })
-    stuck_nodes: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -123,9 +122,8 @@ class BranchingEnv:
         # Set at reset()
         self.instance: Optional[RCPSPInstance] = None
         self._episode_stats: EpisodeStats = EpisodeStats()
-        self._stuck_threshold: int = 0
-        self._last_incumbent_nodes: int = 0
         self._n_activities: int = 0
+        self._cp_lb: int = 0
 
         # Step-level state written by the callback, read by step()
         self._pending_node: Optional[BBNode] = None
@@ -195,12 +193,22 @@ class BranchingEnv:
 
     def _compute_reward(
         self,
-        ctx: StepContext,
-        node_lb: int,
+        *,
+        pre_inc: Optional[int],
+        post_inc: Optional[int],
+        pre_burden: int,
+        post_burden: int,
+        nodes_delta: int,
         done: bool,
         done_reason: str,
-        nodes_expanded: int,
-    ) -> Tuple[float, Dict]:
+    ) -> Tuple[float, Dict[str, float]]:
+        """
+        Proof-oriented reward (see RewardConfig docstring and reward.txt).
+
+        All quantities reflect the advance triggered by the action just taken:
+            pre_*  : state at the branching decision the agent acted on
+            post_* : state at the next branching decision (or termination)
+        """
         cfg = self.reward_cfg
         reward = 0.0
         breakdown: Dict[str, float] = {}
@@ -210,43 +218,39 @@ class BranchingEnv:
         reward += r_step
         breakdown["step"] = r_step
 
-        # 2. Incumbent improvement + gap closure (scaled by stuck duration)
-        r_inc = 0.0
-        r_gap = 0.0
-        old_inc = ctx.incumbent_before
-        new_inc = ctx.incumbent_after
-        improved = old_inc is not None and new_inc is not None and new_inc < old_inc
-        n_since_last = nodes_expanded - self._last_incumbent_nodes
-        threshold = self._stuck_threshold
+        # 2. First-incumbent reward — only on the step where the first
+        #    complete feasible schedule appears.
+        r_first_inc = 0.0
+        if pre_inc is None and post_inc is not None:
+            if post_inc > 0 and self._cp_lb > 0:
+                quality = float(self._cp_lb) / float(post_inc)
+            else:
+                quality = 0.0
+            r_first_inc = cfg.first_inc_coeff * quality
+            reward += r_first_inc
+        breakdown["first_incumbent"] = r_first_inc
 
-        if improved:
-            improvement = float(old_inc - new_inc)
-            scale = max(1.0, n_since_last / threshold) if threshold > 0 else 1.0
-            r_inc = cfg.inc_coeff * improvement / scale
+        # 3. Proof-burden progress — only when an incumbent already existed
+        #    at the start of the step (i.e., we are already in proof mode).
+        r_proof = 0.0
+        if pre_inc is not None:
+            denom = max(1, int(nodes_delta))
+            r_proof = cfg.proof_coeff * float(pre_burden - post_burden) / float(denom)
+            reward += r_proof
+        breakdown["proof_burden"] = r_proof
 
-            old_gap = float(old_inc - node_lb)
-            new_gap = float(new_inc - node_lb)
-            if old_gap > 0:
-                r_gap = cfg.gap_coeff * (old_gap - new_gap) / old_gap
-
-            reward += r_inc + r_gap
-
-        breakdown["incumbent"] = r_inc
-        breakdown["gap_closure"] = r_gap
-
-        # 3. Stuck penalty: flat dense cost once past threshold between incumbents.
-        r_stuck = 0.0
-        if threshold > 0 and n_since_last > threshold:
-            r_stuck = -cfg.stuck_penalty
-            reward += r_stuck
-        breakdown["stuck"] = r_stuck
-
-        # 4. Search exhaustion bonus: flat, scaled by instance size.
-        r_exhausted = 0.0
-        if done and done_reason == "search_exhausted":
-            r_exhausted = cfg.exhausted_per_activity * self._n_activities
-            reward += r_exhausted
-        breakdown["exhausted"] = r_exhausted
+        # 4. Terminal proof bonus — only when the search is fully exhausted
+        #    and an incumbent exists (i.e., optimality is proven).
+        r_proof_bonus = 0.0
+        proved_optimal = (
+            done
+            and done_reason == "search_exhausted"
+            and self._episode_stats.best_makespan is not None
+        )
+        if proved_optimal:
+            r_proof_bonus = cfg.proof_bonus
+            reward += r_proof_bonus
+        breakdown["proof_bonus"] = r_proof_bonus
 
         return reward, breakdown
 
@@ -327,9 +331,13 @@ class BranchingEnv:
         self._steps = 0
         self._done = False
         self._done_reason = "unknown"
-        self._last_incumbent_nodes = 0
         self._n_activities = len(self.instance.activities)
-        self._stuck_threshold = self.reward_cfg.stuck_k * self._n_activities
+        self._cp_lb = int(lower_bound(
+            self.instance,
+            set(self.instance.activities.keys()),
+            {},
+            lb_id=self.lb_spec,
+        ))
 
         self._solver_gen = self._run_solver(self.instance)
         msg = next(self._solver_gen)
@@ -377,6 +385,14 @@ class BranchingEnv:
         # explored first (LIFO stack).
         ordering = [chosen] + [a for a in ready_sorted if a != chosen]
 
+        # ---- Snapshot pre-action state ----
+        # ctx was created when the solver paused for THIS branching decision,
+        # so ctx.incumbent_after / ctx.proof_burden / ctx.nodes_expanded reflect
+        # the moment the agent is about to act.
+        pre_inc: Optional[int] = ctx.incumbent_after
+        pre_burden: int = ctx.proof_burden
+        pre_nodes: int = ctx.nodes_expanded
+
         # Resume the solver with the chosen ordering.
         try:
             msg = self._solver_gen.send(ordering)
@@ -385,66 +401,78 @@ class BranchingEnv:
 
         self._steps += 1
 
-        # Update episode stats from StepContext
-        old_inc = ctx.incumbent_before
-        new_inc = ctx.incumbent_after
-        self._episode_stats.nodes_expanded = ctx.nodes_expanded
-        self._episode_stats.nodes_pruned += ctx.lb_pruned
-        self._episode_stats.dominance_pruned += ctx.dom_pruned
-
-        if old_inc is not None and new_inc is not None and new_inc < old_inc:
-            self._episode_stats.incumbent_improvements += 1
-            if self._episode_stats.first_incumbent_node is None:
-                self._episode_stats.first_incumbent_node = ctx.nodes_expanded
-                self._episode_stats.first_incumbent_makespan = new_inc
-            self._episode_stats.last_incumbent_node = ctx.nodes_expanded
-            self._episode_stats.last_incumbent_makespan = new_inc
-        elif old_inc is None and new_inc is not None:
-            if self._episode_stats.first_incumbent_node is None:
-                self._episode_stats.first_incumbent_node = ctx.nodes_expanded
-                self._episode_stats.first_incumbent_makespan = new_inc
-            self._episode_stats.last_incumbent_node = ctx.nodes_expanded
-            self._episode_stats.last_incumbent_makespan = new_inc
-
-        # Determine done
+        # ---- Snapshot post-action state (after the advance triggered by
+        #      the chosen ordering) ----
         done = False
         done_reason = "running"
+        next_ctx: Optional[StepContext] = None
+        result_obj = None
 
-        if msg[0] in ("done", "done_implicit"):
+        if msg[0] == "branch":
+            _, next_node, next_incumbent, next_ctx = msg
+            post_inc: Optional[int] = next_ctx.incumbent_after
+            post_burden: int = next_ctx.proof_burden
+            post_nodes: int = next_ctx.nodes_expanded
+            advance_lb_pruned = next_ctx.lb_pruned
+            advance_dom_pruned = next_ctx.dom_pruned
+        elif msg[0] == "done":
+            _, result_obj = msg
             done = True
-            if msg[0] == "done":
-                result = msg[1]
-                self._episode_stats.best_makespan = result.best_makespan
-                self._episode_stats.nodes_expanded = result.nodes_expanded
-                done_reason = result.done_reason
-            else:
-                done_reason = "search_exhausted"
+            done_reason = result_obj.done_reason
+            post_inc = result_obj.best_makespan
+            post_burden = result_obj.final_proof_burden
+            post_nodes = result_obj.nodes_expanded
+            advance_lb_pruned = 0
+            advance_dom_pruned = 0
+        else:  # done_implicit — generator already exhausted
+            done = True
+            done_reason = "search_exhausted"
+            post_inc = pre_inc
+            post_burden = 0
+            post_nodes = pre_nodes
+            advance_lb_pruned = 0
+            advance_dom_pruned = 0
 
-        # Compute reward using the StepContext from the *previous* branching
-        # decision (ctx), which accumulated pruning/incumbent data up to now.
+        nodes_delta = max(0, post_nodes - pre_nodes)
+
+        # ---- Update episode stats ----
+        if msg[0] == "branch":
+            self._episode_stats.nodes_expanded = post_nodes
+            self._episode_stats.nodes_pruned += advance_lb_pruned
+            self._episode_stats.dominance_pruned += advance_dom_pruned
+        elif result_obj is not None:
+            self._episode_stats.nodes_expanded = result_obj.nodes_expanded
+            self._episode_stats.nodes_pruned = result_obj.nodes_pruned
+            self._episode_stats.dominance_pruned = result_obj.dominance_pruned_children
+            self._episode_stats.best_makespan = result_obj.best_makespan
+
+        # Incumbent-improvement tracking: pre_inc -> post_inc during this advance.
+        if pre_inc is None and post_inc is not None:
+            if self._episode_stats.first_incumbent_node is None:
+                self._episode_stats.first_incumbent_node = post_nodes
+                self._episode_stats.first_incumbent_makespan = post_inc
+            self._episode_stats.last_incumbent_node = post_nodes
+            self._episode_stats.last_incumbent_makespan = post_inc
+        elif pre_inc is not None and post_inc is not None and post_inc < pre_inc:
+            self._episode_stats.incumbent_improvements += 1
+            self._episode_stats.last_incumbent_node = post_nodes
+            self._episode_stats.last_incumbent_makespan = post_inc
+
+        # ---- Compute reward (proof-oriented) ----
         reward, breakdown = self._compute_reward(
-            ctx=ctx,
-            node_lb=node.lower_bound,
+            pre_inc=pre_inc,
+            post_inc=post_inc,
+            pre_burden=pre_burden,
+            post_burden=post_burden,
+            nodes_delta=nodes_delta,
             done=done,
             done_reason=done_reason,
-            nodes_expanded=ctx.nodes_expanded,
         )
 
-        # Accumulate reward breakdown for end-of-episode logging.
         for key, value in breakdown.items():
             self._episode_stats.reward_breakdown[key] = (
                 self._episode_stats.reward_breakdown.get(key, 0.0) + value
             )
-        # Track how many nodes were spent past the stuck threshold this step.
-        n_since_last = ctx.nodes_expanded - self._last_incumbent_nodes
-        if self._stuck_threshold > 0 and n_since_last > self._stuck_threshold:
-            self._episode_stats.stuck_nodes += 1
-
-        # Reset stuck counter when incumbent improves (after reward scaling uses it).
-        if old_inc is None and new_inc is not None:
-            self._last_incumbent_nodes = ctx.nodes_expanded
-        elif old_inc is not None and new_inc is not None and new_inc < old_inc:
-            self._last_incumbent_nodes = ctx.nodes_expanded
 
         if done:
             self._done = True
@@ -465,16 +493,18 @@ class BranchingEnv:
         info.update({
             "done_reason": done_reason,
             "steps": self._steps,
-            "nodes_expanded": ctx.nodes_expanded,
-            "best_makespan": new_inc,
+            "nodes_expanded": post_nodes,
+            "nodes_delta": nodes_delta,
+            "best_makespan": post_inc,
             "action_task": chosen,
-            "lb_pruned": ctx.lb_pruned,
-            "dom_pruned": ctx.dom_pruned,
+            "lb_pruned": advance_lb_pruned,
+            "dom_pruned": advance_dom_pruned,
+            "proof_burden_before": pre_burden,
+            "proof_burden_after": post_burden,
             "reward_breakdown": breakdown,
         })
 
         if not done and msg[0] == "branch":
-            _, next_node, next_incumbent, next_ctx = msg
             self._pending_node = next_node
             self._pending_ctx = next_ctx
             self._pending_incumbent = next_incumbent
