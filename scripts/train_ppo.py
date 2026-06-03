@@ -239,7 +239,33 @@ def parse_args() -> argparse.Namespace:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     p.add_argument("--config", required=True, help="Path to JSON config file.")
+    p.add_argument(
+        "--log",
+        action="store_true",
+        help="Tee training output to a .txt file in the same directory as the saved model.",
+    )
     return p.parse_args()
+
+
+class _Tee:
+    """Duplicate writes to several streams (console + log file).
+
+    Flushes after every write so the log file always reflects the latest
+    output even if training is interrupted.
+    """
+
+    def __init__(self, *streams) -> None:
+        self._streams = streams
+
+    def write(self, data: str) -> int:
+        for s in self._streams:
+            s.write(data)
+            s.flush()
+        return len(data)
+
+    def flush(self) -> None:
+        for s in self._streams:
+            s.flush()
 
 
 def load_json(path: Path) -> Dict[str, Any]:
@@ -309,6 +335,16 @@ def main() -> None:
     args = parse_args()
     config = DEFAULT_CONFIG.copy()
     config.update(load_json(Path(args.config)))
+
+    # --- Optional log file (tee stdout to a .txt next to the saved model) ---
+    if args.log:
+        save_path = Path(config["save_path"])
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        log_file_path = save_path.parent / (save_path.stem + "_train_log.txt")
+        log_fh = open(log_file_path, "w")
+        sys.stdout = _Tee(sys.__stdout__, log_fh)
+        sys.stderr = _Tee(sys.__stderr__, log_fh)
+        print(f"Logging training output to: {log_file_path}")
 
     set_seed(int(config["seed"]))
     device = torch.device(

@@ -1,6 +1,6 @@
 {
-  "root": "data/train/1kNetRes",
-  "pattern": "*.rcp",
+  "root": "data/eval/J30/J30_all",
+  "pattern": "*.RCP",
   "max_instances": null,
   "max_resources": 4,
   "dominance": "set_based",
@@ -14,16 +14,16 @@
 
   "total_env_steps": 1000000,
   "rollout_horizon": 1024,
-  "ppo_epochs": 4,
+  "ppo_epochs": 2,
   "minibatches": 4,
-  "clip_eps": 0.2,
+  "clip_eps": 0.1,
   "gamma": 0.99,
   "gae_lambda": 0.95,
   "ent_coef": 0.01,
   "vf_coef": 0.5,
   "lr": 3e-4,
   "max_grad_norm": 0.5,
-  "target_kl": 0.02,
+  "target_kl": 0.05,
   "time_limit_s": 60.0,
 
   "step_cost": 0.01,
@@ -31,14 +31,14 @@
   "proof_coeff": 0.01,
   "proof_bonus": 30.0,
 
-  "eval_every_steps": 20000,
+  "eval_every_steps": 50000,
   "eval_root": "data/eval/j30/j30_10",
   "eval_pattern": "*.RCP",
   "eval_time_limit_s": 60.0,
   "eval_optimal_json": "data/baseline/j30_opt.json",
 
-  "save_path": "models/1m/policy_ppo.pt",
-  "checkpoint_dir": "models/1m/checkpoints",
+  "save_path": "models/1mnnnj/policy_ppo.pt",
+  "checkpoint_dir": "models/1mnnnj/checkpoints",
   "seed": 42,
   "device": "cpu"
 }
