@@ -37,7 +37,16 @@ class StepContext:
     proof_burden      : sum over open stack nodes of max(0, incumbent - node.lb)
                         — total dangerous remaining search space at this moment.
                         Zero when no incumbent exists, or when the stack contains
-                        no node with lb < incumbent.
+                        no node with lb < incumbent. (Legacy diagnostic; the
+                        optimality-gap reward uses frontier_min_lb instead.)
+    frontier_min_lb   : minimum lower bound over the open frontier — the stack
+                        nodes plus the node currently being expanded. This is the
+                        dual bound: no open branch can yield a makespan below it.
+                        The relative optimality gap is
+                        (incumbent - frontier_min_lb) / incumbent. Including the
+                        node currently being expanded keeps the bound well-defined
+                        when the stack is momentarily empty (e.g. at the root).
+                        None when the frontier is empty.
     """
     incumbent_before: Optional[int]
     incumbent_after: Optional[int]
@@ -45,6 +54,7 @@ class StepContext:
     dom_pruned: int
     nodes_expanded: int
     proof_burden: int
+    frontier_min_lb: Optional[int] = None
 
 
 @dataclass
@@ -102,6 +112,7 @@ class SolverResult:
     dominance_pruned_by_rule: Dict[str, int]
     done_reason: str = "search_exhausted"  # "search_exhausted" | "time_limit"
     final_proof_burden: int = 0  # sum(incumbent - lb) over open stack nodes at termination
+    final_frontier_min_lb: Optional[int] = None  # min lb over open frontier at termination
     debug_info: Optional[DebugInfo] = None
 
 
@@ -215,8 +226,27 @@ class BnBSolver:
                     total += best_makespan - lb
             return total
 
-        def _make_step_context() -> StepContext:
+        def _compute_frontier_min_lb(current_lb: Optional[int]) -> Optional[int]:
+            """
+            Minimum lower bound over the open frontier — the nodes still on the
+            stack plus the node currently being expanded (current_lb). This is
+            the dual bound: no open branch can produce a makespan below it.
+
+            Including current_lb keeps the bound well-defined when the stack is
+            momentarily empty (e.g. while expanding the root). Returns None only
+            when there is no open node at all (current_lb is None and the stack
+            is empty), which at termination means the search is exhausted.
+            """
+            best = current_lb
+            for nid in stack:
+                lb = self.nodes[nid].lower_bound
+                if best is None or lb < best:
+                    best = lb
+            return best
+
+        def _make_step_context(current_node: Optional[BBNode] = None) -> StepContext:
             nonlocal _step_incumbent_before, _step_lb_pruned, _step_dom_pruned
+            current_lb = current_node.lower_bound if current_node is not None else None
             ctx = StepContext(
                 incumbent_before=_step_incumbent_before,
                 incumbent_after=best_makespan,
@@ -224,6 +254,7 @@ class BnBSolver:
                 dom_pruned=_step_dom_pruned,
                 nodes_expanded=nodes_expanded,
                 proof_burden=_compute_proof_burden(),
+                frontier_min_lb=_compute_frontier_min_lb(current_lb),
             )
             # Snapshot state for the *next* branching call. Any incumbent
             # improvement or pruning that happens between now and the next
@@ -241,7 +272,7 @@ class BnBSolver:
             import inspect
             sig = inspect.signature(order_ready_fn)
             if len(sig.parameters) >= 3:
-                return list(order_ready_fn(node, incumbent, _make_step_context()))
+                return list(order_ready_fn(node, incumbent, _make_step_context(node)))
             return list(order_ready_fn(node, incumbent))
 
         while stack and ((max_nodes is None) or (nodes_expanded < max_nodes)) and not time_exceeded():
@@ -477,6 +508,10 @@ class BnBSolver:
 
         solver_done_reason = "time_limit" if (stack and time_exceeded()) else "search_exhausted"
         final_proof_burden = _compute_proof_burden()
+        # At termination the frontier is exactly the remaining stack (no node is
+        # being expanded). On an exhausted search the stack is empty -> None,
+        # which the env treats as a fully closed gap (proof complete).
+        final_frontier_min_lb = _compute_frontier_min_lb(None)
 
         return SolverResult(
             best_makespan=best_makespan,
@@ -494,6 +529,7 @@ class BnBSolver:
             dominance_pruned_by_rule=dict(dominance_engine.stats.pruned_by_rule),
             done_reason=solver_done_reason,
             final_proof_burden=final_proof_burden,
+            final_frontier_min_lb=final_frontier_min_lb,
             debug_info=debug_info,
         )
 

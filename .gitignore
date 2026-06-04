@@ -14,25 +14,13 @@ __pycache__/
 /data/1ktrain
 /data/eval/j30h
 scripts/validate_fix_rcpsp.py
-
-models/checkpoints
-models/checkpoints_50k_step
-models/checkpoints_100k_Netres_vnr
-models/checkpoints_100k_netres_vnr_rmod 
-
-log.txt
-lb.txt
-CLAUDE.md
-run_bnb.py
 scripts/report_bnb_bounds.py
 
 
+models/1m_01
+
+
+CLAUDE.md
 baseline.py
 reward.txt
-models/1m 
-models/1mn 
-models/1mnn
-models/1mnnn
-models/1mnnnj
 
-context.txt

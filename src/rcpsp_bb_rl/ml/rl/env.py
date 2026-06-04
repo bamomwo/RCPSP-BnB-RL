@@ -33,29 +33,38 @@ class StepOutput:
 @dataclass
 class RewardConfig:
     """
-    Proof-oriented reward coefficients (see reward.txt for full design).
+    Proof-oriented reward coefficients (see reward.txt, "Revised Reward
+    Function: Optimality-Gap Integral").
 
     Reward at each branching step:
         r = -step_cost
           + [if first incumbent appeared at this step]:
                 first_inc_coeff * (cp_lb / first_incumbent)
           + [if an incumbent exists at the start of the step]:
-                proof_coeff *
-                (proof_burden_before - proof_burden_after)
-                / max(1, nodes_expanded_delta)
+                - proof_gap_coeff * gap * nodes_expanded_delta
           + [if done AND search_exhausted AND best_makespan is not None]:
                 proof_bonus
 
     where
         cp_lb              = root critical-path lower bound (computed at reset)
         first_incumbent    = makespan of the first complete schedule found
-        proof_burden       = sum over open stack nodes of max(0, incumbent - lb)
+        gap                = (incumbent - frontier_min_lb) / max(1, incumbent)
+                             the relative optimality gap; 0 exactly when the
+                             dual bound meets the incumbent (proof complete)
+        frontier_min_lb    = min lower bound over the open frontier (dual bound)
         nodes_expanded_delta = nodes expanded between this branching decision
-                               and the next decision (or termination)
+                               and the next decision (or termination); the
+                               Riemann width of the gap integral
+
+    The gap term is a per-step COST proportional to the current gap, summed
+    over the episode to -proof_gap_coeff * (area under the gap curve). Unlike
+    the previous proof-burden potential it is path-dependent (does not
+    telescope) and falls only when the incumbent improves or the dual bound
+    rises — both genuine proof progress.
     """
     step_cost: float = 0.01
     first_inc_coeff: float = 3.0
-    proof_coeff: float = 1.0
+    proof_gap_coeff: float = 1.0
     proof_bonus: float = 30.0
 
 
@@ -77,7 +86,7 @@ class EpisodeStats:
     reward_breakdown: Dict[str, float] = field(default_factory=lambda: {
         "step": 0.0,
         "first_incumbent": 0.0,
-        "proof_burden": 0.0,
+        "proof_gap": 0.0,
         "proof_bonus": 0.0,
     })
 
@@ -196,18 +205,22 @@ class BranchingEnv:
         *,
         pre_inc: Optional[int],
         post_inc: Optional[int],
-        pre_burden: int,
-        post_burden: int,
+        pre_frontier_min_lb: Optional[int],
         nodes_delta: int,
         done: bool,
         done_reason: str,
     ) -> Tuple[float, Dict[str, float]]:
         """
-        Proof-oriented reward (see RewardConfig docstring and reward.txt).
+        Proof-oriented reward (see RewardConfig docstring and reward.txt,
+        "Revised Reward Function: Optimality-Gap Integral").
 
         All quantities reflect the advance triggered by the action just taken:
             pre_*  : state at the branching decision the agent acted on
             post_* : state at the next branching decision (or termination)
+
+        The gap term is a per-step cost evaluated at the pre-state gap and
+        scaled by the number of nodes expanded during the advance (its Riemann
+        width). Summed over the episode it is the primal-dual integral.
         """
         cfg = self.reward_cfg
         reward = 0.0
@@ -230,14 +243,24 @@ class BranchingEnv:
             reward += r_first_inc
         breakdown["first_incumbent"] = r_first_inc
 
-        # 3. Proof-burden progress — only when an incumbent already existed
-        #    at the start of the step (i.e., we are already in proof mode).
+        # 3. Optimality-gap integral — a per-step COST proportional to the
+        #    current relative gap, charged once an incumbent exists (proof
+        #    mode). gap = (incumbent - frontier_min_lb) / incumbent, evaluated
+        #    at the pre-state; scaled by nodes_delta (the Riemann width of the
+        #    advance, = 1 during search, larger on the final advance). Summed
+        #    over the episode this is -proof_gap_coeff * area under the gap
+        #    curve. Falls only when the incumbent improves or the dual bound
+        #    rises, so it does not telescope and has no drain incentive.
         r_proof = 0.0
         if pre_inc is not None:
-            denom = max(1, int(nodes_delta))
-            r_proof = cfg.proof_coeff * float(pre_burden - post_burden) / float(denom)
+            if pre_frontier_min_lb is not None and pre_inc > 0:
+                gap = max(0.0, float(pre_inc - pre_frontier_min_lb) / float(pre_inc))
+            else:
+                gap = 0.0
+            width = float(max(0, int(nodes_delta)))
+            r_proof = -cfg.proof_gap_coeff * gap * width
             reward += r_proof
-        breakdown["proof_burden"] = r_proof
+        breakdown["proof_gap"] = r_proof
 
         # 4. Terminal proof bonus — only when the search is fully exhausted
         #    and an incumbent exists (i.e., optimality is proven).
@@ -387,10 +410,11 @@ class BranchingEnv:
 
         # ---- Snapshot pre-action state ----
         # ctx was created when the solver paused for THIS branching decision,
-        # so ctx.incumbent_after / ctx.proof_burden / ctx.nodes_expanded reflect
-        # the moment the agent is about to act.
+        # so ctx.incumbent_after / ctx.proof_burden / ctx.frontier_min_lb /
+        # ctx.nodes_expanded reflect the moment the agent is about to act.
         pre_inc: Optional[int] = ctx.incumbent_after
         pre_burden: int = ctx.proof_burden
+        pre_frontier_min_lb: Optional[int] = ctx.frontier_min_lb
         pre_nodes: int = ctx.nodes_expanded
 
         # Resume the solver with the chosen ordering.
@@ -462,8 +486,7 @@ class BranchingEnv:
         reward, breakdown = self._compute_reward(
             pre_inc=pre_inc,
             post_inc=post_inc,
-            pre_burden=pre_burden,
-            post_burden=post_burden,
+            pre_frontier_min_lb=pre_frontier_min_lb,
             nodes_delta=nodes_delta,
             done=done,
             done_reason=done_reason,
@@ -501,6 +524,12 @@ class BranchingEnv:
             "dom_pruned": advance_dom_pruned,
             "proof_burden_before": pre_burden,
             "proof_burden_after": post_burden,
+            "frontier_min_lb": pre_frontier_min_lb,
+            "gap": (
+                max(0.0, float(pre_inc - pre_frontier_min_lb) / float(pre_inc))
+                if (pre_inc is not None and pre_inc > 0 and pre_frontier_min_lb is not None)
+                else 0.0
+            ),
             "reward_breakdown": breakdown,
         })
 

@@ -311,7 +311,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     # Reward
     "step_cost": 0.01,
     "first_inc_coeff": 3.0,
-    "proof_coeff": 1.0,
+    "proof_gap_coeff": 1.0,
     "proof_bonus": 30.0,
     # Eval
     "eval_every_steps": 20_000,
@@ -410,7 +410,7 @@ def main() -> None:
     reward_cfg = RewardConfig(
         step_cost=float(config["step_cost"]),
         first_inc_coeff=float(config["first_inc_coeff"]),
-        proof_coeff=float(config["proof_coeff"]),
+        proof_gap_coeff=float(config["proof_gap_coeff"]),
         proof_bonus=float(config["proof_bonus"]),
     )
 
@@ -524,7 +524,7 @@ def main() -> None:
                     f"Reward={episode_reward:+.2f}  "
                     f"(step={bd.get('step', 0.0):+.2f} "
                     f"first_inc={bd.get('first_incumbent', 0.0):+.2f} "
-                    f"proof={bd.get('proof_burden', 0.0):+.2f} "
+                    f"proof_gap={bd.get('proof_gap', 0.0):+.2f} "
                     f"bonus={bd.get('proof_bonus', 0.0):+.2f})  "
                     f"elapsed={elapsed:.0f}s"
                 )
