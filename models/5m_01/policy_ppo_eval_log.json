@@ -1,0 +1,609 @@
+[
+  {
+    "step": 50176,
+    "solved_frac": 0.5,
+    "mean_gap": 1.9783700247087748,
+    "mean_nodes": 20690.4
+  },
+  {
+    "step": 100352,
+    "solved_frac": 0.3,
+    "mean_gap": 4.610726815751369,
+    "mean_nodes": 20933.7
+  },
+  {
+    "step": 150528,
+    "solved_frac": 0.3,
+    "mean_gap": 2.628283945247625,
+    "mean_nodes": 19226.7
+  },
+  {
+    "step": 200704,
+    "solved_frac": 0.5,
+    "mean_gap": 1.3786275170197686,
+    "mean_nodes": 19152.5
+  },
+  {
+    "step": 250880,
+    "solved_frac": 0.5,
+    "mean_gap": 2.4292531014769816,
+    "mean_nodes": 21340.6
+  },
+  {
+    "step": 300032,
+    "solved_frac": 0.3,
+    "mean_gap": 2.14919223385851,
+    "mean_nodes": 20998.2
+  },
+  {
+    "step": 350208,
+    "solved_frac": 0.3,
+    "mean_gap": 5.422148896368219,
+    "mean_nodes": 21046.0
+  },
+  {
+    "step": 400384,
+    "solved_frac": 0.4,
+    "mean_gap": 3.0030013365155392,
+    "mean_nodes": 21100.5
+  },
+  {
+    "step": 450560,
+    "solved_frac": 0.3,
+    "mean_gap": 3.7249757427180654,
+    "mean_nodes": 21832.0
+  },
+  {
+    "step": 500736,
+    "solved_frac": 0.4,
+    "mean_gap": 2.7192217535145993,
+    "mean_nodes": 23113.5
+  },
+  {
+    "step": 550912,
+    "solved_frac": 0.3,
+    "mean_gap": 2.5673523294379605,
+    "mean_nodes": 23224.2
+  },
+  {
+    "step": 600064,
+    "solved_frac": 0.3,
+    "mean_gap": 3.1749590084732113,
+    "mean_nodes": 23293.2
+  },
+  {
+    "step": 650240,
+    "solved_frac": 0.5,
+    "mean_gap": 1.2578617687953266,
+    "mean_nodes": 23228.0
+  },
+  {
+    "step": 700416,
+    "solved_frac": 0.4,
+    "mean_gap": 1.7888355885181628,
+    "mean_nodes": 22272.4
+  },
+  {
+    "step": 750592,
+    "solved_frac": 0.2,
+    "mean_gap": 5.834142216998895,
+    "mean_nodes": 22666.2
+  },
+  {
+    "step": 800768,
+    "solved_frac": 0.3,
+    "mean_gap": 1.9879019112778653,
+    "mean_nodes": 20391.4
+  },
+  {
+    "step": 850944,
+    "solved_frac": 0.2,
+    "mean_gap": 2.3682882367861415,
+    "mean_nodes": 23269.2
+  },
+  {
+    "step": 900096,
+    "solved_frac": 0.4,
+    "mean_gap": 2.6260172095314127,
+    "mean_nodes": 22960.9
+  },
+  {
+    "step": 950272,
+    "solved_frac": 0.3,
+    "mean_gap": 2.215826032789713,
+    "mean_nodes": 20612.6
+  },
+  {
+    "step": 1000448,
+    "solved_frac": 0.5,
+    "mean_gap": 3.0781877576418935,
+    "mean_nodes": 22037.7
+  },
+  {
+    "step": 1050624,
+    "solved_frac": 0.4,
+    "mean_gap": 3.661951947818358,
+    "mean_nodes": 22179.5
+  },
+  {
+    "step": 1100800,
+    "solved_frac": 0.4,
+    "mean_gap": 2.9048298109643858,
+    "mean_nodes": 22684.4
+  },
+  {
+    "step": 1150976,
+    "solved_frac": 0.4,
+    "mean_gap": 2.76837850456234,
+    "mean_nodes": 23402.2
+  },
+  {
+    "step": 1200128,
+    "solved_frac": 0.5,
+    "mean_gap": 2.364833664516239,
+    "mean_nodes": 20895.9
+  },
+  {
+    "step": 1250304,
+    "solved_frac": 0.2,
+    "mean_gap": 4.802101195810041,
+    "mean_nodes": 22805.0
+  },
+  {
+    "step": 1300480,
+    "solved_frac": 0.5,
+    "mean_gap": 2.1375609372435114,
+    "mean_nodes": 22996.3
+  },
+  {
+    "step": 1350656,
+    "solved_frac": 0.3,
+    "mean_gap": 4.524788632052607,
+    "mean_nodes": 22673.5
+  },
+  {
+    "step": 1400832,
+    "solved_frac": 0.1,
+    "mean_gap": 7.208877354519241,
+    "mean_nodes": 23008.5
+  },
+  {
+    "step": 1451008,
+    "solved_frac": 0.4,
+    "mean_gap": 4.027687522492047,
+    "mean_nodes": 23431.1
+  },
+  {
+    "step": 1500160,
+    "solved_frac": 0.4,
+    "mean_gap": 2.856617213490704,
+    "mean_nodes": 23405.6
+  },
+  {
+    "step": 1550336,
+    "solved_frac": 0.5,
+    "mean_gap": 1.8943059285987744,
+    "mean_nodes": 23230.9
+  },
+  {
+    "step": 1600512,
+    "solved_frac": 0.3,
+    "mean_gap": 4.389796214689727,
+    "mean_nodes": 23318.2
+  },
+  {
+    "step": 1650688,
+    "solved_frac": 0.3,
+    "mean_gap": 4.415338998853201,
+    "mean_nodes": 23215.8
+  },
+  {
+    "step": 1700864,
+    "solved_frac": 0.4,
+    "mean_gap": 2.4280606322644904,
+    "mean_nodes": 22803.8
+  },
+  {
+    "step": 1750016,
+    "solved_frac": 0.2,
+    "mean_gap": 4.475361271278532,
+    "mean_nodes": 23179.0
+  },
+  {
+    "step": 1800192,
+    "solved_frac": 0.3,
+    "mean_gap": 1.9225709008249037,
+    "mean_nodes": 21458.5
+  },
+  {
+    "step": 1850368,
+    "solved_frac": 0.4,
+    "mean_gap": 2.951880370760427,
+    "mean_nodes": 23205.9
+  },
+  {
+    "step": 1900544,
+    "solved_frac": 0.3,
+    "mean_gap": 4.03401325030274,
+    "mean_nodes": 22550.6
+  },
+  {
+    "step": 1950720,
+    "solved_frac": 0.3,
+    "mean_gap": 4.27791568932713,
+    "mean_nodes": 22775.4
+  },
+  {
+    "step": 2000896,
+    "solved_frac": 0.2,
+    "mean_gap": 4.555728946093967,
+    "mean_nodes": 22861.1
+  },
+  {
+    "step": 2050048,
+    "solved_frac": 0.3,
+    "mean_gap": 4.768222958149435,
+    "mean_nodes": 23015.6
+  },
+  {
+    "step": 2100224,
+    "solved_frac": 0.3,
+    "mean_gap": 3.4786106260847847,
+    "mean_nodes": 22742.8
+  },
+  {
+    "step": 2150400,
+    "solved_frac": 0.2,
+    "mean_gap": 3.4975070735526606,
+    "mean_nodes": 22854.4
+  },
+  {
+    "step": 2200576,
+    "solved_frac": 0.2,
+    "mean_gap": 5.884482742867784,
+    "mean_nodes": 22915.7
+  },
+  {
+    "step": 2250752,
+    "solved_frac": 0.3,
+    "mean_gap": 4.645408041390026,
+    "mean_nodes": 22850.8
+  },
+  {
+    "step": 2300928,
+    "solved_frac": 0.2,
+    "mean_gap": 4.495749015424381,
+    "mean_nodes": 22660.4
+  },
+  {
+    "step": 2350080,
+    "solved_frac": 0.3,
+    "mean_gap": 3.547393978699766,
+    "mean_nodes": 22651.6
+  },
+  {
+    "step": 2400256,
+    "solved_frac": 0.3,
+    "mean_gap": 4.152633364426956,
+    "mean_nodes": 22707.1
+  },
+  {
+    "step": 2450432,
+    "solved_frac": 0.2,
+    "mean_gap": 3.646479976650356,
+    "mean_nodes": 22760.6
+  },
+  {
+    "step": 2500608,
+    "solved_frac": 0.2,
+    "mean_gap": 4.990358208960567,
+    "mean_nodes": 22913.0
+  },
+  {
+    "step": 2550784,
+    "solved_frac": 0.2,
+    "mean_gap": 4.57800779842208,
+    "mean_nodes": 22683.6
+  },
+  {
+    "step": 2600960,
+    "solved_frac": 0.2,
+    "mean_gap": 5.560211165592483,
+    "mean_nodes": 22865.7
+  },
+  {
+    "step": 2650112,
+    "solved_frac": 0.2,
+    "mean_gap": 5.286361915102521,
+    "mean_nodes": 22953.7
+  },
+  {
+    "step": 2700288,
+    "solved_frac": 0.3,
+    "mean_gap": 3.9960118810603085,
+    "mean_nodes": 22948.0
+  },
+  {
+    "step": 2750464,
+    "solved_frac": 0.2,
+    "mean_gap": 4.111659531691663,
+    "mean_nodes": 22740.5
+  },
+  {
+    "step": 2800640,
+    "solved_frac": 0.2,
+    "mean_gap": 4.194271648135407,
+    "mean_nodes": 22664.0
+  },
+  {
+    "step": 2850816,
+    "solved_frac": 0.1,
+    "mean_gap": 4.426559685301493,
+    "mean_nodes": 22778.3
+  },
+  {
+    "step": 2900992,
+    "solved_frac": 0.2,
+    "mean_gap": 4.194271648135407,
+    "mean_nodes": 22888.3
+  },
+  {
+    "step": 2950144,
+    "solved_frac": 0.2,
+    "mean_gap": 4.51232635343029,
+    "mean_nodes": 22833.4
+  },
+  {
+    "step": 3000320,
+    "solved_frac": 0.2,
+    "mean_gap": 5.513634642375248,
+    "mean_nodes": 22850.3
+  },
+  {
+    "step": 3050496,
+    "solved_frac": 0.2,
+    "mean_gap": 4.9963932630649035,
+    "mean_nodes": 22778.5
+  },
+  {
+    "step": 3100672,
+    "solved_frac": 0.2,
+    "mean_gap": 5.2658384862527665,
+    "mean_nodes": 22757.0
+  },
+  {
+    "step": 3150848,
+    "solved_frac": 0.3,
+    "mean_gap": 3.5561017460282223,
+    "mean_nodes": 22673.9
+  },
+  {
+    "step": 3200000,
+    "solved_frac": 0.2,
+    "mean_gap": 3.4907707355752606,
+    "mean_nodes": 22837.9
+  },
+  {
+    "step": 3250176,
+    "solved_frac": 0.2,
+    "mean_gap": 3.1204003652048904,
+    "mean_nodes": 22958.4
+  },
+  {
+    "step": 3300352,
+    "solved_frac": 0.2,
+    "mean_gap": 3.9727684126948892,
+    "mean_nodes": 23016.6
+  },
+  {
+    "step": 3350528,
+    "solved_frac": 0.3,
+    "mean_gap": 2.9058990300139,
+    "mean_nodes": 22853.5
+  },
+  {
+    "step": 3400704,
+    "solved_frac": 0.2,
+    "mean_gap": 4.710282930697212,
+    "mean_nodes": 22792.8
+  },
+  {
+    "step": 3450880,
+    "solved_frac": 0.3,
+    "mean_gap": 5.000937787163675,
+    "mean_nodes": 22974.2
+  },
+  {
+    "step": 3500032,
+    "solved_frac": 0.3,
+    "mean_gap": 1.6046551310181436,
+    "mean_nodes": 23254.3
+  },
+  {
+    "step": 3550208,
+    "solved_frac": 0.2,
+    "mean_gap": 5.288085427298374,
+    "mean_nodes": 22886.8
+  },
+  {
+    "step": 3600384,
+    "solved_frac": 0.3,
+    "mean_gap": 4.200653172919105,
+    "mean_nodes": 22793.3
+  },
+  {
+    "step": 3650560,
+    "solved_frac": 0.2,
+    "mean_gap": 4.9708150814732655,
+    "mean_nodes": 22693.4
+  },
+  {
+    "step": 3700736,
+    "solved_frac": 0.2,
+    "mean_gap": 5.610666072459663,
+    "mean_nodes": 22705.9
+  },
+  {
+    "step": 3750912,
+    "solved_frac": 0.2,
+    "mean_gap": 5.728100580138074,
+    "mean_nodes": 22769.0
+  },
+  {
+    "step": 3800064,
+    "solved_frac": 0.2,
+    "mean_gap": 5.119529285065518,
+    "mean_nodes": 22633.5
+  },
+  {
+    "step": 3850240,
+    "solved_frac": 0.2,
+    "mean_gap": 3.3222152621417385,
+    "mean_nodes": 22503.2
+  },
+  {
+    "step": 3900416,
+    "solved_frac": 0.2,
+    "mean_gap": 4.648234436311975,
+    "mean_nodes": 22534.1
+  },
+  {
+    "step": 3950592,
+    "solved_frac": 0.2,
+    "mean_gap": 5.85300487495338,
+    "mean_nodes": 22613.3
+  },
+  {
+    "step": 4000768,
+    "solved_frac": 0.2,
+    "mean_gap": 5.060692348769886,
+    "mean_nodes": 22674.5
+  },
+  {
+    "step": 4050944,
+    "solved_frac": 0.2,
+    "mean_gap": 5.060692348769886,
+    "mean_nodes": 22687.2
+  },
+  {
+    "step": 4100096,
+    "solved_frac": 0.2,
+    "mean_gap": 5.198087808745993,
+    "mean_nodes": 22696.8
+  },
+  {
+    "step": 4150272,
+    "solved_frac": 0.2,
+    "mean_gap": 4.0751121485134885,
+    "mean_nodes": 23115.0
+  },
+  {
+    "step": 4200448,
+    "solved_frac": 0.2,
+    "mean_gap": 4.567305638855328,
+    "mean_nodes": 22360.9
+  },
+  {
+    "step": 4250624,
+    "solved_frac": 0.2,
+    "mean_gap": 5.240295702089293,
+    "mean_nodes": 22664.3
+  },
+  {
+    "step": 4300800,
+    "solved_frac": 0.2,
+    "mean_gap": 4.6276708142534675,
+    "mean_nodes": 22551.9
+  },
+  {
+    "step": 4350976,
+    "solved_frac": 0.2,
+    "mean_gap": 5.603476512243707,
+    "mean_nodes": 22625.5
+  },
+  {
+    "step": 4400128,
+    "solved_frac": 0.2,
+    "mean_gap": 5.610666072459663,
+    "mean_nodes": 22692.5
+  },
+  {
+    "step": 4450304,
+    "solved_frac": 0.2,
+    "mean_gap": 4.732529871742818,
+    "mean_nodes": 22786.8
+  },
+  {
+    "step": 4500480,
+    "solved_frac": 0.2,
+    "mean_gap": 5.240295702089293,
+    "mean_nodes": 22733.4
+  },
+  {
+    "step": 4550656,
+    "solved_frac": 0.2,
+    "mean_gap": 5.286361915102521,
+    "mean_nodes": 22680.0
+  },
+  {
+    "step": 4600832,
+    "solved_frac": 0.2,
+    "mean_gap": 4.895468115882396,
+    "mean_nodes": 22828.7
+  },
+  {
+    "step": 4651008,
+    "solved_frac": 0.2,
+    "mean_gap": 5.079005379508649,
+    "mean_nodes": 22952.5
+  },
+  {
+    "step": 4700160,
+    "solved_frac": 0.1,
+    "mean_gap": 5.800328391472055,
+    "mean_nodes": 22961.4
+  },
+  {
+    "step": 4750336,
+    "solved_frac": 0.2,
+    "mean_gap": 6.632342041570453,
+    "mean_nodes": 22700.9
+  },
+  {
+    "step": 4800512,
+    "solved_frac": 0.2,
+    "mean_gap": 5.832884046990507,
+    "mean_nodes": 22553.8
+  },
+  {
+    "step": 4850688,
+    "solved_frac": 0.2,
+    "mean_gap": 4.769120535792176,
+    "mean_nodes": 22671.5
+  },
+  {
+    "step": 4900864,
+    "solved_frac": 0.2,
+    "mean_gap": 5.54291539495289,
+    "mean_nodes": 22703.7
+  },
+  {
+    "step": 4950016,
+    "solved_frac": 0.2,
+    "mean_gap": 5.240295702089293,
+    "mean_nodes": 22714.1
+  },
+  {
+    "step": 5000000,
+    "solved_frac": 0.1,
+    "mean_gap": 5.211598366240767,
+    "mean_nodes": 22937.7
+  },
+  {
+    "step": 5000000,
+    "final": true,
+    "solved_frac": 0.1,
+    "mean_gap": 5.211598366240767,
+    "mean_nodes": 22906.1
+  }
+]
