@@ -1,6 +1,6 @@
 {
   "trajectories_dir": "data/trajectories/1kNetRes",
-  "instances_dir": "data/1kNetRes",
+  "instances_dir": "data/train/1kNetRes",
   "instances_pattern": "*.rcp",
   "pattern": "*.jsonl",
   "batch_size": 64,
@@ -10,7 +10,7 @@
   "n_layers": 2,
   "ffn_dim": 128,
   "dropout": 0.1,
-  "val_frac": 0.1,
+  "val_frac": 0.3,
   "max_resources": 4,
   "output": "models/policy_bc.pt",
   "seed": 42,

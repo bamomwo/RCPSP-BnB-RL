@@ -553,6 +553,18 @@ def main() -> None:
             buffer.rewards, buffer.values, buffer.dones,
             last_value, gamma, gae_lambda,
         )
+
+        # Explained variance of the value function: 1 - Var(returns - values) /
+        # Var(returns). Scale-invariant critic-quality metric (≈1 good, ≈0 no
+        # better than the mean, <0 worse than the mean). Computed on the raw
+        # returns/values, before advantage normalisation.
+        values_t = torch.tensor(buffer.values)
+        var_returns = returns.var()
+        explained_var = (
+            float("nan") if var_returns.item() == 0.0
+            else (1.0 - (returns - values_t).var() / var_returns).item()
+        )
+
         advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
         # ---- PPO update ----
@@ -642,6 +654,7 @@ def main() -> None:
             f"episodes={episode_count}  "
             f"pg={total_pg_loss/n_updates:+.4f}  "
             f"vf={total_vf_loss/n_updates:.4f}  "
+            f"ev={explained_var:+.3f}  "
             f"ent={total_ent/n_updates:.4f}  "
             f"kl={mean_kl:.4f}  "
             f"elapsed={elapsed:.0f}s"

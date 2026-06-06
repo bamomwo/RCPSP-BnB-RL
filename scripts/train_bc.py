@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import torch
-from torch.utils.data import DataLoader, Dataset, random_split
+from torch.utils.data import DataLoader, Dataset
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_PATH = PROJECT_ROOT / "src"
@@ -53,54 +53,82 @@ DEFAULT_CONFIG: Dict = {
 
 
 # ---------------------------------------------------------------------------
+# Dataset discovery
+# ---------------------------------------------------------------------------
+
+InstancePair = Tuple[Path, Path]
+
+
+def collect_instance_pairs(
+    trajectories_dir: Path,
+    instances_dir: Path,
+    instances_pattern: str = "*.RCP",
+    pattern: str = "*.jsonl",
+) -> List[InstancePair]:
+    """
+    Match trajectory files to their source RCPSP instances.
+
+    The returned list is the correct unit for train/validation splitting:
+    one trajectory file corresponds to one instance and should stay wholly in
+    either train or validation.
+    """
+    jsonl_paths = sorted(trajectories_dir.glob(pattern))
+    if not jsonl_paths:
+        raise FileNotFoundError(
+            f"No trajectory files found under {trajectories_dir} matching {pattern}"
+        )
+
+    inst_lookup: Dict[str, Path] = {
+        p.stem: p
+        for p in instances_dir.rglob(instances_pattern)
+    }
+
+    pairs: List[InstancePair] = []
+    missing = []
+    for jsonl_path in jsonl_paths:
+        inst_path = inst_lookup.get(jsonl_path.stem)
+        if inst_path is None:
+            missing.append(jsonl_path.stem)
+            continue
+        pairs.append((jsonl_path, inst_path))
+
+    if missing:
+        print(
+            f"Warning: no instance file found for {len(missing)} trajectory file(s): "
+            f"{missing[:5]}{'...' if len(missing) > 5 else ''}"
+        )
+    if not pairs:
+        raise RuntimeError(
+            "No matched trajectory-instance pairs found — check trajectories_dir and instances_dir."
+        )
+
+    return pairs
+
+
+# ---------------------------------------------------------------------------
 # Dataset — pairs each TrajectoryRecord with its RCPSPInstance
 # ---------------------------------------------------------------------------
 
 class InstanceTrajectoryDataset(Dataset):
     """
-    Loads all JSONL trajectory files from trajectories_dir and pairs each
-    TrajectoryRecord with the corresponding RCPSPInstance loaded from
-    instances_dir.  One JSONL file = one instance.
+    Loads JSONL trajectory files from a pre-split list of matched
+    (trajectory_path, instance_path) pairs.
     """
 
     def __init__(
         self,
-        trajectories_dir: Path,
-        instances_dir: Path,
-        instances_pattern: str = "*.RCP",
-        pattern: str = "*.jsonl",
+        instance_pairs: List[InstancePair],
     ) -> None:
         self._items: List[Tuple[TrajectoryRecord, RCPSPInstance]] = []
+        self.instance_pairs = list(instance_pairs)
 
-        jsonl_paths = sorted(trajectories_dir.glob(pattern))
-        if not jsonl_paths:
-            raise FileNotFoundError(
-                f"No trajectory files found under {trajectories_dir} matching {pattern}"
-            )
-
-        # Build a stem → instance path lookup
-        inst_lookup: Dict[str, Path] = {
-            p.stem: p
-            for p in instances_dir.rglob(instances_pattern)
-        }
-
-        missing = []
-        for jsonl_path in jsonl_paths:
-            inst_path = inst_lookup.get(jsonl_path.stem)
-            if inst_path is None:
-                missing.append(jsonl_path.stem)
-                continue
+        for jsonl_path, inst_path in self.instance_pairs:
             instance = load_instance(inst_path)
             for raw in _load_jsonl(jsonl_path):
                 self._items.append((TrajectoryRecord(raw=raw, source=jsonl_path), instance))
 
-        if missing:
-            print(
-                f"Warning: no instance file found for {len(missing)} trajectory file(s): "
-                f"{missing[:5]}{'...' if len(missing) > 5 else ''}"
-            )
         if not self._items:
-            raise RuntimeError("Dataset is empty — check trajectories_dir and instances_dir.")
+            raise RuntimeError("Dataset is empty — check the provided instance_pairs split.")
 
     def __len__(self) -> int:
         return len(self._items)
@@ -187,27 +215,44 @@ def set_seed(seed: int) -> None:
 def make_loaders(
     config: Dict,
 ) -> Tuple[DataLoader, DataLoader]:
-    dataset = InstanceTrajectoryDataset(
+    instance_pairs = collect_instance_pairs(
         trajectories_dir=Path(config["trajectories_dir"]),
         instances_dir=Path(config["instances_dir"]),
         instances_pattern=config["instances_pattern"],
         pattern=config["pattern"],
     )
-    max_resources = int(config["max_resources"])
-    val_size = max(1, int(len(dataset) * float(config["val_frac"])))
-    train_size = max(len(dataset) - val_size, 1)
-    train_ds, val_ds = random_split(
-        dataset,
-        lengths=[train_size, val_size],
-        generator=torch.Generator().manual_seed(int(config["seed"])),
+    import random
+
+    rng = random.Random(int(config["seed"]))
+    shuffled_pairs = list(instance_pairs)
+    rng.shuffle(shuffled_pairs)
+
+    num_instances = len(shuffled_pairs)
+    if num_instances == 1:
+        train_pairs = shuffled_pairs
+        val_pairs: List[InstancePair] = []
+    else:
+        val_size = max(1, int(num_instances * float(config["val_frac"])))
+        train_size = max(num_instances - val_size, 1)
+        val_size = num_instances - train_size
+        train_pairs = shuffled_pairs[:train_size]
+        val_pairs = shuffled_pairs[train_size:]
+
+    print(
+        f"Instance split — train: {len(train_pairs)} | val: {len(val_pairs)} "
+        f"(total matched trajectories: {num_instances})"
     )
+
+    train_ds = InstanceTrajectoryDataset(train_pairs)
+    val_ds = InstanceTrajectoryDataset(val_pairs) if val_pairs else None
+    max_resources = int(config["max_resources"])
     collate = lambda batch: collate_fn(batch, max_resources)
     train_loader = DataLoader(
         train_ds, batch_size=int(config["batch_size"]),
         shuffle=True, collate_fn=collate,
     )
     val_loader = DataLoader(
-        val_ds, batch_size=int(config["batch_size"]),
+        [] if val_ds is None else val_ds, batch_size=int(config["batch_size"]),
         shuffle=False, collate_fn=collate,
     )
     return train_loader, val_loader

@@ -37,8 +37,8 @@
   "eval_time_limit_s": 60.0,
   "eval_optimal_json": "data/baseline/j30_opt.json",
 
-  "save_path": "models/1m_01/policy_ppo.pt",
-  "checkpoint_dir": "models/1m_01/checkpoints",
+  "save_path": "models/9m_01/policy_ppo.pt",
+  "checkpoint_dir": "models/9m_01/checkpoints",
   "seed": 42,
   "device": "cpu"
 }
