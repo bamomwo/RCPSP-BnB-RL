@@ -15,12 +15,21 @@ __pycache__/
 /data/eval/j30h
 scripts/validate_fix_rcpsp.py
 scripts/report_bnb_bounds.py
+scripts/explore_bnb.py 
+scripts/reward_scale_check.py 
+scripts/smoke_test_reward.py 
+scripts/visualize_bnb.py 
+scripts/debug_episode.py 
 
+
+
+
+znotes/
+zvisualization/ 
+ztest/
 
 models/1m_01
 
-
 CLAUDE.md
-baseline.py
-reward.txt
+
 

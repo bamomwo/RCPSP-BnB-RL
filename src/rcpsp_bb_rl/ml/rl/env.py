@@ -9,11 +9,12 @@ import torch
 from rcpsp_bb_rl.bnb.dominance import normalize_dominance_spec
 from rcpsp_bb_rl.bnb.lower_bounds import DEFAULT_LOWER_BOUND_ID, lower_bound
 from rcpsp_bb_rl.bnb.scheduling import build_profile, earliest_feasible_start
-from rcpsp_bb_rl.bnb.solver import BBNode, BnBSolver, ScheduleEntry, StepContext
+from rcpsp_bb_rl.bnb.solver import BBNode, BnBSolver, ScheduleEntry, SolverResult, StepContext, current_makespan
 from rcpsp_bb_rl.data.parsing import RCPSPInstance, load_instance
 from rcpsp_bb_rl.ml.il.featurize import (
     NodeContext,
     candidate_features,
+    critic_features,
     global_features,
 )
 
@@ -33,39 +34,49 @@ class StepOutput:
 @dataclass
 class RewardConfig:
     """
-    Proof-oriented reward coefficients (see reward.txt, "Revised Reward
-    Function: Optimality-Gap Integral").
+    Subtree-backtracking reward coefficients, Option A (see reward_.txt).
+
+    The objective is exact-search efficiency: prove optimality in the fewest
+    node expansions. Each expanded node is charged a flat cost once, at its own
+    step; under PPO/GAE the return-to-go from a branching decision then equals
+    the discounted -alpha * subtree_nodes of that decision (the subtree cost
+    emerges as the sum, with no double-counting). Two efficiency-normalized
+    incumbent bonuses supply positive progress signal.
 
     Reward at each branching step:
-        r = -step_cost
-          + [if first incumbent appeared at this step]:
-                first_inc_coeff * (cp_lb / first_incumbent)
-          + [if an incumbent exists at the start of the step]:
-                - proof_gap_coeff * gap * nodes_expanded_delta
-          + [if done AND search_exhausted AND best_makespan is not None]:
-                proof_bonus
+
+        r  = -alpha * nodes_delta                                   (always)
+
+        if the FIRST incumbent appeared on this advance:
+            quality = clamp(root_lb / first_inc, 0, 1)
+            r += beta1 * quality / (1 + log1p(nodes_to_first_incumbent))
+
+        if an EXISTING incumbent improved on this advance:
+            r += beta2 * (old_inc - new_inc) / nodes_since_last_incumbent
 
     where
-        cp_lb              = root critical-path lower bound (computed at reset)
-        first_incumbent    = makespan of the first complete schedule found
-        gap                = (incumbent - frontier_min_lb) / max(1, incumbent)
-                             the relative optimality gap; 0 exactly when the
-                             dual bound meets the incumbent (proof complete)
-        frontier_min_lb    = min lower bound over the open frontier (dual bound)
-        nodes_expanded_delta = nodes expanded between this branching decision
-                               and the next decision (or termination); the
-                               Riemann width of the gap integral
+        nodes_delta                = nodes expanded during this advance
+                                     (~1 per step during search; larger only on
+                                     the terminal advance)
+        root_lb                    = root critical-path lower bound (cp_lb)
+        nodes_to_first_incumbent   = nodes expanded when the first incumbent was
+                                     found
+        nodes_since_last_incumbent = nodes expanded since the previous incumbent
 
-    The gap term is a per-step COST proportional to the current gap, summed
-    over the episode to -proof_gap_coeff * (area under the gap curve). Unlike
-    the previous proof-burden potential it is path-dependent (does not
-    telescope) and falls only when the incumbent improves or the dual bound
-    rises — both genuine proof progress.
+    Coefficients:
+        alpha  — per-node cost. Sets the search-effort scale; the episode-total
+                 cost is -alpha * nodes_expanded.
+        beta1  — first-incumbent bonus weight (quality-per-work, one-time).
+        beta2  — incumbent-improvement bonus weight (makespan reduction per node
+                 of search between incumbents).
+
+    The alpha-vs-beta1/beta2 scale is the key tuning knob: too large a beta and
+    the policy chases incumbents over proof efficiency; too small and the cost
+    term dominates and the progress signal vanishes.
     """
-    step_cost: float = 0.01
-    first_inc_coeff: float = 3.0
-    proof_gap_coeff: float = 1.0
-    proof_bonus: float = 30.0
+    alpha: float = 0.01
+    beta1: float = 1.0
+    beta2: float = 1.0
 
 
 @dataclass
@@ -84,10 +95,9 @@ class EpisodeStats:
     done_reason: str = "unknown"
     total_reward: float = 0.0
     reward_breakdown: Dict[str, float] = field(default_factory=lambda: {
-        "step": 0.0,
+        "cost": 0.0,
         "first_incumbent": 0.0,
-        "proof_gap": 0.0,
-        "proof_bonus": 0.0,
+        "incumbent_improvement": 0.0,
     })
 
 
@@ -144,6 +154,11 @@ class BranchingEnv:
         self._done: bool = True
         self._done_reason: str = "unknown"
         self._steps: int = 0
+        # Full search tree (SolverResult) of the most recent episode, captured
+        # when the solver finishes. Consumed by the closure-based (subtree)
+        # return backup, which needs every node — including pruned and frontier
+        # nodes the agent never branched on — not just the decision nodes.
+        self._result: Optional[SolverResult] = None
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -154,7 +169,12 @@ class BranchingEnv:
             return self.instance_source
         return load_instance(Path(self.instance_source))
 
-    def _observe(self, node: BBNode, incumbent: Optional[int]) -> Dict[str, torch.Tensor]:
+    def _observe(
+        self,
+        node: BBNode,
+        incumbent: Optional[int],
+        ctx_step: Optional[StepContext] = None,
+    ) -> Dict[str, torch.Tensor]:
         horizon = sum(a.duration for a in self.instance.activities.values())
         profile = build_profile(
             self.instance.activities,
@@ -193,87 +213,142 @@ class BranchingEnv:
             [earliest_starts.get(rid) is not None for rid in ready_sorted],
             dtype=torch.bool,
         )
+        critic = torch.tensor(
+            self._critic_features(node, incumbent, ctx_step),
+            dtype=torch.float32,
+        )
         return {
             "global_feats": glob,
             "candidate_feats": cand,
             "ready_ids": torch.tensor(ready_sorted, dtype=torch.long),
             "action_mask": mask,
+            "critic_feats": critic,
         }
+
+    def _critic_features(
+        self,
+        node: BBNode,
+        incumbent: Optional[int],
+        ctx_step: Optional[StepContext],
+    ) -> List[float]:
+        """
+        Build the critic-only runtime feature vector for the node the agent is
+        about to act on. Pulls search-lifetime quantities from the solver's
+        StepContext (nodes expanded, elapsed time, frontier size, dual bound).
+        When no StepContext is available (should not happen on the RL path),
+        falls back to neutral values so the vector is still well-formed.
+        """
+        if ctx_step is not None:
+            return critic_features(
+                incumbent=incumbent,
+                node_lb=node.lower_bound,
+                cp_lb=self._cp_lb,
+                frontier_min_lb=ctx_step.frontier_min_lb,
+                depth=node.depth,
+                n_unscheduled=len(node.unscheduled),
+                n_ready=len(node.ready),
+                num_activities=self._n_activities,
+                stagnation_depth=ctx_step.stagnation_depth,
+            )
+        return critic_features(
+            incumbent=incumbent,
+            node_lb=node.lower_bound,
+            cp_lb=self._cp_lb,
+            frontier_min_lb=None,
+            depth=node.depth,
+            n_unscheduled=len(node.unscheduled),
+            n_ready=len(node.ready),
+            num_activities=self._n_activities,
+            stagnation_depth=0,
+        )
 
     def _compute_reward(
         self,
         *,
         pre_inc: Optional[int],
         post_inc: Optional[int],
-        pre_frontier_min_lb: Optional[int],
+        node_lb: Optional[int],
         nodes_delta: int,
-        done: bool,
-        done_reason: str,
+        nodes_since_last_incumbent: int,
     ) -> Tuple[float, Dict[str, float]]:
         """
-        Proof-oriented reward (see RewardConfig docstring and reward.txt,
-        "Revised Reward Function: Optimality-Gap Integral").
+        Subtree-backtracking reward, Option A (see reward_.txt).
+
+        The objective is exact-search efficiency: prove optimality in the fewest
+        node expansions. Option A charges each expanded node a flat cost exactly
+        once, at its own step. Under PPO/GAE the return-to-go from a branching
+        decision then equals the (discounted) -alpha * subtree_nodes of that
+        decision automatically — the subtree cost emerges as the sum, with no
+        double-counting, and the episode total equals -alpha * nodes_expanded
+        (the true objective). Locality (a decision feels its own subtree, not
+        unrelated work after backtracking) comes from gamma < 1 in GAE.
 
         All quantities reflect the advance triggered by the action just taken:
-            pre_*  : state at the branching decision the agent acted on
-            post_* : state at the next branching decision (or termination)
+            pre_inc  : incumbent at the branching decision the agent acted on
+            post_inc : incumbent at the next branching decision (or termination)
 
-        The gap term is a per-step cost evaluated at the pre-state gap and
-        scaled by the number of nodes expanded during the advance (its Riemann
-        width). Summed over the episode it is the primal-dual integral.
+        Three terms (reward_.txt):
+          - r_cost = -alpha * nodes_delta
+              Per-node search cost. nodes_delta is ~1 during search (one node
+              expanded per step) and larger only on the terminal advance. This
+              is the once-per-node charge whose GAE return-to-go is the subtree
+              cost.
+          - r_first_incumbent = beta1 * (root_lb / first_inc)
+                                 / (1 + log1p(nodes_to_first_incumbent))
+              One-time, emitted when the FIRST incumbent appears. Rewards a
+              strong first incumbent (root_lb / first_inc -> 1 when the first
+              incumbent is near the root bound) found with little search
+              (divided by log of nodes spent reaching it). Efficiency-normalized,
+              so it rewards quality-per-work, not incumbent level.
+          - r_incumbent_improvement = beta2 * (old_inc - new_inc)
+                                       / nodes_since_last_incumbent
+              Emitted whenever an EXISTING incumbent improves. Rewards makespan
+              reduction per unit of search effort between incumbents.
+
+        node_lb is no longer used (the gap-based cost is gone) but is kept in
+        the signature for call-site stability.
         """
+        import math
+
+        _ = node_lb  # retained for call-site stability; unused under Option A
         cfg = self.reward_cfg
         reward = 0.0
-        breakdown: Dict[str, float] = {}
+        breakdown: Dict[str, float] = {
+            "cost": 0.0, "first_incumbent": 0.0, "incumbent_improvement": 0.0,
+        }
 
-        # 1. Step cost
-        r_step = -cfg.step_cost
-        reward += r_step
-        breakdown["step"] = r_step
+        # 1. Per-node search cost. Charged on every step (each expanded node
+        #    pays -alpha once); the subtree cost of a decision is the GAE
+        #    return-to-go, not a separately-emitted term.
+        width = float(max(0, int(nodes_delta)))
+        r_cost = -cfg.alpha * width
+        reward += r_cost
+        breakdown["cost"] = r_cost
 
-        # 2. First-incumbent reward — only on the step where the first
-        #    complete feasible schedule appears.
-        r_first_inc = 0.0
-        if pre_inc is None and post_inc is not None:
-            if post_inc > 0 and self._cp_lb > 0:
-                quality = float(self._cp_lb) / float(post_inc)
-            else:
-                quality = 0.0
-            r_first_inc = cfg.first_inc_coeff * quality
-            reward += r_first_inc
-        breakdown["first_incumbent"] = r_first_inc
+        # 2. First-incumbent bonus — one-time, when the first feasible schedule
+        #    appears (pre_inc is None and post_inc is not None). Strong-and-cheap
+        #    first incumbents score high; weak or expensively-found ones score low.
+        r_first = 0.0
+        if pre_inc is None and post_inc is not None and post_inc > 0:
+            root_lb = float(self._cp_lb)
+            quality = max(0.0, min(1.0, root_lb / float(post_inc)))
+            nodes_to_first = max(0, int(nodes_since_last_incumbent))
+            r_first = cfg.beta1 * quality / (1.0 + math.log1p(nodes_to_first))
+            reward += r_first
+        breakdown["first_incumbent"] = r_first
 
-        # 3. Optimality-gap integral — a per-step COST proportional to the
-        #    current relative gap, charged once an incumbent exists (proof
-        #    mode). gap = (incumbent - frontier_min_lb) / incumbent, evaluated
-        #    at the pre-state; scaled by nodes_delta (the Riemann width of the
-        #    advance, = 1 during search, larger on the final advance). Summed
-        #    over the episode this is -proof_gap_coeff * area under the gap
-        #    curve. Falls only when the incumbent improves or the dual bound
-        #    rises, so it does not telescope and has no drain incentive.
-        r_proof = 0.0
-        if pre_inc is not None:
-            if pre_frontier_min_lb is not None and pre_inc > 0:
-                gap = max(0.0, float(pre_inc - pre_frontier_min_lb) / float(pre_inc))
-            else:
-                gap = 0.0
-            width = float(max(0, int(nodes_delta)))
-            r_proof = -cfg.proof_gap_coeff * gap * width
-            reward += r_proof
-        breakdown["proof_gap"] = r_proof
-
-        # 4. Terminal proof bonus — only when the search is fully exhausted
-        #    and an incumbent exists (i.e., optimality is proven).
-        r_proof_bonus = 0.0
-        proved_optimal = (
-            done
-            and done_reason == "search_exhausted"
-            and self._episode_stats.best_makespan is not None
-        )
-        if proved_optimal:
-            r_proof_bonus = cfg.proof_bonus
-            reward += r_proof_bonus
-        breakdown["proof_bonus"] = r_proof_bonus
+        # 3. Incumbent-improvement bonus — when an EXISTING incumbent improves.
+        #    Makespan reduction normalized by the search effort it took.
+        r_improve = 0.0
+        if (
+            pre_inc is not None
+            and post_inc is not None
+            and post_inc < pre_inc
+        ):
+            seg = float(max(1, int(nodes_since_last_incumbent)))
+            r_improve = cfg.beta2 * float(pre_inc - post_inc) / seg
+            reward += r_improve
+        breakdown["incumbent_improvement"] = r_improve
 
         return reward, breakdown
 
@@ -354,6 +429,10 @@ class BranchingEnv:
         self._steps = 0
         self._done = False
         self._done_reason = "unknown"
+        self._result = None
+        # nodes_expanded value at the last incumbent (or 0 = episode start);
+        # used to size the incumbent efficiency bonus by segment length.
+        self._last_incumbent_nodes = 0
         self._n_activities = len(self.instance.activities)
         self._cp_lb = int(lower_bound(
             self.instance,
@@ -379,7 +458,7 @@ class BranchingEnv:
         self._pending_ctx = step_ctx
         self._pending_incumbent = incumbent
 
-        return self._observe(node, incumbent)
+        return self._observe(node, incumbent, step_ctx)
 
     def step(self, action_index: int) -> StepOutput:
         """
@@ -399,6 +478,10 @@ class BranchingEnv:
 
         if action_index < 0 or action_index >= len(ready_sorted):
             info["done_reason"] = "invalid_action"
+            info["terminated"] = True
+            info["node_id"] = node.node_id
+            info["parent_id"] = node.parent_id
+            info["depth"] = node.depth
             self._episode_stats.done_reason = "invalid_action"
             self._done = True
             return StepOutput({}, 0.0, True, info)
@@ -410,12 +493,18 @@ class BranchingEnv:
 
         # ---- Snapshot pre-action state ----
         # ctx was created when the solver paused for THIS branching decision,
-        # so ctx.incumbent_after / ctx.proof_burden / ctx.frontier_min_lb /
-        # ctx.nodes_expanded reflect the moment the agent is about to act.
+        # so ctx.incumbent_after / ctx.nodes_expanded reflect the moment the
+        # agent is about to act. node.lower_bound is the LOCAL lower bound of
+        # the node being branched on (the active DFS-path LB used by the gap
+        # cost — not the frontier minimum).
         pre_inc: Optional[int] = ctx.incumbent_after
         pre_burden: int = ctx.proof_burden
         pre_frontier_min_lb: Optional[int] = ctx.frontier_min_lb
         pre_nodes: int = ctx.nodes_expanded
+        node_lb: Optional[int] = node.lower_bound
+        # Path-local stagnation of the node being branched on: drives the
+        # stagnation multiplier in the dense gap cost.
+        pre_stagnation_depth: int = ctx.stagnation_depth
 
         # Resume the solver with the chosen ordering.
         try:
@@ -483,14 +572,27 @@ class BranchingEnv:
             self._episode_stats.last_incumbent_makespan = post_inc
 
         # ---- Compute reward (proof-oriented) ----
+        # Segment length: nodes expanded since the previous incumbent. Sized
+        # before we advance _last_incumbent_nodes so an improving advance is
+        # credited against the segment that produced it.
+        nodes_since_last_incumbent = max(1, post_nodes - self._last_incumbent_nodes)
+        # Advance the segment anchor on ANY new incumbent, including the first
+        # (so the 2nd incumbent's segment is measured from the 1st, not from
+        # episode start). This is broader than the bonus condition inside
+        # _compute_reward, which fires only on improvement of an EXISTING
+        # incumbent.
+        new_incumbent = post_inc is not None and (pre_inc is None or post_inc < pre_inc)
+
         reward, breakdown = self._compute_reward(
             pre_inc=pre_inc,
             post_inc=post_inc,
-            pre_frontier_min_lb=pre_frontier_min_lb,
+            node_lb=node_lb,
             nodes_delta=nodes_delta,
-            done=done,
-            done_reason=done_reason,
+            nodes_since_last_incumbent=nodes_since_last_incumbent,
         )
+
+        if new_incumbent:
+            self._last_incumbent_nodes = post_nodes
 
         for key, value in breakdown.items():
             self._episode_stats.reward_breakdown[key] = (
@@ -500,6 +602,10 @@ class BranchingEnv:
         if done:
             self._done = True
             self._done_reason = done_reason
+            # Capture the full search tree for the closure-based return backup.
+            # result_obj is set only on a clean "done" message; on done_implicit
+            # (generator already exhausted) it stays None.
+            self._result = result_obj
             self._episode_stats.done_reason = done_reason
             self._episode_stats.total_reward += reward
             if self._episode_stats.best_makespan is not None:
@@ -515,7 +621,16 @@ class BranchingEnv:
 
         info.update({
             "done_reason": done_reason,
+            "terminated": done and done_reason != "time_limit",
             "steps": self._steps,
+            # ---- Tree identity of the branched node ----
+            # The decision at this step was made AT this node; record its
+            # identity so each transition can be reattached to the search tree
+            # for the closure-based (subtree) return backup. parent_id lets us
+            # walk the tree bottom-up; depth is a convenience for diagnostics.
+            "node_id": node.node_id,
+            "parent_id": node.parent_id,
+            "depth": node.depth,
             "nodes_expanded": post_nodes,
             "nodes_delta": nodes_delta,
             "best_makespan": post_inc,
@@ -525,6 +640,8 @@ class BranchingEnv:
             "proof_burden_before": pre_burden,
             "proof_burden_after": post_burden,
             "frontier_min_lb": pre_frontier_min_lb,
+            "stagnation_depth": pre_stagnation_depth,
+            "nodes_since_last_incumbent": nodes_since_last_incumbent,
             "gap": (
                 max(0.0, float(pre_inc - pre_frontier_min_lb) / float(pre_inc))
                 if (pre_inc is not None and pre_inc > 0 and pre_frontier_min_lb is not None)
@@ -537,7 +654,7 @@ class BranchingEnv:
             self._pending_node = next_node
             self._pending_ctx = next_ctx
             self._pending_incumbent = next_incumbent
-            obs = self._observe(next_node, next_incumbent)
+            obs = self._observe(next_node, next_incumbent, next_ctx)
         else:
             obs = {}
 
@@ -546,3 +663,67 @@ class BranchingEnv:
     @property
     def episode_stats(self) -> EpisodeStats:
         return self._episode_stats
+
+    @property
+    def result(self) -> Optional[SolverResult]:
+        """The full SolverResult of the finished episode (None until done)."""
+        return self._result
+
+    def search_tree(self) -> Optional[Dict[str, object]]:
+        """
+        The complete search tree of the finished episode, in a flat,
+        backup-ready form for the closure-based (subtree) return.
+
+        Returns None until the episode is done. Otherwise a dict with:
+          - "nodes": list of per-node dicts, each:
+                {id, parent_id, depth, status, is_incumbent, makespan}
+            status is one of "pending" | "expanded" | "pruned" | "solution".
+            is_incumbent marks the solution nodes that strictly improved the
+            best makespan, in chronological (node-id) order — these are where
+            incumbent bonuses are earned. makespan is set only on solution
+            nodes (else None).
+          - "edges": list of (parent_id, child_id) tuples.
+          - "root_id": the root node id (or None for an empty tree).
+
+        This includes EVERY node the solver created — expanded, pruned, and
+        unexplored frontier ("pending") nodes — not just the decision nodes the
+        agent branched on. The subtree sum G(X) needs all of them.
+        """
+        res = self._result
+        if res is None:
+            return None
+
+        # Mark incumbent-improving solution nodes. Solution nodes are produced
+        # in chronological order as node ids increase, so a single forward pass
+        # over ascending makespan reproduces the incumbent history.
+        best: Optional[int] = None
+        incumbent_ids = set()
+        sol_makespan: Dict[int, int] = {}
+        for n in sorted(res.nodes, key=lambda nn: nn.node_id):
+            if n.status == "solution":
+                mk = current_makespan(n.scheduled)
+                sol_makespan[n.node_id] = mk
+                if best is None or mk < best:
+                    best = mk
+                    incumbent_ids.add(n.node_id)
+
+        nodes = [
+            {
+                "id": n.node_id,
+                "parent_id": n.parent_id,
+                "depth": n.depth,
+                "status": n.status,
+                "is_incumbent": n.node_id in incumbent_ids,
+                "makespan": sol_makespan.get(n.node_id),
+            }
+            for n in res.nodes
+        ]
+        root_id = res.nodes[0].node_id if res.nodes else None
+        return {
+            "nodes": nodes,
+            "edges": list(res.edges),
+            "root_id": root_id,
+            # Root lower bound (critical-path LB at episode start). Used by the
+            # first-incumbent strength bonus: beta1 * (root_lb / first_inc).
+            "root_lb": float(self._cp_lb),
+        }

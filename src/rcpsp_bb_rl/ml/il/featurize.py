@@ -400,6 +400,102 @@ def candidate_feature_dim(max_resources: int) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Critic runtime features  (one vector per node, fed ONLY into the value head)
+# ---------------------------------------------------------------------------
+#
+# REDESIGNED for the closure-based (subtree) return. The critic now predicts
+#     V(X) ~= G(X) = -alpha * |subtree(X)|  +  incumbent bonuses earned below X
+# i.e. how much search remains BELOW node X (and whether a strong/improving
+# incumbent will be found there). So every feature must be a property of X and
+# the problem remaining below it — NOT a fact about the search's PAST.
+#
+# That rule removed the old history/global features (nodes_expanded,
+# nodes_since_inc, stack_size, proof_burden, num_incumbents, time_fraction):
+# G(X) is independent of how much search happened before X was reached, so those
+# only add noise the critic cannot turn into a subtree-size prediction. (Under
+# the tree backup, truncated subtrees are dropped from the update, so
+# time_fraction is moot too.)
+#
+# Kept: gap/pruning measures that predict how fast X's subtree collapses, plus
+# the incumbent-regime flag. Added: explicit structural scalars (how much of the
+# problem is left at X) so the value head reads them directly rather than having
+# to extract them from the actor-shared CLS token.
+#
+# All features are critic-only: the policy never sees them, so they cannot make
+# branching decisions machine-dependent. Gaps/fractions are already in [0, 1).
+
+_STAGNATION_REF = 20.0  # path-local stagnation_depth normaliser
+
+CRITIC_FEATURE_NAMES = [
+    # --- Pruning power: how fast X's subtree collapses ---
+    "local_gap_exact",       # max(0, (inc - node_lb) / inc) — tight => prunes fast => small subtree
+    "incumbent_exists",      # 1 once a feasible schedule is found (no inc => no pruning => huge subtree)
+    "dual_gap",              # (inc - frontier_min_lb) / inc — true optimality gap remaining
+    "incumbent_ratio",       # inc / cp_lb - 1 — how loose the incumbent still is
+    "stagnation_norm",       # path-local LB stall: high => poor pruning ahead => bigger subtree
+    # --- Structure: how much of the problem is left at X ---
+    "depth_frac",            # depth / num_activities — how deep X sits (near-leaf => tiny subtree)
+    "frac_unscheduled",      # |unscheduled| / num_activities — remaining decisions below X
+    "ready_frac",            # |ready| / num_activities — branching breadth at X
+]
+
+
+def critic_features(
+    *,
+    incumbent: Optional[int],
+    node_lb: int,
+    cp_lb: int,
+    frontier_min_lb: Optional[int],
+    depth: int,
+    n_unscheduled: int,
+    n_ready: int,
+    num_activities: int,
+    stagnation_depth: int = 0,
+) -> List[float]:
+    """
+    Build the critic-only feature vector for the node X the agent is about to
+    branch on. Every input is a property of X / the remaining subproblem — see
+    CRITIC_FEATURE_NAMES for the layout and the design rationale above.
+
+    Before any incumbent exists, gap-style features are 0 and incumbent_exists
+    is 0 so the critic can tell the two pruning regimes apart.
+    """
+    has_inc = incumbent is not None and incumbent > 0
+    inc_f = float(incumbent) if has_inc else 0.0
+    cp = float(cp_lb) if cp_lb > 0 else 1.0
+    N = float(num_activities) if num_activities > 0 else 1.0
+
+    if has_inc:
+        local_gap = max(0.0, (inc_f - float(node_lb)) / inc_f)
+        if frontier_min_lb is not None:
+            dual_gap = max(0.0, (inc_f - float(frontier_min_lb)) / inc_f)
+        else:
+            dual_gap = 0.0
+        incumbent_ratio = max(0.0, inc_f / cp - 1.0)
+    else:
+        local_gap = 0.0
+        dual_gap = 0.0
+        incumbent_ratio = 0.0
+
+    return [
+        # Pruning power
+        local_gap,
+        1.0 if has_inc else 0.0,
+        dual_gap,
+        incumbent_ratio,
+        min(1.0, max(0.0, float(stagnation_depth) / _STAGNATION_REF)),
+        # Structure
+        min(1.0, max(0.0, float(depth) / N)),
+        min(1.0, max(0.0, float(n_unscheduled) / N)),
+        min(1.0, max(0.0, float(n_ready) / N)),
+    ]
+
+
+def critic_feature_dim() -> int:
+    return len(CRITIC_FEATURE_NAMES)
+
+
+# ---------------------------------------------------------------------------
 # Batch featurisation from TrajectoryRecord (IL training path)
 # ---------------------------------------------------------------------------
 

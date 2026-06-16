@@ -17,6 +17,11 @@ from rcpsp_bb_rl.bnb.scheduling import build_profile, earliest_feasible_start, r
 if TYPE_CHECKING:
     from rcpsp_bb_rl.data.parsing import RCPSPInstance
 
+# Tolerance for treating a lower-bound increase as a real improvement when
+# updating path-local stagnation. LBs are integer-valued here, so this just
+# means "strictly greater"; the constant keeps the intent explicit.
+STAGNATION_EPSILON = 1e-6
+
 
 @dataclass
 class StepContext:
@@ -47,6 +52,19 @@ class StepContext:
                         node currently being expanded keeps the bound well-defined
                         when the stack is momentarily empty (e.g. at the root).
                         None when the frontier is empty.
+    stack_size        : number of open nodes on the stack at this decision (the
+                        live frontier size). A proxy for remaining search work;
+                        used as a critic-only runtime feature.
+    elapsed_s         : wall-clock seconds since the solve started, at this
+                        decision. Critic-only; with time_limit_s it gives the
+                        time_fraction that predicts time-limit truncation.
+    time_limit_s      : the solve time budget (None if unbounded). Critic-only.
+    stagnation_depth  : path-local stagnation of the node about to be branched
+                        on — consecutive DFS depth steps since the lower bound
+                        last improved on this branch. Drives the stagnation
+                        multiplier in the reward and is a critic-only feature.
+    node_path_best_lb : the best (max) lower bound seen on the active path to the
+                        node about to be branched on. Diagnostic / critic-only.
     """
     incumbent_before: Optional[int]
     incumbent_after: Optional[int]
@@ -55,6 +73,11 @@ class StepContext:
     nodes_expanded: int
     proof_burden: int
     frontier_min_lb: Optional[int] = None
+    stack_size: int = 0
+    elapsed_s: float = 0.0
+    time_limit_s: Optional[float] = None
+    stagnation_depth: int = 0
+    node_path_best_lb: Optional[int] = None
 
 
 @dataclass
@@ -76,6 +99,14 @@ class BBNode:
     depth: int
     current_time: int = 0
     status: str = "pending"  # pending | expanded | pruned | solution
+    # Path-local stagnation tracking (for the stagnation-aware reward).
+    # path_best_lb     : the maximum lower bound seen on the root->this-node path.
+    # stagnation_depth : consecutive depth steps on this path since path_best_lb
+    #                    last improved by more than EPSILON. Inherited from the
+    #                    parent at child creation, so it is correct under DFS
+    #                    backtracking (each node carries its own branch's count).
+    path_best_lb: int = 0
+    stagnation_depth: int = 0
 
 
 @dataclass
@@ -163,16 +194,19 @@ class BnBSolver:
         )
 
         root_id = self._new_node_id()
+        root_lb = lower_bound(self.instance, unscheduled, {}, lb_id=lb_spec)
         root = BBNode(
             node_id=root_id,
             scheduled={},
             ready=ready,
             unscheduled=unscheduled,
-            lower_bound=lower_bound(self.instance, unscheduled, {}, lb_id=lb_spec),
+            lower_bound=root_lb,
             parent_id=None,
             action=None,
             depth=0,
             current_time=0,
+            path_best_lb=root_lb,
+            stagnation_depth=0,
         )
         self.nodes.append(root)
         dominance_engine.register_state(
@@ -255,6 +289,15 @@ class BnBSolver:
                 nodes_expanded=nodes_expanded,
                 proof_burden=_compute_proof_burden(),
                 frontier_min_lb=_compute_frontier_min_lb(current_lb),
+                stack_size=len(stack),
+                elapsed_s=time.perf_counter() - start_time_monotonic,
+                time_limit_s=time_limit_s,
+                stagnation_depth=(
+                    current_node.stagnation_depth if current_node is not None else 0
+                ),
+                node_path_best_lb=(
+                    current_node.path_best_lb if current_node is not None else None
+                ),
             )
             # Snapshot state for the *next* branching call. Any incumbent
             # improvement or pruning that happens between now and the next
@@ -490,6 +533,16 @@ class BnBSolver:
                     continue
 
                 child_id = self._new_node_id()
+                # Path-local stagnation: inherit from the parent. If this child's
+                # LB strictly improves on the best LB seen along the parent's path,
+                # the path advanced -> reset stagnation; otherwise the branch went
+                # one step deeper without tightening the bound -> increment. Using
+                # the path MAX (not the parent LB) makes this robust to a child LB
+                # that dips below its parent, and inheritance makes it correct
+                # under DFS backtracking (siblings carry their own branch counts).
+                improved = child_lb > node.path_best_lb + STAGNATION_EPSILON
+                child_path_best_lb = max(node.path_best_lb, child_lb)
+                child_stagnation_depth = 0 if improved else node.stagnation_depth + 1
                 child_node = BBNode(
                     node_id=child_id,
                     scheduled=child_scheduled,
@@ -500,6 +553,8 @@ class BnBSolver:
                     action=f"act {act_id}@{est_start}",
                     depth=node.depth + 1,
                     current_time=child_time,
+                    path_best_lb=child_path_best_lb,
+                    stagnation_depth=child_stagnation_depth,
                 )
 
                 self.nodes.append(child_node)

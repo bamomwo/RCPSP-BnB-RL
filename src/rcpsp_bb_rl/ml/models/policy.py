@@ -104,11 +104,13 @@ class BranchingTransformer(nn.Module):
         n_layers: int = 2,
         ffn_dim: int = 128,
         dropout: float = 0.1,
+        critic_feature_dim: int = 0,
     ) -> None:
         super().__init__()
         assert d_model % n_heads == 0, f"d_model={d_model} must be divisible by n_heads={n_heads}"
 
         self.d_model = d_model
+        self.critic_feature_dim = critic_feature_dim
 
         # Input projections
         self.cls_proj = nn.Linear(global_dim, d_model)
@@ -124,9 +126,14 @@ class BranchingTransformer(nn.Module):
         # Scoring head: maps each candidate embedding → scalar logit
         self.score_head = nn.Linear(d_model, 1)
 
-        # Value head: maps CLS token → scalar state value (used in RL)
+        # Value head: maps [CLS token ⊕ critic runtime features] → scalar state
+        # value (used in RL). The CLS token carries the scheduling state (shared
+        # with the actor); the critic_feature_dim extra inputs carry search
+        # lifetime quantities (nodes burned, time fraction, frontier size, ...)
+        # that the actor does not see. critic_feature_dim=0 reproduces the
+        # original CLS-only value head, so existing checkpoints stay loadable.
         self.value_head = nn.Sequential(
-            nn.Linear(d_model, d_model),
+            nn.Linear(d_model + critic_feature_dim, d_model),
             nn.ReLU(),
             nn.Linear(d_model, 1),
         )
@@ -145,6 +152,7 @@ class BranchingTransformer(nn.Module):
         candidate_feats: torch.Tensor,
         global_feats: torch.Tensor,
         action_mask: Optional[torch.Tensor] = None,
+        critic_feats: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Forward pass for a single node (unbatched over nodes).
@@ -154,6 +162,12 @@ class BranchingTransformer(nn.Module):
         candidate_feats : [R, Fc]  — one row per ready activity
         global_feats    : [Fg]     — global node features (1D)
         action_mask     : [R] bool — True where action is feasible (optional)
+        critic_feats    : [Fk]     — critic-only runtime features (optional).
+                          Concatenated onto the CLS output before the value
+                          head. When the model was built with
+                          critic_feature_dim > 0 and this is None (e.g. at
+                          inference, where only logits are used), zeros are
+                          substituted so the value head still runs.
 
         Returns
         -------
@@ -195,8 +209,22 @@ class BranchingTransformer(nn.Module):
         if action_mask is not None:
             logits = logits.masked_fill(~action_mask, -1e9)
 
-        # State value from CLS token
-        value = self.value_head(cls_out).squeeze(-1)  # scalar
+        # State value from CLS token, augmented with critic-only runtime
+        # features. The CLS output carries the (actor-shared) scheduling state;
+        # critic_feats carries the search-lifetime quantities the actor never
+        # sees. When the value head expects extra features but none are given
+        # (inference / logits-only callers), substitute zeros.
+        if self.critic_feature_dim > 0:
+            if critic_feats is None:
+                critic_feats = torch.zeros(
+                    self.critic_feature_dim,
+                    dtype=cls_out.dtype,
+                    device=cls_out.device,
+                )
+            value_in = torch.cat([cls_out, critic_feats], dim=-1)  # [d_model + Fk]
+        else:
+            value_in = cls_out
+        value = self.value_head(value_in).squeeze(-1)  # scalar
 
         return logits, value
 
@@ -290,6 +318,7 @@ def save_policy_checkpoint(
             "n_layers": len(model.layers),
             "ffn_dim": model.layers[0].ffn[0].out_features,
             "dropout": 0.0,  # not stored in module; caller may override
+            "critic_feature_dim": model.critic_feature_dim,
         },
     }
     if extra:
@@ -301,6 +330,7 @@ def load_policy_checkpoint(
     path: str,
     device: torch.device | str = "cpu",
     dropout: float = 0.0,
+    critic_feature_dim: int | None = None,
 ) -> BranchingTransformer:
     """
     Load a BranchingTransformer from a checkpoint file.
@@ -310,6 +340,13 @@ def load_policy_checkpoint(
     path    : path to .pt file produced by save_policy_checkpoint
     device  : torch device to map weights to
     dropout : dropout rate to use at inference (typically 0.0)
+    critic_feature_dim : if given, OVERRIDE the checkpoint's value-head width
+                  with this many critic-only runtime features. Used when warm-
+                  starting RL from a BC checkpoint: the BC value head (CLS-only)
+                  has a different input width, so it is dropped and reinitialised
+                  while every other weight (cls_proj, cand_proj, transformer,
+                  score_head) loads verbatim. If None, use the checkpoint's own
+                  critic_feature_dim (0 for legacy checkpoints).
     """
     checkpoint = torch.load(path, map_location=device)
     if "model_state" not in checkpoint:
@@ -329,6 +366,9 @@ def load_policy_checkpoint(
     n_heads = cfg.get("n_heads", 4)
     ffn_dim = cfg.get("ffn_dim") or state["layers.0.ffn.0.weight"].shape[0]
 
+    if critic_feature_dim is None:
+        critic_feature_dim = int(cfg.get("critic_feature_dim", 0))
+
     model = BranchingTransformer(
         global_dim=global_dim,
         candidate_dim=candidate_dim,
@@ -337,7 +377,23 @@ def load_policy_checkpoint(
         n_layers=n_layers,
         ffn_dim=ffn_dim,
         dropout=dropout,
+        critic_feature_dim=critic_feature_dim,
     ).to(device)
-    model.load_state_dict(state)
+
+    # Drop any checkpoint weights whose shape no longer matches the model — in
+    # practice only the value head, when critic_feature_dim differs from what
+    # the checkpoint was saved with. Those parameters keep their fresh init.
+    model_state = model.state_dict()
+    filtered = {
+        k: v for k, v in state.items()
+        if k in model_state and model_state[k].shape == v.shape
+    }
+    dropped = [k for k in state if k not in filtered]
+    missing, unexpected = model.load_state_dict(filtered, strict=False)
+    if dropped:
+        print(
+            f"[load_policy_checkpoint] reinitialised {len(dropped)} param(s) "
+            f"with changed shape (value-head resize): {dropped}"
+        )
     model.eval()
     return model
