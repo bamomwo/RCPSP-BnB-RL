@@ -1,0 +1,14 @@
+[
+  {
+    "step": 513166,
+    "solved_frac": 0.3,
+    "mean_gap": 4.991182011278867,
+    "mean_nodes": 3739.8
+  },
+  {
+    "step": 1022876,
+    "solved_frac": 0.2,
+    "mean_gap": 5.558878199583319,
+    "mean_nodes": 4001.7
+  }
+]
