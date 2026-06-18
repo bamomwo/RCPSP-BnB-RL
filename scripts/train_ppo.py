@@ -1,8 +1,10 @@
 """
 PPO fine-tuning for the RCPSP branching policy.
 
-Initialises from a BC checkpoint (optional), then trains with PPO using
-the reward function defined in BranchingEnv / RewardConfig.
+Initialises from a BC checkpoint (optional), then trains with PPO. Credit is
+assigned by a closure-based subtree-return backup over the finished search tree
+(src/rcpsp_bb_rl/ml/rl/tree_return.py), NOT by the env's per-step reward — that
+reward is diagnostic/logging only (see RewardConfig).
 
 Key design decisions:
   - One episode = one RCPSP instance solved until time_limit_s or search exhausted
@@ -10,11 +12,13 @@ Key design decisions:
     collected to its `done` boundary, the finished search tree is captured, and
     credit is assigned by a closure-based subtree-return backup (Machine 2,
     src/rcpsp_bb_rl/ml/rl/tree_return.py) — NOT linear GAE. A decision's return
-    is the sum of per-node rewards over its own subtree; only transitions whose
-    subtree closed are used in the update (open/timeout branches are dropped).
+    is the sum of per-node rewards over its own subtree, via a decoupled
+    two-channel backup (cost channel -alpha, discountable; incumbent-bonus
+    channel, kept undiscounted). Only transitions whose subtree closed are used
+    in the update (open/timeout branches are dropped).
   - The transformer forward pass is unbatched (one node at a time) because
-    the ready set size varies per node — we collect (logprob, value, reward)
-    tuples and batch only the PPO update
+    the ready set size varies per node — we collect (logprob, value) tuples and
+    batch only the PPO update
   - BC checkpoint weights are loaded into both actor and critic backbone
   - Periodic evaluation on a held-out set with known optima tracks solve rate
     and gap-to-optimal; instances without a known optimum are skipped
@@ -45,7 +49,11 @@ from rcpsp_bb_rl.data.parsing import load_instance  # noqa: E402
 from rcpsp_bb_rl.ml.models import BranchingTransformer, load_policy_checkpoint, save_policy_checkpoint  # noqa: E402
 from rcpsp_bb_rl.ml.il.featurize import global_feature_dim, candidate_feature_dim, critic_feature_dim  # noqa: E402
 from rcpsp_bb_rl.ml.rl import BranchingEnv, RewardConfig  # noqa: E402
-from rcpsp_bb_rl.ml.rl.tree_return import compute_episode_advantages, make_node_reward_fn  # noqa: E402
+from rcpsp_bb_rl.ml.rl.tree_return import (  # noqa: E402
+    compute_episode_advantages_decoupled,
+    make_cost_reward_fn,
+    make_bonus_reward_fn,
+)
 from rcpsp_bb_rl.bnb.branching_order import make_order_fn  # noqa: E402
 from rcpsp_bb_rl.bnb.solver import BnBSolver  # noqa: E402
 
@@ -156,80 +164,39 @@ class RolloutBuffer:
         self.__init__()
 
 
-# ---------------------------------------------------------------------------
-# GAE computation
-# LEGACY: replaced by compute_episode_advantages (tree_return.py) under Design A.
-# Kept for reference / possible A-B comparison; no longer called.
-# ---------------------------------------------------------------------------
-
-def compute_gae(
-    rewards: List[float],
-    values: List[float],
-    dones: List[bool],
-    terminateds: List[bool],
-    last_value: float,
-    gamma: float,
-    gae_lambda: float,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+class RunningMeanStd:
     """
-    Generalised Advantage Estimation with separate termination/truncation
-    handling.
+    Running mean/variance of a scalar stream (Welford parallel/batched update).
 
-    An episode can end two ways:
-      - terminated  : the MDP genuinely ends (search_exhausted = optimality
-                      proven, or invalid_action). There is no continuation,
-                      so the future value is 0.
-      - truncated   : the episode is cut off without the MDP ending
-                      (time_limit). The search has real remaining cost, so we
-                      must bootstrap V(s') instead of zeroing it. The
-                      post-truncation frontier state is never materialised as
-                      an observation (the solver dies mid-advance), so we
-                      approximate V(s') with V(s_t), the last value we did
-                      observe (buffer.values[t]).
-
-    Two masks are needed because the single `done` flag cannot express
-    truncation:
-      - value_mask : 0 only on a true terminal; 1 on truncation and
-                     mid-episode. Controls whether the future value is
-                     bootstrapped in the TD delta.
-      - trace_mask : 0 on ANY episode boundary (terminated or truncated); 1
-                     only mid-episode. Stops the GAE lambda-trace from bleeding
-                     advantage across an episode boundary into the next
-                     instance's transitions.
-
-    Returns (advantages [T], returns [T]).
+    Used for VALUE NORMALISATION: the subtree return G(X) spans a huge dynamic
+    range (root ~ -600, leaves ~ -0.01), so an MSE critic trained on raw G is
+    dominated by a few near-root nodes and barely learns. We standardise the
+    value targets with these running stats so the critic predicts a roughly
+    unit-variance quantity; advantages are formed in the same normalised space.
     """
-    T = len(rewards)
-    advantages = torch.zeros(T)
-    last_gae = 0.0
 
-    for t in reversed(range(T)):
-        done_t = bool(dones[t])
-        terminated_t = bool(terminateds[t])
-        # Truncation = episode boundary that is not a true terminal.
-        truncated_t = done_t and not terminated_t
+    def __init__(self, eps: float = 1e-4) -> None:
+        self.mean = 0.0
+        self.var = 1.0
+        self.count = eps  # tiny non-zero prior count for numerical stability
 
-        # value_mask: zero the future only on a true terminal.
-        value_mask = 0.0 if terminated_t else 1.0
-        # trace_mask: cut the lambda-trace on any boundary.
-        trace_mask = 0.0 if done_t else 1.0
+    def update(self, x: np.ndarray) -> None:
+        if x.size == 0:
+            return
+        b_mean = float(x.mean())
+        b_var = float(x.var())
+        b_count = int(x.size)
+        delta = b_mean - self.mean
+        tot = self.count + b_count
+        self.mean += delta * b_count / tot
+        m_a = self.var * self.count
+        m_b = b_var * b_count
+        self.var = (m_a + m_b + delta * delta * self.count * b_count / tot) / tot
+        self.count = tot
 
-        if t == T - 1:
-            next_value = last_value
-        else:
-            next_value = values[t + 1]
-
-        # On truncation the post-state observation is unavailable; approximate
-        # V(s') with V(s_t) (Option A — see docstring).
-        if truncated_t:
-            next_value = values[t]
-
-        delta = rewards[t] + gamma * next_value * value_mask - values[t]
-        last_gae = delta + gamma * gae_lambda * trace_mask * last_gae
-        advantages[t] = last_gae
-
-    returns = advantages + torch.tensor(values)
-    return advantages, returns
+    @property
+    def std(self) -> float:
+        return float(self.var) ** 0.5
 
 
 # ---------------------------------------------------------------------------
@@ -361,15 +328,21 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "bc_checkpoint": None,
     # PPO
     "total_env_steps": 1_000_000,
-    "rollout_horizon": 256,
     "ppo_epochs": 4,
     "minibatches": 4,
     "clip_eps": 0.2,
-    "gamma": 0.99,
-    "gae_lambda": 0.95,
-    # Tree-return backup (Machine 2). Replaces GAE under Design A (one episode
-    # per rollout). gamma/gae_lambda above are legacy and unused on this path.
-    "tree_gamma": 1.0,        # subtree discount (1.0 = undiscounted); sweep later
+    # Tree-return backup (Machine 2) — the credit-assignment backbone under
+    # Design A (one episode == one rollout == one PPO update). This REPLACES
+    # linear GAE; there is no rollout_horizon, gamma, or gae_lambda on this path.
+    # Decoupled two-channel backup: the cost channel (-alpha per node) and the
+    # incumbent-bonus channel are backed up separately, each with its own
+    # discount, then summed. tree_gamma_cost may be < 1 (cost is a local,
+    # high-variance quantity); tree_gamma_bonus stays 1.0 (an incumbent is a path
+    # quantity, felt at full strength by every ancestor). Both default to
+    # tree_gamma so a single-knob config still works.
+    "tree_gamma": 1.0,             # back-compat default for both channels below
+    "tree_gamma_cost": None,       # cost-channel discount (None -> tree_gamma)
+    "tree_gamma_bonus": None,      # bonus-channel discount (None -> tree_gamma)
     "tree_keep_open": False,  # truncation: False drops open (unclosed) subtrees
     "ent_coef": 0.01,
     "vf_coef": 0.5,
@@ -497,13 +470,17 @@ def main() -> None:
 
     # --- Training loop ---
     total_env_steps = int(config["total_env_steps"])
-    rollout_horizon = int(config["rollout_horizon"])
     ppo_epochs = int(config["ppo_epochs"])
     minibatches = int(config["minibatches"])
     clip_eps = float(config["clip_eps"])
-    gamma = float(config["gamma"])
-    gae_lambda = float(config["gae_lambda"])
     tree_gamma = float(config["tree_gamma"])
+    # Decoupled channel discounts; fall back to the single tree_gamma when unset.
+    tree_gamma_cost = float(
+        config["tree_gamma_cost"] if config["tree_gamma_cost"] is not None else tree_gamma
+    )
+    tree_gamma_bonus = float(
+        config["tree_gamma_bonus"] if config["tree_gamma_bonus"] is not None else tree_gamma
+    )
     tree_keep_open = bool(config["tree_keep_open"])
     alpha = float(config["alpha"])  # flat per-node cost for the tree backup
     beta1 = float(config["beta1"])  # first-incumbent strength bonus weight
@@ -532,6 +509,7 @@ def main() -> None:
     best_mean_gap = float("inf")
     eval_log: List[Dict] = []
     last_eval_step = -1  # global_step of the most recent eval; guards a duplicate final eval
+    ret_rms = RunningMeanStd()  # running stats of G for value normalisation
 
     # Shuffle instance order each pass
     inst_order = list(range(len(instance_paths)))
@@ -559,7 +537,7 @@ def main() -> None:
     t_start = time.perf_counter()
     print(f"\n{'='*80}")
     print(f"  PPO Training")
-    print(f"  total_steps={total_env_steps:,}  rollout={rollout_horizon}  train_instances={len(instance_paths)}  eval_instances={len(eval_paths)}")
+    print(f"  total_steps={total_env_steps:,}  backup=tree(cost_gamma={tree_gamma_cost},bonus_gamma={tree_gamma_bonus})  train_instances={len(instance_paths)}  eval_instances={len(eval_paths)}")
     print(f"{'='*80}")
     print(f"[Episode 1] start  {current_instance_path.name}\n")
 
@@ -623,27 +601,30 @@ def main() -> None:
                 obs = step_out.observation
 
         # ---- Subtree-return backup (Machine 2) with Machine 1 rewards ----
-        # One tree per rollout. Per-node reward r(n) = flat cost (-alpha) plus
-        # first-incumbent strength (beta1) and incumbent-improvement (beta2)
-        # bonuses placed on the incumbent nodes; the backup sums r(n) over each
-        # decision's subtree.
-        node_reward_fn = make_node_reward_fn(
+        # One tree per rollout. Decoupled two-channel backup: the cost channel
+        # (-alpha per node) and the incumbent-bonus channel (beta1 first-incumbent
+        # strength + beta2 improvement, placed on incumbent nodes) are summed over
+        # each decision's subtree, each with its own discount. tree_gamma_cost may
+        # be < 1 (cost is local/high-variance); tree_gamma_bonus stays 1.0 (an
+        # incumbent is a path quantity, felt by every ancestor at full strength).
+        cost_reward_fn = make_cost_reward_fn(alpha=alpha)
+        bonus_reward_fn = make_bonus_reward_fn(
             episode_tree,
-            alpha=alpha,
             beta1=beta1,
             beta2=beta2,
             root_lb=episode_tree.get("root_lb") if episode_tree else None,
         )
-        ta = compute_episode_advantages(
+        ta = compute_episode_advantages_decoupled(
             tree=episode_tree,
             node_ids=buffer.node_ids,
             values=buffer.values,
-            reward_fn=node_reward_fn,
-            gamma=tree_gamma,
+            cost_reward_fn=cost_reward_fn,
+            bonus_reward_fn=bonus_reward_fn,
+            gamma_cost=tree_gamma_cost,
+            gamma_bonus=tree_gamma_bonus,
             keep_open=tree_keep_open,
         )
-        advantages = torch.tensor(ta.advantages, dtype=torch.float32)
-        returns = torch.tensor(ta.returns, dtype=torch.float32)
+        raw_returns = torch.tensor(ta.returns, dtype=torch.float32)
         valid_mask = torch.tensor(ta.valid, dtype=torch.bool)
 
         # Valid = transitions whose decision-node subtree closed (complete G).
@@ -670,13 +651,26 @@ def main() -> None:
 
         indices = np.array(valid_idx)
 
-        # Explained variance + ret_std on the VALID subset only.
-        values_valid = torch.tensor([buffer.values[i] for i in valid_idx])
+        # ---- Value normalisation ----
+        # Update running stats from THIS episode's valid raw returns, then
+        # standardise the value targets. The critic is trained to predict
+        # normalised returns, so buffer.values (its collection-time outputs) are
+        # ALSO in normalised space; advantages are therefore formed as
+        # (G_norm - V_norm) — both sides in the same space.
+        raw_valid = raw_returns[indices].numpy().astype(np.float64)
+        ret_rms.update(raw_valid)
+        std = ret_rms.std + 1e-8
+        returns = (raw_returns - ret_rms.mean) / std        # normalised targets
+        values_norm = torch.tensor([buffer.values[i] for i in valid_idx])
         returns_valid = returns[indices]
+        advantages = returns.clone()                         # full-length; only valid read
+        advantages[indices] = returns_valid - values_norm
+
+        # Explained variance + ret_std on the VALID subset (normalised space).
         var_returns = returns_valid.var()
         explained_var = (
             float("nan") if var_returns.item() == 0.0
-            else (1.0 - (returns_valid - values_valid).var() / var_returns).item()
+            else (1.0 - (returns_valid - values_norm).var() / var_returns).item()
         )
         ret_std = returns_valid.std().item()
 
@@ -824,13 +818,13 @@ def main() -> None:
 
             # Save periodic checkpoint
             ckpt_path = checkpoint_dir / f"policy_ppo_step{global_step}.pt"
-            save_policy_checkpoint(ac.model, str(ckpt_path), extra={"train_config": config, "eval_metrics": metrics})
+            save_policy_checkpoint(ac.model, str(ckpt_path), extra={"train_config": config, "eval_metrics": metrics, "value_norm": {"mean": ret_rms.mean, "std": ret_rms.std}})
             print(f"[Checkpoint] saved  → {ckpt_path}")
 
             # Save best model separately
             if is_best:
                 best_mean_gap = metrics["mean_gap"]
-                save_policy_checkpoint(ac.model, str(best_model_path), extra={"train_config": config, "eval_metrics": metrics, "step": global_step})
+                save_policy_checkpoint(ac.model, str(best_model_path), extra={"train_config": config, "eval_metrics": metrics, "step": global_step, "value_norm": {"mean": ret_rms.mean, "std": ret_rms.std}})
                 print(f"[Checkpoint] best   → {best_model_path}  (gap={best_mean_gap:.2f}%)")
             print(f"{sep}\n")
 
@@ -881,7 +875,7 @@ def main() -> None:
 
         if is_best:
             best_mean_gap = metrics["mean_gap"]
-            save_policy_checkpoint(ac.model, str(best_model_path), extra={"train_config": config, "eval_metrics": metrics, "step": global_step})
+            save_policy_checkpoint(ac.model, str(best_model_path), extra={"train_config": config, "eval_metrics": metrics, "step": global_step, "value_norm": {"mean": ret_rms.mean, "std": ret_rms.std}})
             print(f"[Final Eval] best   → {best_model_path}  (gap={best_mean_gap:.2f}%)")
         print(f"{sep}")
 

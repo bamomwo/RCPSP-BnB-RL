@@ -34,16 +34,25 @@ class StepOutput:
 @dataclass
 class RewardConfig:
     """
-    Subtree-backtracking reward coefficients, Option A (see reward_.txt).
+    Coefficients for the env's per-step DIAGNOSTIC reward.
 
-    The objective is exact-search efficiency: prove optimality in the fewest
-    node expansions. Each expanded node is charged a flat cost once, at its own
-    step; under PPO/GAE the return-to-go from a branching decision then equals
-    the discounted -alpha * subtree_nodes of that decision (the subtree cost
-    emerges as the sum, with no double-counting). Two efficiency-normalized
-    incumbent bonuses supply positive progress signal.
+    IMPORTANT — this per-step reward no longer trains anything. Under the
+    closure-based (subtree) credit assignment (Design A; see
+    ml/rl/tree_return.py), the PPO returns and advantages are produced by a
+    post-episode tree backup over the finished search tree, NOT from these
+    per-step rewards. The trainer stores step_out.reward in the rollout buffer
+    but never reads it in the update; it is consumed only by per-episode logging
+    (episode_reward, the rwd_std diagnostic, and reward_breakdown).
 
-    Reward at each branching step:
+    The actual training reward lives in tree_return.py:
+      - make_cost_reward_fn  : -alpha per node (the cost channel), and
+      - make_bonus_reward_fn : the beta1/beta2 incumbent bonuses (bonus channel),
+    backed up separately and summed. Those functions read alpha/beta1/beta2 from
+    the SAME config keys, so this dataclass and the tree backup stay in step, but
+    the formula below is a per-advance approximation kept purely for monitoring —
+    it does not have to match the tree return and is not used to compute it.
+
+    Per-step diagnostic reward at each branching advance:
 
         r  = -alpha * nodes_delta                                   (always)
 
@@ -63,16 +72,10 @@ class RewardConfig:
                                      found
         nodes_since_last_incumbent = nodes expanded since the previous incumbent
 
-    Coefficients:
-        alpha  — per-node cost. Sets the search-effort scale; the episode-total
-                 cost is -alpha * nodes_expanded.
-        beta1  — first-incumbent bonus weight (quality-per-work, one-time).
-        beta2  — incumbent-improvement bonus weight (makespan reduction per node
-                 of search between incumbents).
-
-    The alpha-vs-beta1/beta2 scale is the key tuning knob: too large a beta and
-    the policy chases incumbents over proof efficiency; too small and the cost
-    term dominates and the progress signal vanishes.
+    Coefficients (shared with the tree backup's reward channels):
+        alpha  — per-node search cost. Sets the search-effort scale.
+        beta1  — first-incumbent strength bonus weight.
+        beta2  — incumbent-improvement bonus weight.
     """
     alpha: float = 0.01
     beta1: float = 1.0
@@ -272,54 +275,49 @@ class BranchingEnv:
         nodes_since_last_incumbent: int,
     ) -> Tuple[float, Dict[str, float]]:
         """
-        Subtree-backtracking reward, Option A (see reward_.txt).
+        Per-step DIAGNOSTIC reward for the advance triggered by the action just
+        taken. This is logging-only: the trainer stores it but never uses it to
+        compute returns or advantages — those come from the post-episode subtree
+        backup (ml/rl/tree_return.py). See RewardConfig for the full note.
 
-        The objective is exact-search efficiency: prove optimality in the fewest
-        node expansions. Option A charges each expanded node a flat cost exactly
-        once, at its own step. Under PPO/GAE the return-to-go from a branching
-        decision then equals the (discounted) -alpha * subtree_nodes of that
-        decision automatically — the subtree cost emerges as the sum, with no
-        double-counting, and the episode total equals -alpha * nodes_expanded
-        (the true objective). Locality (a decision feels its own subtree, not
-        unrelated work after backtracking) comes from gamma < 1 in GAE.
+        The three terms below mirror the tree backup's reward channels
+        (cost = -alpha per node; beta1 first-incumbent strength; beta2 incumbent
+        improvement) so the per-episode logs track the same quantities the policy
+        is actually trained on — but this is a per-advance approximation and is
+        NOT required to equal the tree return.
 
         All quantities reflect the advance triggered by the action just taken:
             pre_inc  : incumbent at the branching decision the agent acted on
             post_inc : incumbent at the next branching decision (or termination)
 
-        Three terms (reward_.txt):
+        Three terms:
           - r_cost = -alpha * nodes_delta
               Per-node search cost. nodes_delta is ~1 during search (one node
-              expanded per step) and larger only on the terminal advance. This
-              is the once-per-node charge whose GAE return-to-go is the subtree
-              cost.
+              expanded per step) and larger only on the terminal advance.
           - r_first_incumbent = beta1 * (root_lb / first_inc)
                                  / (1 + log1p(nodes_to_first_incumbent))
               One-time, emitted when the FIRST incumbent appears. Rewards a
               strong first incumbent (root_lb / first_inc -> 1 when the first
               incumbent is near the root bound) found with little search
-              (divided by log of nodes spent reaching it). Efficiency-normalized,
-              so it rewards quality-per-work, not incumbent level.
+              (divided by log of nodes spent reaching it).
           - r_incumbent_improvement = beta2 * (old_inc - new_inc)
                                        / nodes_since_last_incumbent
               Emitted whenever an EXISTING incumbent improves. Rewards makespan
               reduction per unit of search effort between incumbents.
 
-        node_lb is no longer used (the gap-based cost is gone) but is kept in
-        the signature for call-site stability.
+        node_lb is unused (no gap-based cost) but kept in the signature for
+        call-site stability.
         """
         import math
 
-        _ = node_lb  # retained for call-site stability; unused under Option A
+        _ = node_lb  # retained for call-site stability; unused
         cfg = self.reward_cfg
         reward = 0.0
         breakdown: Dict[str, float] = {
             "cost": 0.0, "first_incumbent": 0.0, "incumbent_improvement": 0.0,
         }
 
-        # 1. Per-node search cost. Charged on every step (each expanded node
-        #    pays -alpha once); the subtree cost of a decision is the GAE
-        #    return-to-go, not a separately-emitted term.
+        # 1. Per-node search cost — each expanded node pays -alpha once.
         width = float(max(0, int(nodes_delta)))
         r_cost = -cfg.alpha * width
         reward += r_cost
@@ -495,15 +493,14 @@ class BranchingEnv:
         # ctx was created when the solver paused for THIS branching decision,
         # so ctx.incumbent_after / ctx.nodes_expanded reflect the moment the
         # agent is about to act. node.lower_bound is the LOCAL lower bound of
-        # the node being branched on (the active DFS-path LB used by the gap
-        # cost — not the frontier minimum).
+        # the node being branched on (not the frontier minimum).
         pre_inc: Optional[int] = ctx.incumbent_after
         pre_burden: int = ctx.proof_burden
         pre_frontier_min_lb: Optional[int] = ctx.frontier_min_lb
         pre_nodes: int = ctx.nodes_expanded
         node_lb: Optional[int] = node.lower_bound
-        # Path-local stagnation of the node being branched on: drives the
-        # stagnation multiplier in the dense gap cost.
+        # Path-local stagnation of the node being branched on. Carried in the
+        # step info and used as a critic-only feature; not part of any reward.
         pre_stagnation_depth: int = ctx.stagnation_depth
 
         # Resume the solver with the chosen ordering.
@@ -571,7 +568,7 @@ class BranchingEnv:
             self._episode_stats.last_incumbent_node = post_nodes
             self._episode_stats.last_incumbent_makespan = post_inc
 
-        # ---- Compute reward (proof-oriented) ----
+        # ---- Compute per-step diagnostic reward (logging only) ----
         # Segment length: nodes expanded since the previous incumbent. Sized
         # before we advance _last_incumbent_nodes so an improving advance is
         # credited against the segment that produced it.
