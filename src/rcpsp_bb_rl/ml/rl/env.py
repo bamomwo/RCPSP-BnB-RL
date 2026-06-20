@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 import torch
 
@@ -26,60 +26,8 @@ from rcpsp_bb_rl.ml.il.featurize import (
 @dataclass
 class StepOutput:
     observation: Dict[str, torch.Tensor]
-    reward: float
     done: bool
     info: Dict
-
-
-@dataclass
-class RewardConfig:
-    """
-    Coefficients for the env's per-step DIAGNOSTIC reward.
-
-    IMPORTANT — this per-step reward no longer trains anything. Under the
-    closure-based (subtree) credit assignment (Design A; see
-    ml/rl/tree_return.py), the PPO returns and advantages are produced by a
-    post-episode tree backup over the finished search tree, NOT from these
-    per-step rewards. The trainer stores step_out.reward in the rollout buffer
-    but never reads it in the update; it is consumed only by per-episode logging
-    (episode_reward, the rwd_std diagnostic, and reward_breakdown).
-
-    The actual training reward lives in tree_return.py:
-      - make_cost_reward_fn  : -alpha per node (the cost channel), and
-      - make_bonus_reward_fn : the beta1/beta2 incumbent bonuses (bonus channel),
-    backed up separately and summed. Those functions read alpha/beta1/beta2 from
-    the SAME config keys, so this dataclass and the tree backup stay in step, but
-    the formula below is a per-advance approximation kept purely for monitoring —
-    it does not have to match the tree return and is not used to compute it.
-
-    Per-step diagnostic reward at each branching advance:
-
-        r  = -alpha * nodes_delta                                   (always)
-
-        if the FIRST incumbent appeared on this advance:
-            quality = clamp(root_lb / first_inc, 0, 1)
-            r += beta1 * quality / (1 + log1p(nodes_to_first_incumbent))
-
-        if an EXISTING incumbent improved on this advance:
-            r += beta2 * (old_inc - new_inc) / nodes_since_last_incumbent
-
-    where
-        nodes_delta                = nodes expanded during this advance
-                                     (~1 per step during search; larger only on
-                                     the terminal advance)
-        root_lb                    = root critical-path lower bound (cp_lb)
-        nodes_to_first_incumbent   = nodes expanded when the first incumbent was
-                                     found
-        nodes_since_last_incumbent = nodes expanded since the previous incumbent
-
-    Coefficients (shared with the tree backup's reward channels):
-        alpha  — per-node search cost. Sets the search-effort scale.
-        beta1  — first-incumbent strength bonus weight.
-        beta2  — incumbent-improvement bonus weight.
-    """
-    alpha: float = 0.01
-    beta1: float = 1.0
-    beta2: float = 1.0
 
 
 @dataclass
@@ -96,12 +44,6 @@ class EpisodeStats:
     best_makespan: Optional[int] = None
     final_gap: Optional[float] = None
     done_reason: str = "unknown"
-    total_reward: float = 0.0
-    reward_breakdown: Dict[str, float] = field(default_factory=lambda: {
-        "cost": 0.0,
-        "first_incumbent": 0.0,
-        "incumbent_improvement": 0.0,
-    })
 
 
 # ---------------------------------------------------------------------------
@@ -130,14 +72,12 @@ class BranchingEnv:
         instance_source: RCPSPInstance | Path | str,
         max_resources: int = 4,
         time_limit_s: float = 60.0,
-        reward_cfg: Optional[RewardConfig] = None,
         dominance: object = "set_based",
         lb_spec: object = DEFAULT_LOWER_BOUND_ID,
     ) -> None:
         self.instance_source = instance_source
         self.max_resources = max_resources
         self.time_limit_s = time_limit_s
-        self.reward_cfg = reward_cfg or RewardConfig()
         self.dominance_spec = normalize_dominance_spec(dominance)
         self.lb_spec = lb_spec
 
@@ -265,91 +205,6 @@ class BranchingEnv:
             stagnation_depth=0,
         )
 
-    def _compute_reward(
-        self,
-        *,
-        pre_inc: Optional[int],
-        post_inc: Optional[int],
-        node_lb: Optional[int],
-        nodes_delta: int,
-        nodes_since_last_incumbent: int,
-    ) -> Tuple[float, Dict[str, float]]:
-        """
-        Per-step DIAGNOSTIC reward for the advance triggered by the action just
-        taken. This is logging-only: the trainer stores it but never uses it to
-        compute returns or advantages — those come from the post-episode subtree
-        backup (ml/rl/tree_return.py). See RewardConfig for the full note.
-
-        The three terms below mirror the tree backup's reward channels
-        (cost = -alpha per node; beta1 first-incumbent strength; beta2 incumbent
-        improvement) so the per-episode logs track the same quantities the policy
-        is actually trained on — but this is a per-advance approximation and is
-        NOT required to equal the tree return.
-
-        All quantities reflect the advance triggered by the action just taken:
-            pre_inc  : incumbent at the branching decision the agent acted on
-            post_inc : incumbent at the next branching decision (or termination)
-
-        Three terms:
-          - r_cost = -alpha * nodes_delta
-              Per-node search cost. nodes_delta is ~1 during search (one node
-              expanded per step) and larger only on the terminal advance.
-          - r_first_incumbent = beta1 * (root_lb / first_inc)
-                                 / (1 + log1p(nodes_to_first_incumbent))
-              One-time, emitted when the FIRST incumbent appears. Rewards a
-              strong first incumbent (root_lb / first_inc -> 1 when the first
-              incumbent is near the root bound) found with little search
-              (divided by log of nodes spent reaching it).
-          - r_incumbent_improvement = beta2 * (old_inc - new_inc)
-                                       / nodes_since_last_incumbent
-              Emitted whenever an EXISTING incumbent improves. Rewards makespan
-              reduction per unit of search effort between incumbents.
-
-        node_lb is unused (no gap-based cost) but kept in the signature for
-        call-site stability.
-        """
-        import math
-
-        _ = node_lb  # retained for call-site stability; unused
-        cfg = self.reward_cfg
-        reward = 0.0
-        breakdown: Dict[str, float] = {
-            "cost": 0.0, "first_incumbent": 0.0, "incumbent_improvement": 0.0,
-        }
-
-        # 1. Per-node search cost — each expanded node pays -alpha once.
-        width = float(max(0, int(nodes_delta)))
-        r_cost = -cfg.alpha * width
-        reward += r_cost
-        breakdown["cost"] = r_cost
-
-        # 2. First-incumbent bonus — one-time, when the first feasible schedule
-        #    appears (pre_inc is None and post_inc is not None). Strong-and-cheap
-        #    first incumbents score high; weak or expensively-found ones score low.
-        r_first = 0.0
-        if pre_inc is None and post_inc is not None and post_inc > 0:
-            root_lb = float(self._cp_lb)
-            quality = max(0.0, min(1.0, root_lb / float(post_inc)))
-            nodes_to_first = max(0, int(nodes_since_last_incumbent))
-            r_first = cfg.beta1 * quality / (1.0 + math.log1p(nodes_to_first))
-            reward += r_first
-        breakdown["first_incumbent"] = r_first
-
-        # 3. Incumbent-improvement bonus — when an EXISTING incumbent improves.
-        #    Makespan reduction normalized by the search effort it took.
-        r_improve = 0.0
-        if (
-            pre_inc is not None
-            and post_inc is not None
-            and post_inc < pre_inc
-        ):
-            seg = float(max(1, int(nodes_since_last_incumbent)))
-            r_improve = cfg.beta2 * float(pre_inc - post_inc) / seg
-            reward += r_improve
-        breakdown["incumbent_improvement"] = r_improve
-
-        return reward, breakdown
-
     # ------------------------------------------------------------------
     # Generator-based solver coroutine
     # ------------------------------------------------------------------
@@ -428,9 +283,6 @@ class BranchingEnv:
         self._done = False
         self._done_reason = "unknown"
         self._result = None
-        # nodes_expanded value at the last incumbent (or 0 = episode start);
-        # used to size the incumbent efficiency bonus by segment length.
-        self._last_incumbent_nodes = 0
         self._n_activities = len(self.instance.activities)
         self._cp_lb = int(lower_bound(
             self.instance,
@@ -482,7 +334,7 @@ class BranchingEnv:
             info["depth"] = node.depth
             self._episode_stats.done_reason = "invalid_action"
             self._done = True
-            return StepOutput({}, 0.0, True, info)
+            return StepOutput({}, True, info)
 
         chosen = ready_sorted[action_index]
         # Put chosen first; solver pushes in reversed order so chosen is
@@ -498,9 +350,8 @@ class BranchingEnv:
         pre_burden: int = ctx.proof_burden
         pre_frontier_min_lb: Optional[int] = ctx.frontier_min_lb
         pre_nodes: int = ctx.nodes_expanded
-        node_lb: Optional[int] = node.lower_bound
         # Path-local stagnation of the node being branched on. Carried in the
-        # step info and used as a critic-only feature; not part of any reward.
+        # step info and used as a critic-only feature.
         pre_stagnation_depth: int = ctx.stagnation_depth
 
         # Resume the solver with the chosen ordering.
@@ -568,33 +419,10 @@ class BranchingEnv:
             self._episode_stats.last_incumbent_node = post_nodes
             self._episode_stats.last_incumbent_makespan = post_inc
 
-        # ---- Compute per-step diagnostic reward (logging only) ----
-        # Segment length: nodes expanded since the previous incumbent. Sized
-        # before we advance _last_incumbent_nodes so an improving advance is
-        # credited against the segment that produced it.
-        nodes_since_last_incumbent = max(1, post_nodes - self._last_incumbent_nodes)
-        # Advance the segment anchor on ANY new incumbent, including the first
-        # (so the 2nd incumbent's segment is measured from the 1st, not from
-        # episode start). This is broader than the bonus condition inside
-        # _compute_reward, which fires only on improvement of an EXISTING
-        # incumbent.
-        new_incumbent = post_inc is not None and (pre_inc is None or post_inc < pre_inc)
-
-        reward, breakdown = self._compute_reward(
-            pre_inc=pre_inc,
-            post_inc=post_inc,
-            node_lb=node_lb,
-            nodes_delta=nodes_delta,
-            nodes_since_last_incumbent=nodes_since_last_incumbent,
+        # ---- Compute segment length for logging (nodes since last incumbent) ----
+        nodes_since_last_incumbent = max(
+            1, post_nodes - (self._episode_stats.last_incumbent_node or 0)
         )
-
-        if new_incumbent:
-            self._last_incumbent_nodes = post_nodes
-
-        for key, value in breakdown.items():
-            self._episode_stats.reward_breakdown[key] = (
-                self._episode_stats.reward_breakdown.get(key, 0.0) + value
-            )
 
         if done:
             self._done = True
@@ -604,7 +432,6 @@ class BranchingEnv:
             # (generator already exhausted) it stays None.
             self._result = result_obj
             self._episode_stats.done_reason = done_reason
-            self._episode_stats.total_reward += reward
             if self._episode_stats.best_makespan is not None:
                 instance_lb = lower_bound(
                     self.instance,
@@ -644,7 +471,6 @@ class BranchingEnv:
                 if (pre_inc is not None and pre_inc > 0 and pre_frontier_min_lb is not None)
                 else 0.0
             ),
-            "reward_breakdown": breakdown,
         })
 
         if not done and msg[0] == "branch":
@@ -655,7 +481,7 @@ class BranchingEnv:
         else:
             obs = {}
 
-        return StepOutput(obs, reward, done, info)
+        return StepOutput(obs, done, info)
 
     @property
     def episode_stats(self) -> EpisodeStats:

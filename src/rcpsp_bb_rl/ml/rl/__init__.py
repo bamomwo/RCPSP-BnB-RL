@@ -1,8 +1,7 @@
-from rcpsp_bb_rl.ml.rl.env import BranchingEnv, StepOutput, RewardConfig, EpisodeStats
+from rcpsp_bb_rl.ml.rl.env import BranchingEnv, StepOutput, EpisodeStats
 
 __all__ = [
     "BranchingEnv",
     "StepOutput",
-    "RewardConfig",
     "EpisodeStats",
 ]

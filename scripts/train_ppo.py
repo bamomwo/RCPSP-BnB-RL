@@ -3,8 +3,8 @@ PPO fine-tuning for the RCPSP branching policy.
 
 Initialises from a BC checkpoint (optional), then trains with PPO. Credit is
 assigned by a closure-based subtree-return backup over the finished search tree
-(src/rcpsp_bb_rl/ml/rl/tree_return.py), NOT by the env's per-step reward — that
-reward is diagnostic/logging only (see RewardConfig).
+(src/rcpsp_bb_rl/ml/rl/tree_return.py). There is no per-step reward — a
+decision's return is the sum of per-node rewards over its own subtree.
 
 Key design decisions:
   - One episode = one RCPSP instance solved until time_limit_s or search exhausted
@@ -48,7 +48,7 @@ from rcpsp_bb_rl.data.dataset import list_instance_paths  # noqa: E402
 from rcpsp_bb_rl.data.parsing import load_instance  # noqa: E402
 from rcpsp_bb_rl.ml.models import BranchingTransformer, load_policy_checkpoint, save_policy_checkpoint  # noqa: E402
 from rcpsp_bb_rl.ml.il.featurize import global_feature_dim, candidate_feature_dim, critic_feature_dim  # noqa: E402
-from rcpsp_bb_rl.ml.rl import BranchingEnv, RewardConfig  # noqa: E402
+from rcpsp_bb_rl.ml.rl import BranchingEnv  # noqa: E402
 from rcpsp_bb_rl.ml.rl.tree_return import (  # noqa: E402
     compute_episode_advantages_decoupled,
     make_cost_reward_fn,
@@ -126,7 +126,6 @@ class RolloutBuffer:
         self.actions: List[int] = []
         self.log_probs: List[float] = []
         self.values: List[float] = []
-        self.rewards: List[float] = []
         self.dones: List[bool] = []
         self.terminateds: List[bool] = []
         # Tree identity of the node each decision was made at. Needed for the
@@ -141,7 +140,6 @@ class RolloutBuffer:
         action: int,
         log_prob: float,
         value: float,
-        reward: float,
         done: bool,
         terminated: bool,
         node_id: Optional[int] = None,
@@ -151,14 +149,13 @@ class RolloutBuffer:
         self.actions.append(action)
         self.log_probs.append(log_prob)
         self.values.append(value)
-        self.rewards.append(reward)
         self.dones.append(done)
         self.terminateds.append(terminated)
         self.node_ids.append(node_id)
         self.parent_ids.append(parent_id)
 
     def __len__(self) -> int:
-        return len(self.rewards)
+        return len(self.values)
 
     def clear(self) -> None:
         self.__init__()
@@ -453,13 +450,6 @@ def main() -> None:
     optimizer = optim.AdamW(ac.parameters(), lr=float(config["lr"]))
     print(f"Model params: {sum(p.numel() for p in ac.parameters()):,}")
 
-    # --- Reward config ---
-    reward_cfg = RewardConfig(
-        alpha=float(config["alpha"]),
-        beta1=float(config["beta1"]),
-        beta2=float(config["beta2"]),
-    )
-
     # --- Output paths ---
     save_path = Path(config["save_path"])
     save_path.parent.mkdir(parents=True, exist_ok=True)
@@ -497,7 +487,6 @@ def main() -> None:
         instance_source=instance_paths[0],
         max_resources=max_resources,
         time_limit_s=time_limit_s,
-        reward_cfg=reward_cfg,
         dominance=dominance,
     )
 
@@ -529,10 +518,7 @@ def main() -> None:
     # Start first episode
     current_instance_path = next_instance()
     obs = env.reset(instance=load_instance(current_instance_path))
-    episode_reward = 0.0
     episode_steps = 0
-    # Per-step rewards this episode (item 2: variance diagnostic).
-    episode_rewards: List[float] = []
 
     t_start = time.perf_counter()
     print(f"\n{'='*80}")
@@ -562,7 +548,6 @@ def main() -> None:
                 action=action,
                 log_prob=log_prob_t.item(),
                 value=value_t.item(),
-                reward=step_out.reward,
                 done=step_out.done,
                 terminated=bool(step_out.info.get("terminated", False)),
                 node_id=step_out.info.get("node_id"),
@@ -570,32 +555,13 @@ def main() -> None:
             )
 
             global_step += 1
-            episode_reward += step_out.reward
             episode_steps += 1
-            episode_rewards.append(step_out.reward)
 
             if step_out.done:
                 # Capture the finished search tree for the subtree backup.
                 episode_tree = env.search_tree()
                 stats = env.episode_stats
                 episode_count += 1
-                elapsed = time.perf_counter() - t_start
-                bd = stats.reward_breakdown
-                # Item 2: variance of per-step rewards this episode.
-                rwd_std = float(np.std(episode_rewards)) if episode_rewards else 0.0
-                print(
-                    f"[Episode {episode_count}] Done  "
-                    f"Instance={current_instance_path.name}  "
-                    f"Reason={stats.done_reason}  "
-                    f"Steps={episode_steps}  "
-                    f"Nodes={stats.nodes_expanded}  "
-                    f"Best_Ms={stats.best_makespan}  "
-                    f"Inc_Improves={stats.incumbent_improvements}  "
-                    f"Reward={episode_reward:+.2f}  "
-                    f"rwd_std={rwd_std:.5f}  "
-                    f"elapsed={elapsed:.0f}s"
-                )
-                print()
                 break
             else:
                 obs = step_out.observation
@@ -614,6 +580,49 @@ def main() -> None:
             beta2=beta2,
             root_lb=episode_tree.get("root_lb") if episode_tree else None,
         )
+
+        # Episode return G(root) = the per-node rewards summed over the WHOLE
+        # tree (undiscounted): -alpha * |nodes| + sum of incumbent bonuses. This
+        # is the honest per-episode scalar under the tree backup (it replaces the
+        # old per-step diagnostic reward). Computed straight from the tree, so it
+        # is well-defined even when the root subtree is open (timeout).
+        #
+        # We also split it into its three channels for the log: the flat cost
+        # (-alpha * |nodes|), the first-incumbent strength bonus (beta1 only),
+        # and the incumbent-improvement bonus (beta2 only). The two bonus channels
+        # are recovered by zeroing the other coefficient in make_bonus_reward_fn,
+        # so g_first + g_improve == sum(bonus_reward_fn) exactly.
+        if episode_tree is not None:
+            tree_nodes = episode_tree.get("nodes", [])
+            root_lb = episode_tree.get("root_lb")
+            first_fn = make_bonus_reward_fn(
+                episode_tree, beta1=beta1, beta2=0.0, root_lb=root_lb
+            )
+            improve_fn = make_bonus_reward_fn(
+                episode_tree, beta1=0.0, beta2=beta2, root_lb=root_lb
+            )
+            g_cost = sum(cost_reward_fn(n) for n in tree_nodes)
+            g_first = sum(first_fn(n) for n in tree_nodes)
+            g_improve = sum(improve_fn(n) for n in tree_nodes)
+            ep_return = g_cost + g_first + g_improve
+        else:
+            g_cost = g_first = g_improve = ep_return = 0.0
+
+        elapsed = time.perf_counter() - t_start
+        print(
+            f"[Episode {episode_count}] Done  "
+            f"Instance={current_instance_path.name}  "
+            f"Reason={stats.done_reason}  "
+            f"Steps={episode_steps}  "
+            f"Nodes={stats.nodes_expanded}  "
+            f"Best_Ms={stats.best_makespan}  "
+            f"Inc_Improves={stats.incumbent_improvements}  "
+            f"rewards=(G_root:{ep_return:+.2f}, G_cost:{g_cost:+.2f}, "
+            f"G_first_incum:{g_first:+.2f}, G_incum_impro:{g_improve:+.2f})  "
+            f"elapsed={elapsed:.0f}s"
+        )
+        print()
+
         ta = compute_episode_advantages_decoupled(
             tree=episode_tree,
             node_ids=buffer.node_ids,
@@ -644,9 +653,7 @@ def main() -> None:
                 current_instance_path = next_instance()
                 obs = env.reset(instance=load_instance(current_instance_path))
                 print(f"[Episode {episode_count+1}] start  {current_instance_path.name}\n")
-            episode_reward = 0.0
             episode_steps = 0
-            episode_rewards = []
             continue
 
         indices = np.array(valid_idx)
@@ -835,9 +842,7 @@ def main() -> None:
             current_instance_path = next_instance()
             obs = env.reset(instance=load_instance(current_instance_path))
             print(f"[Episode {episode_count+1}] start  {current_instance_path.name}\n")
-        episode_reward = 0.0
         episode_steps = 0
-        episode_rewards = []
 
     # ---- Final model save skipped; best model is saved during evaluation ----
     elapsed = time.perf_counter() - t_start
