@@ -1,0 +1,2413 @@
+Logging training output to: models\stability_check_56\policy_ppo_train_log.txt
+Device: cpu
+Training instances: 3810
+Eval instances: 10
+Loading BC checkpoint: models/policy_bc.pt
+[load_policy_checkpoint] reinitialised 1 param(s) with changed shape (value-head resize): ['value_head.0.weight']
+Model params: 75,394
+
+================================================================================
+  PPO Training
+  total_steps=7,000,000  backup=tree(cost_gamma=0.85,bonus_gamma=1.0)  train_instances=3810  eval_instances=10
+================================================================================
+[Episode 1] start  RU_inst180001.rcp
+
+[Episode 1] Done  Instance=RU_inst180001.rcp  Reason=time_limit  Steps=20403  Nodes=20403  Best_Ms=61  Inc_Improves=4  Reward=-203.90  rwd_std=0.00067  elapsed=60s
+
+[Update 1] steps=20403  episodes=1  valid=20378/20403  pg=+0.0080  vf=1.0201  ev=+0.005  ret_std=1.0000  ent=0.7044  kl=0.0025  elapsed=367s
+[Episode 2] start  TF_inst714001.rcp
+
+[Episode 2] Done  Instance=TF_inst714001.rcp  Reason=time_limit  Steps=24238  Nodes=24238  Best_Ms=178  Inc_Improves=0  Reward=-242.33  rwd_std=0.00034  elapsed=427s
+
+[Update 2] steps=44641  episodes=2  valid=24209/24238  pg=-0.0153  vf=1.0901  ev=+0.009  ret_std=1.0455  ent=0.0996  kl=0.0003  elapsed=789s
+[Episode 3] start  TF_inst145001.rcp
+
+[Episode 3] Done  Instance=TF_inst145001.rcp  Reason=search_exhausted  Steps=69  Nodes=69  Best_Ms=137  Inc_Improves=2  Reward=+0.40  rwd_std=0.08919  elapsed=789s
+
+[Update 3] steps=44710  episodes=3  valid=69/69  pg=+0.0913  vf=1.3354  ev=+0.173  ret_std=0.7650  ent=0.4712  kl=0.0006  elapsed=790s
+[Episode 4] start  SP_inst451001.rcp
+
+[Episode 4] Done  Instance=SP_inst451001.rcp  Reason=time_limit  Steps=25000  Nodes=25000  Best_Ms=130  Inc_Improves=0  Reward=-249.95  rwd_std=0.00030  elapsed=850s
+
+[Update 4] steps=69710  episodes=4  valid=24969/25000  pg=-0.0185  vf=1.3374  ev=+0.009  ret_std=1.1448  ent=0.0707  kl=0.0003  elapsed=1223s
+[Episode 5] start  VAR_inst257001.rcp
+
+[Episode 5] Done  Instance=VAR_inst257001.rcp  Reason=search_exhausted  Steps=5681  Nodes=5681  Best_Ms=157  Inc_Improves=3  Reward=-56.44  rwd_std=0.00303  elapsed=1237s
+
+[Update 5] steps=75391  episodes=5  valid=5681/5681  pg=-0.0299  vf=0.1433  ev=+0.033  ret_std=0.3834  ent=0.3733  kl=0.0003  elapsed=1315s
+[Episode 6] start  LA_inst478001.rcp
+
+[Episode 6] Done  Instance=LA_inst478001.rcp  Reason=search_exhausted  Steps=3177  Nodes=3177  Best_Ms=107  Inc_Improves=3  Reward=-31.54  rwd_std=0.00333  elapsed=1323s
+
+[Update 6] steps=78568  episodes=6  valid=3177/3177  pg=+0.0527  vf=0.0499  ev=+0.145  ret_std=0.2242  ent=0.9583  kl=0.0013  elapsed=1366s
+[Episode 7] start  RC_inst476001.rcp
+
+[Episode 7] Done  Instance=RC_inst476001.rcp  Reason=search_exhausted  Steps=26627  Nodes=26627  Best_Ms=166  Inc_Improves=0  Reward=-266.08  rwd_std=0.00117  elapsed=1422s
+
+[Update 7] steps=105195  episodes=7  valid=26627/26627  pg=+0.0187  vf=0.3415  ev=+0.028  ret_std=0.5847  ent=0.2408  kl=0.0003  elapsed=1825s
+[Episode 8] start  AD_inst338001.rcp
+
+[Episode 8] Done  Instance=AD_inst338001.rcp  Reason=time_limit  Steps=26032  Nodes=26032  Best_Ms=152  Inc_Improves=1  Reward=-260.19  rwd_std=0.00079  elapsed=1885s
+
+[Update 8] steps=131227  episodes=8  valid=26001/26032  pg=-0.0195  vf=0.3761  ev=+0.029  ret_std=0.7184  ent=0.1735  kl=0.0077  elapsed=2178s  [KL stop]
+[Episode 9] start  TF_inst411001.rcp
+
+[Episode 9] Done  Instance=TF_inst411001.rcp  Reason=time_limit  Steps=20850  Nodes=20850  Best_Ms=88  Inc_Improves=0  Reward=-208.29  rwd_std=0.00144  elapsed=2238s
+
+[Update 9] steps=152077  episodes=9  valid=20825/20850  pg=-0.0234  vf=1.4098  ev=+0.008  ret_std=1.1905  ent=1.4501  kl=0.0026  elapsed=2564s
+[Episode 10] start  RC_inst407001.rcp
+
+[Episode 10] Done  Instance=RC_inst407001.rcp  Reason=search_exhausted  Steps=5344  Nodes=5344  Best_Ms=158  Inc_Improves=1  Reward=-53.21  rwd_std=0.00267  elapsed=2576s
+
+[Update 10] steps=157421  episodes=10  valid=5344/5344  pg=-0.0006  vf=0.1086  ev=+0.132  ret_std=0.3537  ent=0.3090  kl=0.0004  elapsed=2650s
+[Episode 11] start  TF_inst504001.rcp
+
+[Episode 11] Done  Instance=TF_inst504001.rcp  Reason=time_limit  Steps=23321  Nodes=23321  Best_Ms=146  Inc_Improves=1  Reward=-233.02  rwd_std=0.00092  elapsed=2710s
+
+[Update 11] steps=180742  episodes=11  valid=23294/23321  pg=+0.0421  vf=0.8951  ev=+0.018  ret_std=0.8962  ent=0.2287  kl=0.0009  elapsed=3069s
+[Episode 12] start  LA_inst360001.rcp
+
+[Episode 12] Done  Instance=LA_inst360001.rcp  Reason=time_limit  Steps=21163  Nodes=21163  Best_Ms=69  Inc_Improves=2  Reward=-211.49  rwd_std=0.00095  elapsed=3129s
+
+[Update 12] steps=201905  episodes=12  valid=21135/21163  pg=-0.0084  vf=2.1441  ev=+0.004  ret_std=1.4627  ent=0.9457  kl=0.0016  elapsed=3455s
+[Episode 13] start  LA_inst165001.rcp
+
+[Episode 13] Done  Instance=LA_inst165001.rcp  Reason=search_exhausted  Steps=706  Nodes=706  Best_Ms=93  Inc_Improves=4  Reward=-6.36  rwd_std=0.01416  elapsed=3457s
+
+[Update 13] steps=202611  episodes=13  valid=706/706  pg=+0.0190  vf=0.0775  ev=+0.092  ret_std=0.2712  ent=0.3406  kl=0.0018  elapsed=3467s
+[Episode 14] start  TF_inst195001.rcp
+
+[Episode 14] Done  Instance=TF_inst195001.rcp  Reason=time_limit  Steps=22373  Nodes=22373  Best_Ms=99  Inc_Improves=6  Reward=-223.21  rwd_std=0.00207  elapsed=3527s
+
+[Update 14] steps=224984  episodes=14  valid=22347/22373  pg=+0.0084  vf=1.0739  ev=+0.012  ret_std=1.0202  ent=1.0941  kl=0.0014  elapsed=3916s
+[Episode 15] start  RU_inst44001.rcp
+
+[Episode 15] Done  Instance=RU_inst44001.rcp  Reason=search_exhausted  Steps=49  Nodes=49  Best_Ms=143  Inc_Improves=1  Reward=+0.11  rwd_std=0.06164  elapsed=3917s
+
+[Update 15] steps=225033  episodes=15  valid=49/49  pg=+0.1855  vf=1.7743  ev=+0.091  ret_std=0.7904  ent=0.2239  kl=0.0002  elapsed=3918s
+[Episode 16] start  SP_inst526001.rcp
+
+[Episode 16] Done  Instance=SP_inst526001.rcp  Reason=time_limit  Steps=26636  Nodes=26636  Best_Ms=158  Inc_Improves=0  Reward=-266.25  rwd_std=0.00070  elapsed=3978s
+
+[Update 16] steps=251669  episodes=16  valid=26611/26636  pg=-0.0117  vf=0.4814  ev=+0.042  ret_std=0.6353  ent=0.2204  kl=0.0011  elapsed=4382s
+[Episode 17] start  AD_inst238001.rcp
+
+[Episode 17] Done  Instance=AD_inst238001.rcp  Reason=time_limit  Steps=26342  Nodes=26342  Best_Ms=152  Inc_Improves=0  Reward=-263.29  rwd_std=0.00083  elapsed=4442s
+
+[Update 17] steps=278011  episodes=17  valid=26314/26342  pg=-0.0061  vf=0.4006  ev=+0.053  ret_std=0.6413  ent=0.3655  kl=0.0007  elapsed=4844s
+[Episode 18] start  AD_inst2001.rcp
+
+[Episode 18] Done  Instance=AD_inst2001.rcp  Reason=search_exhausted  Steps=157  Nodes=157  Best_Ms=102  Inc_Improves=0  Reward=-1.37  rwd_std=0.01596  elapsed=4845s
+
+[Update 18] steps=278168  episodes=18  valid=157/157  pg=-0.0207  vf=0.5211  ev=+0.266  ret_std=0.6169  ent=0.6489  kl=0.0016  elapsed=4847s
+[Episode 19] start  SP_inst61001.rcp
+
+[Episode 19] Done  Instance=SP_inst61001.rcp  Reason=search_exhausted  Steps=51  Nodes=51  Best_Ms=142  Inc_Improves=1  Reward=-0.03  rwd_std=0.04664  elapsed=4847s
+
+[Update 19] steps=278219  episodes=19  valid=51/51  pg=-0.0273  vf=1.2609  ev=+0.141  ret_std=0.8675  ent=0.2876  kl=0.0008  elapsed=4848s
+[Episode 20] start  TF_inst351001.rcp
+
+[Episode 20] Done  Instance=TF_inst351001.rcp  Reason=time_limit  Steps=22592  Nodes=22592  Best_Ms=117  Inc_Improves=3  Reward=-225.74  rwd_std=0.00099  elapsed=4908s
+
+[Update 20] steps=300811  episodes=20  valid=22565/22592  pg=-0.0148  vf=2.7749  ev=+0.004  ret_std=1.5366  ent=0.8652  kl=0.0002  elapsed=5259s
+[Episode 21] start  RC_inst21001.rcp
+
+[Episode 21] Done  Instance=RC_inst21001.rcp  Reason=search_exhausted  Steps=32  Nodes=32  Best_Ms=28  Inc_Improves=0  Reward=-0.10  rwd_std=0.03870  elapsed=5259s
+
+[Update 21] steps=300843  episodes=21  valid=32/32  pg=-0.0154  vf=0.5600  ev=+0.535  ret_std=0.3438  ent=1.1797  kl=0.0051  elapsed=5260s
+[Episode 22] start  VAR_inst499001.rcp
+
+[Episode 22] Done  Instance=VAR_inst499001.rcp  Reason=time_limit  Steps=24217  Nodes=24217  Best_Ms=158  Inc_Improves=0  Reward=-242.06  rwd_std=0.00073  elapsed=5320s
+
+[Update 22] steps=325060  episodes=22  valid=24191/24217  pg=-0.0086  vf=0.5074  ev=+0.025  ret_std=0.6247  ent=0.2278  kl=0.0003  elapsed=5687s
+[Episode 23] start  TF_inst388001.rcp
+
+[Episode 23] Done  Instance=TF_inst388001.rcp  Reason=search_exhausted  Steps=5647  Nodes=5647  Best_Ms=91  Inc_Improves=5  Reward=-55.85  rwd_std=0.00582  elapsed=5701s
+
+[Update 23] steps=330707  episodes=23  valid=5647/5647  pg=-0.0476  vf=0.2547  ev=+0.035  ret_std=0.4936  ent=0.8415  kl=0.0013  elapsed=5779s
+[Episode 24] start  VAR_inst529001.rcp
+
+[Episode 24] Done  Instance=VAR_inst529001.rcp  Reason=time_limit  Steps=24164  Nodes=24164  Best_Ms=158  Inc_Improves=0  Reward=-241.53  rwd_std=0.00073  elapsed=5840s
+
+[Update 24] steps=354871  episodes=24  valid=24133/24164  pg=-0.0141  vf=0.5424  ev=+0.016  ret_std=0.7291  ent=0.2206  kl=0.0010  elapsed=6204s
+[Episode 25] start  SP_inst22001.rcp
+
+[Episode 25] Done  Instance=SP_inst22001.rcp  Reason=search_exhausted  Steps=79  Nodes=79  Best_Ms=87  Inc_Improves=0  Reward=-0.58  rwd_std=0.02315  elapsed=6205s
+
+[Update 25] steps=354950  episodes=25  valid=79/79  pg=-0.0138  vf=0.5364  ev=+0.459  ret_std=0.7671  ent=0.7198  kl=0.0012  elapsed=6206s
+[Episode 26] start  AD_inst116001.rcp
+
+[Episode 26] Done  Instance=AD_inst116001.rcp  Reason=time_limit  Steps=22521  Nodes=22521  Best_Ms=82  Inc_Improves=3  Reward=-224.61  rwd_std=0.00340  elapsed=6266s
+
+[Update 26] steps=377471  episodes=26  valid=22497/22521  pg=-0.0232  vf=0.7047  ev=+0.019  ret_std=0.7881  ent=0.6761  kl=0.0020  elapsed=6616s
+[Episode 27] start  VAR_inst431001.rcp
+
+[Episode 27] Done  Instance=VAR_inst431001.rcp  Reason=time_limit  Steps=25351  Nodes=25351  Best_Ms=166  Inc_Improves=0  Reward=-253.32  rwd_std=0.00119  elapsed=6676s
+
+[Update 27] steps=402822  episodes=27  valid=25326/25351  pg=-0.0317  vf=0.2614  ev=+0.062  ret_std=0.5160  ent=0.1997  kl=0.0004  elapsed=7062s
+
+------------------------------------------------------------
+[Checkpoint] steps=402822  solved=10.0%  gap=7.42%  nodes=3864  [best]
+[Checkpoint] saved  → models\stability_check_56\checkpoints\policy_ppo_step402822.pt
+[Checkpoint] best   → models\stability_check_56\policy_ppo_best.pt  (gap=7.42%)
+------------------------------------------------------------
+
+[Episode 28] start  SP_inst432001.rcp
+
+[Episode 28] Done  Instance=SP_inst432001.rcp  Reason=time_limit  Steps=23657  Nodes=23657  Best_Ms=138  Inc_Improves=0  Reward=-236.53  rwd_std=0.00027  elapsed=7212s
+
+[Update 28] steps=426479  episodes=28  valid=23627/23657  pg=+0.0509  vf=1.2612  ev=+0.019  ret_std=1.0143  ent=0.2159  kl=0.0002  elapsed=7572s
+[Episode 29] start  LA_inst424001.rcp
+
+[Episode 29] Done  Instance=LA_inst424001.rcp  Reason=search_exhausted  Steps=3011  Nodes=3011  Best_Ms=109  Inc_Improves=0  Reward=-29.91  rwd_std=0.00357  elapsed=7579s
+
+[Update 29] steps=429490  episodes=29  valid=3011/3011  pg=+0.1045  vf=0.1139  ev=+0.181  ret_std=0.2689  ent=0.6923  kl=0.0013  elapsed=7621s
+[Episode 30] start  RC_inst13001.rcp
+
+[Episode 30] Done  Instance=RC_inst13001.rcp  Reason=search_exhausted  Steps=32  Nodes=32  Best_Ms=81  Inc_Improves=0  Reward=-0.10  rwd_std=0.03870  elapsed=7621s
+
+[Update 30] steps=429522  episodes=30  valid=32/32  pg=-0.0046  vf=1.0762  ev=-28.365  ret_std=0.0787  ent=0.4093  kl=0.0008  elapsed=7621s
+[Episode 31] start  VAR_inst134001.rcp
+
+[Episode 31] Done  Instance=VAR_inst134001.rcp  Reason=search_exhausted  Steps=104  Nodes=104  Best_Ms=148  Inc_Improves=2  Reward=-0.27  rwd_std=0.04945  elapsed=7622s
+
+[Update 31] steps=429626  episodes=31  valid=104/104  pg=-0.0034  vf=0.4003  ev=+0.451  ret_std=0.7760  ent=0.3165  kl=0.0014  elapsed=7623s
+[Episode 32] start  SP_inst105001.rcp
+
+[Episode 32] Done  Instance=SP_inst105001.rcp  Reason=search_exhausted  Steps=7561  Nodes=7561  Best_Ms=110  Inc_Improves=10  Reward=-74.08  rwd_std=0.00908  elapsed=7642s
+
+[Update 32] steps=437187  episodes=32  valid=7561/7561  pg=-0.0392  vf=1.0967  ev=-0.009  ret_std=0.9969  ent=1.1773  kl=0.0017  elapsed=7751s
+[Episode 33] start  SP_inst188001.rcp
+
+[Episode 33] Done  Instance=SP_inst188001.rcp  Reason=search_exhausted  Steps=280  Nodes=280  Best_Ms=133  Inc_Improves=5  Reward=-2.34  rwd_std=0.01420  elapsed=7752s
+
+[Update 33] steps=437467  episodes=33  valid=280/280  pg=-0.0009  vf=0.1297  ev=+0.507  ret_std=0.5060  ent=0.3334  kl=0.0000  elapsed=7756s
+[Episode 34] start  RU_inst107001.rcp
+
+[Episode 34] Done  Instance=RU_inst107001.rcp  Reason=search_exhausted  Steps=114  Nodes=114  Best_Ms=145  Inc_Improves=0  Reward=-0.92  rwd_std=0.02031  elapsed=7756s
+
+[Update 34] steps=437581  episodes=34  valid=114/114  pg=-0.0401  vf=0.4329  ev=+0.485  ret_std=0.8077  ent=0.5766  kl=0.0026  elapsed=7758s
+[Episode 35] start  RC_inst470001.rcp
+
+[Episode 35] Done  Instance=RC_inst470001.rcp  Reason=search_exhausted  Steps=26627  Nodes=26627  Best_Ms=166  Inc_Improves=0  Reward=-266.08  rwd_std=0.00117  elapsed=7814s
+
+[Update 35] steps=464208  episodes=35  valid=26627/26627  pg=+0.0783  vf=0.7084  ev=+0.039  ret_std=0.6446  ent=0.1981  kl=0.0002  elapsed=8223s
+[Episode 36] start  AD_inst372001.rcp
+
+[Episode 36] Done  Instance=AD_inst372001.rcp  Reason=time_limit  Steps=22311  Nodes=22311  Best_Ms=154  Inc_Improves=0  Reward=-223.05  rwd_std=0.00039  elapsed=8283s
+
+[Update 36] steps=486519  episodes=36  valid=22283/22311  pg=-0.0149  vf=1.8313  ev=+0.006  ret_std=1.3558  ent=0.4826  kl=0.0010  elapsed=8625s
+[Episode 37] start  AD_inst331001.rcp
+
+[Episode 37] Done  Instance=AD_inst331001.rcp  Reason=time_limit  Steps=22111  Nodes=22111  Best_Ms=148  Inc_Improves=0  Reward=-221.00  rwd_std=0.00072  elapsed=8685s
+
+[Update 37] steps=508630  episodes=37  valid=22081/22111  pg=-0.0106  vf=1.0572  ev=+0.017  ret_std=1.0370  ent=0.3378  kl=0.0010  elapsed=9022s
+[Episode 38] start  SP_inst191001.rcp
+
+[Episode 38] Done  Instance=SP_inst191001.rcp  Reason=time_limit  Steps=21515  Nodes=21515  Best_Ms=101  Inc_Improves=0  Reward=-215.05  rwd_std=0.00066  elapsed=9083s
+
+[Update 38] steps=530145  episodes=38  valid=21487/21515  pg=-0.0083  vf=0.8023  ev=+0.009  ret_std=0.8981  ent=0.8219  kl=0.0016  elapsed=9416s
+[Episode 39] start  VAR_inst26001.rcp
+
+[Episode 39] Done  Instance=VAR_inst26001.rcp  Reason=search_exhausted  Steps=32  Nodes=32  Best_Ms=142  Inc_Improves=0  Reward=-0.10  rwd_std=0.03870  elapsed=9416s
+
+[Update 39] steps=530177  episodes=39  valid=32/32  pg=-0.0007  vf=1.3423  ev=-1.776  ret_std=0.0373  ent=0.1368  kl=0.0000  elapsed=9417s
+[Episode 40] start  LA_inst627001.rcp
+
+[Episode 40] Done  Instance=LA_inst627001.rcp  Reason=time_limit  Steps=27395  Nodes=27395  Best_Ms=143  Inc_Improves=0  Reward=-273.82  rwd_std=0.00080  elapsed=9477s
+
+[Update 40] steps=557572  episodes=40  valid=27372/27395  pg=-0.0000  vf=0.2924  ev=+0.094  ret_std=0.4666  ent=0.0894  kl=0.0000  elapsed=9895s
+[Episode 41] start  LA_inst260001.rcp
+
+[Episode 41] Done  Instance=LA_inst260001.rcp  Reason=search_exhausted  Steps=206  Nodes=206  Best_Ms=155  Inc_Improves=1  Reward=-1.80  rwd_std=0.01470  elapsed=9896s
+
+[Update 41] steps=557778  episodes=41  valid=206/206  pg=-0.0959  vf=0.2197  ev=+0.563  ret_std=0.6238  ent=0.5897  kl=0.0011  elapsed=9901s
+[Episode 42] start  VAR_inst60001.rcp
+
+[Episode 42] Done  Instance=VAR_inst60001.rcp  Reason=time_limit  Steps=19917  Nodes=19917  Best_Ms=38  Inc_Improves=2  Reward=-199.01  rwd_std=0.00103  elapsed=9961s
+
+[Update 42] steps=577695  episodes=42  valid=19899/19917  pg=-0.0167  vf=1.2699  ev=-0.007  ret_std=1.1222  ent=1.5904  kl=0.0012  elapsed=10282s
+[Episode 43] start  AD_inst437001.rcp
+
+[Episode 43] Done  Instance=AD_inst437001.rcp  Reason=time_limit  Steps=23195  Nodes=23195  Best_Ms=154  Inc_Improves=0  Reward=-231.90  rwd_std=0.00031  elapsed=10343s
+
+[Update 43] steps=600890  episodes=43  valid=23164/23195  pg=+0.0003  vf=1.2194  ev=+0.015  ret_std=1.1128  ent=0.1826  kl=0.0012  elapsed=10694s
+[Episode 44] start  RU_inst56001.rcp
+
+[Episode 44] Done  Instance=RU_inst56001.rcp  Reason=search_exhausted  Steps=32  Nodes=32  Best_Ms=142  Inc_Improves=0  Reward=-0.10  rwd_std=0.03870  elapsed=10695s
+
+[Update 44] steps=600922  episodes=44  valid=32/32  pg=-0.0048  vf=1.1375  ev=-2.724  ret_std=0.0455  ent=0.1979  kl=0.0001  elapsed=10697s
+[Episode 45] start  RC_inst156001.rcp
+
+[Episode 45] Done  Instance=RC_inst156001.rcp  Reason=time_limit  Steps=23189  Nodes=23189  Best_Ms=73  Inc_Improves=3  Reward=-230.06  rwd_std=0.00822  elapsed=10757s
+
+[Update 45] steps=624111  episodes=45  valid=23167/23189  pg=-0.0139  vf=0.9578  ev=+0.015  ret_std=0.9578  ent=0.7397  kl=0.0005  elapsed=11120s
+[Episode 46] start  LA_inst323001.rcp
+
+[Episode 46] Done  Instance=LA_inst323001.rcp  Reason=time_limit  Steps=22568  Nodes=22568  Best_Ms=108  Inc_Improves=4  Reward=-225.25  rwd_std=0.00154  elapsed=11180s
+
+[Update 46] steps=646679  episodes=46  valid=22540/22568  pg=-0.0007  vf=1.1697  ev=+0.015  ret_std=1.0897  ent=0.5728  kl=0.0004  elapsed=11528s
+[Episode 47] start  LA_inst542001.rcp
+
+[Episode 47] Done  Instance=LA_inst542001.rcp  Reason=search_exhausted  Steps=27072  Nodes=27072  Best_Ms=178  Inc_Improves=0  Reward=-270.54  rwd_std=0.00109  elapsed=11586s
+
+[Update 47] steps=673751  episodes=47  valid=27072/27072  pg=-0.0000  vf=0.5338  ev=-0.002  ret_std=0.7217  ent=0.1775  kl=0.0000  elapsed=12008s
+[Episode 48] start  LA_inst575001.rcp
+
+[Episode 48] Done  Instance=LA_inst575001.rcp  Reason=time_limit  Steps=24120  Nodes=24120  Best_Ms=141  Inc_Improves=1  Reward=-241.12  rwd_std=0.00047  elapsed=12068s
+
+[Update 48] steps=697871  episodes=48  valid=24090/24120  pg=-0.0177  vf=1.0055  ev=+0.019  ret_std=0.9912  ent=0.3177  kl=0.0005  elapsed=12451s
+[Episode 49] start  LA_inst624001.rcp
+
+[Episode 49] Done  Instance=LA_inst624001.rcp  Reason=time_limit  Steps=23506  Nodes=23506  Best_Ms=178  Inc_Improves=0  Reward=-235.01  rwd_std=0.00036  elapsed=12511s
+
+[Update 49] steps=721377  episodes=49  valid=23475/23506  pg=-0.0058  vf=0.7689  ev=+0.017  ret_std=1.2458  ent=0.0888  kl=0.0109  elapsed=12692s  [KL stop]
+[Episode 50] start  SP_inst523001.rcp
+
+[Episode 50] Done  Instance=SP_inst523001.rcp  Reason=time_limit  Steps=24707  Nodes=24707  Best_Ms=130  Inc_Improves=0  Reward=-247.02  rwd_std=0.00030  elapsed=12752s
+
+[Update 50] steps=746084  episodes=50  valid=24676/24707  pg=-0.0008  vf=1.7629  ev=+0.018  ret_std=1.3393  ent=0.1069  kl=0.0009  elapsed=13132s
+[Episode 51] start  RU_inst178001.rcp
+
+[Episode 51] Done  Instance=RU_inst178001.rcp  Reason=time_limit  Steps=24909  Nodes=24909  Best_Ms=158  Inc_Improves=0  Reward=-248.98  rwd_std=0.00072  elapsed=13192s
+
+[Update 51] steps=770993  episodes=51  valid=24879/24909  pg=+0.0155  vf=0.5457  ev=+0.025  ret_std=0.7473  ent=0.1338  kl=0.0003  elapsed=13586s
+[Episode 52] start  TF_inst420001.rcp
+
+[Episode 52] Done  Instance=TF_inst420001.rcp  Reason=time_limit  Steps=20726  Nodes=20726  Best_Ms=72  Inc_Improves=8  Reward=-207.02  rwd_std=0.00099  elapsed=13646s
+
+[Update 52] steps=791719  episodes=52  valid=20697/20726  pg=-0.0301  vf=1.9338  ev=+0.001  ret_std=1.3891  ent=1.2310  kl=0.0014  elapsed=13971s
+[Episode 53] start  LA_inst60001.rcp
+
+[Episode 53] Done  Instance=LA_inst60001.rcp  Reason=search_exhausted  Steps=5799  Nodes=5799  Best_Ms=44  Inc_Improves=2  Reward=-57.77  rwd_std=0.00279  elapsed=13988s
+
+[Update 53] steps=797518  episodes=53  valid=5799/5799  pg=-0.0244  vf=1.0792  ev=-0.024  ret_std=1.0169  ent=1.6350  kl=0.0014  elapsed=14074s
+[Episode 54] start  AD_inst98001.rcp
+
+[Episode 54] Done  Instance=AD_inst98001.rcp  Reason=search_exhausted  Steps=3050  Nodes=3050  Best_Ms=112  Inc_Improves=0  Reward=-30.32  rwd_std=0.00331  elapsed=14081s
+
+[Update 54] steps=800568  episodes=54  valid=3050/3050  pg=+0.0434  vf=0.0587  ev=+0.277  ret_std=0.2319  ent=0.5356  kl=0.0011  elapsed=14123s
+
+------------------------------------------------------------
+[Checkpoint] steps=800568  solved=10.0%  gap=7.63%  nodes=3880
+[Checkpoint] saved  → models\stability_check_56\checkpoints\policy_ppo_step800568.pt
+------------------------------------------------------------
+
+[Episode 55] start  TF_inst158001.rcp
+
+[Episode 55] Done  Instance=TF_inst158001.rcp  Reason=search_exhausted  Steps=57  Nodes=57  Best_Ms=146  Inc_Improves=1  Reward=-0.27  rwd_std=0.03048  elapsed=14214s
+
+[Update 55] steps=800625  episodes=55  valid=57/57  pg=+0.1190  vf=0.8574  ev=+0.477  ret_std=0.9410  ent=0.3309  kl=0.0008  elapsed=14214s
+[Episode 56] start  VAR_inst465001.rcp
+
+[Episode 56] Done  Instance=VAR_inst465001.rcp  Reason=time_limit  Steps=22311  Nodes=22311  Best_Ms=130  Inc_Improves=0  Reward=-223.06  rwd_std=0.00032  elapsed=14275s
+
+[Update 56] steps=822936  episodes=56  valid=22281/22311  pg=-0.0298  vf=1.0259  ev=+0.037  ret_std=0.9883  ent=0.0836  kl=0.0005  elapsed=14616s
+[Episode 57] start  VAR_inst19001.rcp
+
+[Episode 57] Done  Instance=VAR_inst19001.rcp  Reason=search_exhausted  Steps=71  Nodes=71  Best_Ms=82  Inc_Improves=1  Reward=-0.20  rwd_std=0.04279  elapsed=14617s
+
+[Update 57] steps=823007  episodes=57  valid=71/71  pg=+0.0072  vf=0.3303  ev=+0.636  ret_std=0.8185  ent=0.5880  kl=0.0020  elapsed=14618s
+[Episode 58] start  LA_inst507001.rcp
+
+[Episode 58] Done  Instance=LA_inst507001.rcp  Reason=time_limit  Steps=27376  Nodes=27376  Best_Ms=133  Inc_Improves=3  Reward=-273.62  rwd_std=0.00083  elapsed=14678s
+
+[Update 58] steps=850383  episodes=58  valid=27346/27376  pg=-0.0303  vf=0.2105  ev=+0.060  ret_std=0.4551  ent=0.1519  kl=0.0002  elapsed=15098s
+[Episode 59] start  VAR_inst274001.rcp
+
+[Episode 59] Done  Instance=VAR_inst274001.rcp  Reason=time_limit  Steps=25914  Nodes=25914  Best_Ms=155  Inc_Improves=0  Reward=-259.02  rwd_std=0.00072  elapsed=15158s
+
+[Update 59] steps=876297  episodes=59  valid=25886/25914  pg=-0.0162  vf=0.3271  ev=+0.026  ret_std=0.5727  ent=0.1544  kl=0.0005  elapsed=15557s
+[Episode 60] start  LA_inst290001.rcp
+
+[Episode 60] Done  Instance=LA_inst290001.rcp  Reason=search_exhausted  Steps=1387  Nodes=1387  Best_Ms=163  Inc_Improves=2  Reward=-13.45  rwd_std=0.00698  elapsed=15560s
+
+[Update 60] steps=877684  episodes=60  valid=1387/1387  pg=+0.0526  vf=0.1040  ev=+0.283  ret_std=0.3150  ent=0.3675  kl=0.0003  elapsed=15579s
+[Episode 61] start  SP_inst56001.rcp
+
+[Episode 61] Done  Instance=SP_inst56001.rcp  Reason=time_limit  Steps=19527  Nodes=19527  Best_Ms=54  Inc_Improves=0  Reward=-195.09  rwd_std=0.00130  elapsed=15639s
+
+[Update 61] steps=897211  episodes=61  valid=19502/19527  pg=-0.0216  vf=1.5969  ev=-0.000  ret_std=1.2604  ent=1.6284  kl=0.0015  elapsed=15958s
+[Episode 62] start  VAR_inst519001.rcp
+
+[Episode 62] Done  Instance=VAR_inst519001.rcp  Reason=time_limit  Steps=22439  Nodes=22439  Best_Ms=130  Inc_Improves=0  Reward=-224.34  rwd_std=0.00032  elapsed=16018s
+
+[Update 62] steps=919650  episodes=62  valid=22410/22439  pg=-0.0147  vf=1.2335  ev=+0.022  ret_std=1.1146  ent=0.0809  kl=0.0003  elapsed=16362s
+[Episode 63] start  RC_inst112001.rcp
+
+[Episode 63] Done  Instance=RC_inst112001.rcp  Reason=search_exhausted  Steps=175  Nodes=175  Best_Ms=90  Inc_Improves=3  Reward=-1.30  rwd_std=0.01955  elapsed=16362s
+
+[Update 63] steps=919825  episodes=63  valid=175/175  pg=-0.1322  vf=0.1116  ev=+0.753  ret_std=0.5627  ent=0.5827  kl=0.0035  elapsed=16365s
+[Episode 64] start  AD_inst164001.rcp
+
+[Episode 64] Done  Instance=AD_inst164001.rcp  Reason=time_limit  Steps=23003  Nodes=23003  Best_Ms=129  Inc_Improves=2  Reward=-229.78  rwd_std=0.00133  elapsed=16425s
+
+[Update 64] steps=942828  episodes=64  valid=22973/23003  pg=-0.0141  vf=0.9238  ev=+0.026  ret_std=0.9734  ent=0.4880  kl=0.0016  elapsed=16784s
+[Episode 65] start  TF_inst379001.rcp
+
+[Episode 65] Done  Instance=TF_inst379001.rcp  Reason=search_exhausted  Steps=32  Nodes=32  Best_Ms=137  Inc_Improves=0  Reward=-0.10  rwd_std=0.03870  elapsed=16784s
+
+[Update 65] steps=942860  episodes=65  valid=32/32  pg=-0.0018  vf=0.7883  ev=-5.132  ret_std=0.0533  ent=0.3063  kl=0.0000  elapsed=16785s
+[Episode 66] start  LA_inst12001.rcp
+
+[Episode 66] Done  Instance=LA_inst12001.rcp  Reason=time_limit  Steps=20448  Nodes=20448  Best_Ms=46  Inc_Improves=5  Reward=-204.27  rwd_std=0.00132  elapsed=16845s
+
+[Update 66] steps=963308  episodes=66  valid=20441/20448  pg=-0.0148  vf=1.1845  ev=+0.008  ret_std=0.9985  ent=1.4482  kl=0.0005  elapsed=17175s
+[Episode 67] start  TF_inst74001.rcp
+
+[Episode 67] Done  Instance=TF_inst74001.rcp  Reason=search_exhausted  Steps=32  Nodes=32  Best_Ms=146  Inc_Improves=0  Reward=-0.10  rwd_std=0.03870  elapsed=17175s
+
+[Update 67] steps=963340  episodes=67  valid=32/32  pg=-0.0010  vf=0.8128  ev=-8.285  ret_std=0.0505  ent=0.1799  kl=0.0000  elapsed=17175s
+[Episode 68] start  SP_inst118001.rcp
+
+[Episode 68] Done  Instance=SP_inst118001.rcp  Reason=time_limit  Steps=22354  Nodes=22354  Best_Ms=51  Inc_Improves=1  Reward=-223.42  rwd_std=0.00079  elapsed=17236s
+
+[Update 68] steps=985694  episodes=68  valid=22334/22354  pg=-0.0074  vf=1.0362  ev=+0.016  ret_std=1.0095  ent=1.1353  kl=0.0008  elapsed=17591s
+[Episode 69] start  LA_inst675001.rcp
+
+[Episode 69] Done  Instance=LA_inst675001.rcp  Reason=time_limit  Steps=27476  Nodes=27476  Best_Ms=143  Inc_Improves=0  Reward=-274.63  rwd_std=0.00080  elapsed=17651s
+
+[Update 69] steps=1013170  episodes=69  valid=27446/27476  pg=-0.0305  vf=0.2250  ev=+0.098  ret_std=0.4977  ent=0.0731  kl=0.0000  elapsed=18074s
+[Episode 70] start  TF_inst635001.rcp
+
+[Episode 70] Done  Instance=TF_inst635001.rcp  Reason=time_limit  Steps=22962  Nodes=22962  Best_Ms=155  Inc_Improves=0  Reward=-229.57  rwd_std=0.00033  elapsed=18134s
+
+[Update 70] steps=1036132  episodes=70  valid=22934/22962  pg=-0.0098  vf=2.0038  ev=+0.012  ret_std=1.4235  ent=0.2482  kl=0.0021  elapsed=18487s
+[Episode 71] start  RC_inst410001.rcp
+
+[Episode 71] Done  Instance=RC_inst410001.rcp  Reason=search_exhausted  Steps=9946  Nodes=9946  Best_Ms=161  Inc_Improves=1  Reward=-99.08  rwd_std=0.00266  elapsed=18508s
+
+[Update 71] steps=1046078  episodes=71  valid=9946/9946  pg=-0.0462  vf=0.2592  ev=+0.066  ret_std=0.5211  ent=0.2709  kl=0.0003  elapsed=18653s
+[Episode 72] start  TF_inst459001.rcp
+
+[Episode 72] Done  Instance=TF_inst459001.rcp  Reason=time_limit  Steps=21436  Nodes=21436  Best_Ms=83  Inc_Improves=6  Reward=-213.88  rwd_std=0.00195  elapsed=18713s
+
+[Update 72] steps=1067514  episodes=72  valid=21413/21436  pg=-0.0174  vf=2.3889  ev=+0.014  ret_std=1.5490  ent=1.2187  kl=0.0021  elapsed=19052s
+[Episode 73] start  RU_inst149001.rcp
+
+[Episode 73] Done  Instance=RU_inst149001.rcp  Reason=search_exhausted  Steps=6537  Nodes=6537  Best_Ms=164  Inc_Improves=1  Reward=-65.18  rwd_std=0.00237  elapsed=19067s
+
+[Update 73] steps=1074051  episodes=73  valid=6537/6537  pg=-0.0198  vf=0.1841  ev=+0.109  ret_std=0.4481  ent=0.1858  kl=0.0004  elapsed=19159s
+[Episode 74] start  TF_inst472001.rcp
+
+[Episode 74] Done  Instance=TF_inst472001.rcp  Reason=search_exhausted  Steps=24766  Nodes=24766  Best_Ms=89  Inc_Improves=8  Reward=-246.84  rwd_std=0.00347  elapsed=19219s
+
+[Update 74] steps=1098817  episodes=74  valid=24766/24766  pg=+0.0037  vf=0.2600  ev=+0.076  ret_std=0.5185  ent=0.6994  kl=0.0006  elapsed=19602s
+[Episode 75] start  AD_inst428001.rcp
+
+[Episode 75] Done  Instance=AD_inst428001.rcp  Reason=time_limit  Steps=23579  Nodes=23579  Best_Ms=185  Inc_Improves=0  Reward=-235.74  rwd_std=0.00031  elapsed=19662s
+
+[Update 75] steps=1122396  episodes=75  valid=23548/23579  pg=-0.0004  vf=3.0122  ev=+0.012  ret_std=1.7462  ent=0.0941  kl=0.0002  elapsed=20025s
+[Episode 76] start  AD_inst262001.rcp
+
+[Episode 76] Done  Instance=AD_inst262001.rcp  Reason=search_exhausted  Steps=3201  Nodes=3201  Best_Ms=112  Inc_Improves=0  Reward=-31.83  rwd_std=0.00323  elapsed=20033s
+
+[Update 76] steps=1125597  episodes=76  valid=3201/3201  pg=-0.0439  vf=0.0396  ev=+0.233  ret_std=0.2237  ent=0.5060  kl=0.0007  elapsed=20080s
+[Episode 77] start  TF_inst381001.rcp
+
+[Episode 77] Done  Instance=TF_inst381001.rcp  Reason=time_limit  Steps=19835  Nodes=19835  Best_Ms=86  Inc_Improves=0  Reward=-198.14  rwd_std=0.00151  elapsed=20140s
+
+[Update 77] steps=1145432  episodes=77  valid=19809/19835  pg=-0.0313  vf=1.4053  ev=+0.007  ret_std=1.1858  ent=1.2113  kl=0.0013  elapsed=20457s
+[Episode 78] start  RC_inst245001.rcp
+
+[Episode 78] Done  Instance=RC_inst245001.rcp  Reason=search_exhausted  Steps=2293  Nodes=2293  Best_Ms=152  Inc_Improves=1  Reward=-22.40  rwd_std=0.00813  elapsed=20462s
+
+[Update 78] steps=1147725  episodes=78  valid=2293/2293  pg=+0.2578  vf=0.1478  ev=+0.333  ret_std=0.3412  ent=0.4099  kl=0.0003  elapsed=20494s
+[Episode 79] start  VAR_inst126001.rcp
+
+[Episode 79] Done  Instance=VAR_inst126001.rcp  Reason=time_limit  Steps=22323  Nodes=22323  Best_Ms=47  Inc_Improves=0  Reward=-223.10  rwd_std=0.00089  elapsed=20554s
+
+[Update 79] steps=1170048  episodes=79  valid=22296/22323  pg=-0.0009  vf=0.4028  ev=-0.005  ret_std=0.6281  ent=0.8243  kl=0.0008  elapsed=20902s
+[Episode 80] start  VAR_inst387001.rcp
+
+[Episode 80] Done  Instance=VAR_inst387001.rcp  Reason=time_limit  Steps=21751  Nodes=21751  Best_Ms=97  Inc_Improves=0  Reward=-217.45  rwd_std=0.00044  elapsed=20962s
+
+[Update 80] steps=1191799  episodes=80  valid=21720/21751  pg=-0.0009  vf=0.8565  ev=+0.035  ret_std=0.9298  ent=0.1273  kl=0.0002  elapsed=21292s
+[Episode 81] start  SP_inst237001.rcp
+
+[Episode 81] Done  Instance=SP_inst237001.rcp  Reason=time_limit  Steps=25077  Nodes=25077  Best_Ms=123  Inc_Improves=0  Reward=-250.65  rwd_std=0.00079  elapsed=21352s
+
+[Update 81] steps=1216876  episodes=81  valid=25052/25077  pg=-0.0014  vf=0.6417  ev=+0.045  ret_std=0.8158  ent=0.3214  kl=0.0005  elapsed=21738s
+
+------------------------------------------------------------
+[Checkpoint] steps=1216876  solved=10.0%  gap=6.76%  nodes=3897  [best]
+[Checkpoint] saved  → models\stability_check_56\checkpoints\policy_ppo_step1216876.pt
+[Checkpoint] best   → models\stability_check_56\policy_ppo_best.pt  (gap=6.76%)
+------------------------------------------------------------
+
+[Episode 82] start  RU_inst240001.rcp
+
+[Episode 82] Done  Instance=RU_inst240001.rcp  Reason=time_limit  Steps=22449  Nodes=22449  Best_Ms=130  Inc_Improves=0  Reward=-224.44  rwd_std=0.00032  elapsed=21889s
+
+[Update 82] steps=1239325  episodes=82  valid=22418/22449  pg=-0.0091  vf=0.9129  ev=+0.046  ret_std=0.9761  ent=0.1290  kl=0.0005  elapsed=22241s
+[Episode 83] start  VAR_inst3001.rcp
+
+[Episode 83] Done  Instance=VAR_inst3001.rcp  Reason=search_exhausted  Steps=32  Nodes=32  Best_Ms=28  Inc_Improves=0  Reward=-0.10  rwd_std=0.03870  elapsed=22242s
+
+[Update 83] steps=1239357  episodes=83  valid=32/32  pg=-0.0249  vf=0.2727  ev=+0.884  ret_std=0.3813  ent=1.1360  kl=0.0071  elapsed=22242s
+[Episode 84] start  SP_inst227001.rcp
+
+[Episode 84] Done  Instance=SP_inst227001.rcp  Reason=time_limit  Steps=21951  Nodes=21951  Best_Ms=100  Inc_Improves=2  Reward=-219.31  rwd_std=0.00092  elapsed=22302s
+
+[Update 84] steps=1261308  episodes=84  valid=21923/21951  pg=+0.0153  vf=0.6744  ev=+0.044  ret_std=0.8128  ent=0.8236  kl=0.0015  elapsed=22646s
+[Episode 85] start  VAR_inst454001.rcp
+
+[Episode 85] Done  Instance=VAR_inst454001.rcp  Reason=time_limit  Steps=24423  Nodes=24423  Best_Ms=158  Inc_Improves=0  Reward=-244.12  rwd_std=0.00073  elapsed=22706s
+
+[Update 85] steps=1285731  episodes=85  valid=24395/24423  pg=-0.0100  vf=0.5632  ev=+0.052  ret_std=0.7624  ent=0.2028  kl=0.0003  elapsed=23080s
+[Episode 86] start  SP_inst81001.rcp
+
+[Episode 86] Done  Instance=SP_inst81001.rcp  Reason=time_limit  Steps=21278  Nodes=21278  Best_Ms=37  Inc_Improves=1  Reward=-212.60  rwd_std=0.00106  elapsed=23140s
+
+[Update 86] steps=1307009  episodes=86  valid=21254/21278  pg=-0.0110  vf=1.8213  ev=-0.008  ret_std=1.3402  ent=1.4238  kl=0.0011  elapsed=23479s
+[Episode 87] start  RC_inst466001.rcp
+
+[Episode 87] Done  Instance=RC_inst466001.rcp  Reason=time_limit  Steps=26856  Nodes=26856  Best_Ms=158  Inc_Improves=0  Reward=-268.45  rwd_std=0.00070  elapsed=23539s
+
+[Update 87] steps=1333865  episodes=87  valid=26825/26856  pg=-0.0346  vf=0.5188  ev=+0.050  ret_std=0.7313  ent=0.2180  kl=0.0002  elapsed=23953s
+[Episode 88] start  VAR_inst238001.rcp
+
+[Episode 88] Done  Instance=VAR_inst238001.rcp  Reason=search_exhausted  Steps=834  Nodes=834  Best_Ms=91  Inc_Improves=1  Reward=-8.11  rwd_std=0.00671  elapsed=23955s
+
+[Update 88] steps=1334699  episodes=88  valid=834/834  pg=-0.0657  vf=0.0870  ev=+0.344  ret_std=0.3524  ent=0.8559  kl=0.0030  elapsed=23966s
+[Episode 89] start  VAR_inst69001.rcp
+
+[Episode 89] Done  Instance=VAR_inst69001.rcp  Reason=time_limit  Steps=20477  Nodes=20477  Best_Ms=37  Inc_Improves=1  Reward=-204.60  rwd_std=0.00115  elapsed=24027s
+
+[Update 89] steps=1355176  episodes=89  valid=20460/20477  pg=-0.0010  vf=0.7305  ev=+0.005  ret_std=0.8549  ent=1.0848  kl=0.0010  elapsed=24347s
+[Episode 90] start  TF_inst410001.rcp
+
+[Episode 90] Done  Instance=TF_inst410001.rcp  Reason=search_exhausted  Steps=32  Nodes=32  Best_Ms=146  Inc_Improves=0  Reward=-0.10  rwd_std=0.03870  elapsed=24347s
+
+[Update 90] steps=1355208  episodes=90  valid=32/32  pg=-0.0051  vf=0.8915  ev=-14.915  ret_std=0.0566  ent=0.2795  kl=0.0004  elapsed=24349s
+[Episode 91] start  TF_inst464001.rcp
+
+[Episode 91] Done  Instance=TF_inst464001.rcp  Reason=search_exhausted  Steps=42  Nodes=42  Best_Ms=146  Inc_Improves=1  Reward=+0.69  rwd_std=0.14012  elapsed=24349s
+
+[Update 91] steps=1355250  episodes=91  valid=42/42  pg=+0.1072  vf=0.4515  ev=+0.472  ret_std=0.7602  ent=0.2277  kl=0.0031  elapsed=24350s
+[Episode 92] start  LA_inst402001.rcp
+
+[Episode 92] Done  Instance=LA_inst402001.rcp  Reason=time_limit  Steps=20730  Nodes=20730  Best_Ms=84  Inc_Improves=6  Reward=-206.77  rwd_std=0.00223  elapsed=24410s
+
+[Update 92] steps=1375980  episodes=92  valid=20704/20730  pg=+0.0003  vf=2.2838  ev=+0.008  ret_std=1.3748  ent=0.8255  kl=0.0011  elapsed=24731s
+[Episode 93] start  SP_inst503001.rcp
+
+[Episode 93] Done  Instance=SP_inst503001.rcp  Reason=search_exhausted  Steps=1051  Nodes=1051  Best_Ms=148  Inc_Improves=0  Reward=-10.32  rwd_std=0.00584  elapsed=24734s
+
+[Update 93] steps=1377031  episodes=93  valid=1051/1051  pg=+0.2526  vf=1.5205  ev=+0.085  ret_std=0.5732  ent=0.4287  kl=0.0000  elapsed=24749s
+[Episode 94] start  AD_inst462001.rcp
+
+[Episode 94] Done  Instance=AD_inst462001.rcp  Reason=time_limit  Steps=26134  Nodes=26134  Best_Ms=169  Inc_Improves=0  Reward=-261.22  rwd_std=0.00075  elapsed=24809s
+
+[Update 94] steps=1403165  episodes=94  valid=26104/26134  pg=-0.0005  vf=0.4384  ev=+0.099  ret_std=0.6992  ent=0.0853  kl=0.0005  elapsed=25208s
+[Episode 95] start  TF_inst230001.rcp
+
+[Episode 95] Done  Instance=TF_inst230001.rcp  Reason=search_exhausted  Steps=45  Nodes=45  Best_Ms=146  Inc_Improves=1  Reward=+0.15  rwd_std=0.06432  elapsed=25209s
+
+[Update 95] steps=1403210  episodes=95  valid=45/45  pg=+0.0231  vf=0.5733  ev=+0.535  ret_std=0.8176  ent=0.2762  kl=0.0024  elapsed=25212s
+[Episode 96] start  TF_inst318001.rcp
+
+[Episode 96] Done  Instance=TF_inst318001.rcp  Reason=time_limit  Steps=23214  Nodes=23214  Best_Ms=124  Inc_Improves=0  Reward=-232.06  rwd_std=0.00049  elapsed=25272s
+
+[Update 96] steps=1426424  episodes=96  valid=23187/23214  pg=-0.0183  vf=1.6107  ev=+0.025  ret_std=1.2792  ent=0.7026  kl=0.0012  elapsed=25632s
+[Episode 97] start  VAR_inst192001.rcp
+
+[Episode 97] Done  Instance=VAR_inst192001.rcp  Reason=time_limit  Steps=22314  Nodes=22314  Best_Ms=62  Inc_Improves=5  Reward=-222.11  rwd_std=0.00390  elapsed=25692s
+
+[Update 97] steps=1448738  episodes=97  valid=22288/22314  pg=-0.0011  vf=1.0087  ev=+0.035  ret_std=1.0226  ent=0.5838  kl=0.0009  elapsed=26037s
+[Episode 98] start  TF_inst276001.rcp
+
+[Episode 98] Done  Instance=TF_inst276001.rcp  Reason=time_limit  Steps=23714  Nodes=23714  Best_Ms=108  Inc_Improves=2  Reward=-236.99  rwd_std=0.00070  elapsed=26097s
+
+[Update 98] steps=1472452  episodes=98  valid=23688/23714  pg=-0.0008  vf=0.7517  ev=+0.052  ret_std=0.8907  ent=0.5683  kl=0.0007  elapsed=26459s
+[Episode 99] start  TF_inst194001.rcp
+
+[Episode 99] Done  Instance=TF_inst194001.rcp  Reason=search_exhausted  Steps=80  Nodes=80  Best_Ms=146  Inc_Improves=3  Reward=+0.67  rwd_std=0.10820  elapsed=26460s
+
+[Update 99] steps=1472532  episodes=99  valid=80/80  pg=-0.0075  vf=0.2377  ev=+0.666  ret_std=0.8648  ent=0.2734  kl=0.0042  elapsed=26463s
+[Episode 100] start  TF_inst616001.rcp
+
+[Episode 100] Done  Instance=TF_inst616001.rcp  Reason=time_limit  Steps=25758  Nodes=25758  Best_Ms=168  Inc_Improves=0  Reward=-257.47  rwd_std=0.00067  elapsed=26523s
+
+[Update 100] steps=1498290  episodes=100  valid=25729/25758  pg=-0.0073  vf=1.0469  ev=+0.046  ret_std=1.0469  ent=0.1410  kl=0.0002  elapsed=26921s
+[Episode 101] start  RC_inst46001.rcp
+
+[Episode 101] Done  Instance=RC_inst46001.rcp  Reason=search_exhausted  Steps=32  Nodes=32  Best_Ms=81  Inc_Improves=0  Reward=-0.10  rwd_std=0.03870  elapsed=26921s
+
+[Update 101] steps=1498322  episodes=101  valid=32/32  pg=-0.0045  vf=0.1222  ev=-0.885  ret_std=0.0896  ent=0.4030  kl=0.0001  elapsed=26922s
+[Episode 102] start  VAR_inst255001.rcp
+
+[Episode 102] Done  Instance=VAR_inst255001.rcp  Reason=time_limit  Steps=22701  Nodes=22701  Best_Ms=110  Inc_Improves=1  Reward=-226.95  rwd_std=0.00037  elapsed=26982s
+
+[Update 102] steps=1521023  episodes=102  valid=22671/22701  pg=-0.0128  vf=0.8396  ev=+0.031  ret_std=0.9155  ent=0.2694  kl=0.0002  elapsed=27333s
+[Episode 103] start  TF_inst666001.rcp
+
+[Episode 103] Done  Instance=TF_inst666001.rcp  Reason=time_limit  Steps=24176  Nodes=24176  Best_Ms=178  Inc_Improves=0  Reward=-241.71  rwd_std=0.00034  elapsed=27393s
+
+[Update 103] steps=1545199  episodes=103  valid=24146/24176  pg=+0.0062  vf=2.2583  ev=+0.023  ret_std=1.5205  ent=0.1345  kl=0.0011  elapsed=27764s
+[Episode 104] start  TF_inst399001.rcp
+
+[Episode 104] Done  Instance=TF_inst399001.rcp  Reason=time_limit  Steps=21248  Nodes=21248  Best_Ms=94  Inc_Improves=1  Reward=-212.29  rwd_std=0.00128  elapsed=27824s
+
+[Update 104] steps=1566447  episodes=104  valid=21218/21248  pg=-0.0052  vf=3.1994  ev=-0.000  ret_std=1.7790  ent=1.1750  kl=0.0014  elapsed=28158s
+[Episode 105] start  RC_inst71001.rcp
+
+[Episode 105] Done  Instance=RC_inst71001.rcp  Reason=search_exhausted  Steps=45  Nodes=45  Best_Ms=142  Inc_Improves=1  Reward=+0.15  rwd_std=0.06431  elapsed=28159s
+
+[Update 105] steps=1566492  episodes=105  valid=45/45  pg=+0.1358  vf=0.3120  ev=+0.720  ret_std=0.8045  ent=0.2415  kl=0.0004  elapsed=28159s
+[Episode 106] start  RU_inst110001.rcp
+
+[Episode 106] Done  Instance=RU_inst110001.rcp  Reason=search_exhausted  Steps=71  Nodes=71  Best_Ms=145  Inc_Improves=0  Reward=-0.49  rwd_std=0.02566  elapsed=28159s
+
+[Update 106] steps=1566563  episodes=106  valid=71/71  pg=-0.0073  vf=0.2999  ev=+0.733  ret_std=0.8773  ent=0.5749  kl=0.0003  elapsed=28161s
+[Episode 107] start  TF_inst333001.rcp
+
+[Episode 107] Done  Instance=TF_inst333001.rcp  Reason=time_limit  Steps=21538  Nodes=21538  Best_Ms=116  Inc_Improves=2  Reward=-215.22  rwd_std=0.00102  elapsed=28221s
+
+[Update 107] steps=1588101  episodes=107  valid=21510/21538  pg=-0.0035  vf=2.6803  ev=-0.004  ret_std=1.6310  ent=1.2141  kl=0.0020  elapsed=28563s
+[Episode 108] start  LA_inst384001.rcp
+
+[Episode 108] Done  Instance=LA_inst384001.rcp  Reason=time_limit  Steps=20200  Nodes=20200  Best_Ms=83  Inc_Improves=4  Reward=-199.36  rwd_std=0.01183  elapsed=28623s
+
+[Update 108] steps=1608301  episodes=108  valid=20175/20200  pg=-0.0033  vf=0.9440  ev=+0.014  ret_std=0.9731  ent=1.2941  kl=0.0017  elapsed=28941s
+
+------------------------------------------------------------
+[Checkpoint] steps=1608301  solved=20.0%  gap=7.65%  nodes=3916
+[Checkpoint] saved  → models\stability_check_56\checkpoints\policy_ppo_step1608301.pt
+------------------------------------------------------------
+
+[Episode 109] start  SP_inst163001.rcp
+
+[Episode 109] Done  Instance=SP_inst163001.rcp  Reason=time_limit  Steps=22003  Nodes=22003  Best_Ms=54  Inc_Improves=2  Reward=-219.88  rwd_std=0.00079  elapsed=29092s
+
+[Update 109] steps=1630304  episodes=109  valid=21985/22003  pg=-0.0271  vf=0.9666  ev=+0.017  ret_std=0.9871  ent=1.1387  kl=0.0017  elapsed=29440s
+[Episode 110] start  LA_inst655001.rcp
+
+[Episode 110] Done  Instance=LA_inst655001.rcp  Reason=search_exhausted  Steps=924  Nodes=924  Best_Ms=144  Inc_Improves=0  Reward=-9.04  rwd_std=0.00650  elapsed=29442s
+
+[Update 110] steps=1631228  episodes=110  valid=924/924  pg=-0.0003  vf=0.0669  ev=+0.805  ret_std=0.2956  ent=0.1055  kl=0.0004  elapsed=29455s
+[Episode 111] start  LA_inst182001.rcp
+
+[Episode 111] Done  Instance=LA_inst182001.rcp  Reason=search_exhausted  Steps=384  Nodes=384  Best_Ms=147  Inc_Improves=6  Reward=-2.76  rwd_std=0.02959  elapsed=29455s
+
+[Update 111] steps=1631612  episodes=111  valid=384/384  pg=-0.0020  vf=0.0356  ev=+0.815  ret_std=0.4252  ent=0.3814  kl=0.0003  elapsed=29461s
+[Episode 112] start  AD_inst205001.rcp
+
+[Episode 112] Done  Instance=AD_inst205001.rcp  Reason=time_limit  Steps=22450  Nodes=22450  Best_Ms=101  Inc_Improves=2  Reward=-224.43  rwd_std=0.00047  elapsed=29521s
+
+[Update 112] steps=1654062  episodes=112  valid=22424/22450  pg=-0.0003  vf=0.8295  ev=+0.020  ret_std=0.8998  ent=0.7360  kl=0.0007  elapsed=29868s
+[Episode 113] start  RC_inst434001.rcp
+
+[Episode 113] Done  Instance=RC_inst434001.rcp  Reason=search_exhausted  Steps=26627  Nodes=26627  Best_Ms=166  Inc_Improves=0  Reward=-266.08  rwd_std=0.00117  elapsed=29925s
+
+[Update 113] steps=1680689  episodes=113  valid=26627/26627  pg=-0.0035  vf=0.5055  ev=+0.019  ret_std=0.6088  ent=0.2324  kl=0.0006  elapsed=30340s
+[Episode 114] start  VAR_inst102001.rcp
+
+[Episode 114] Done  Instance=VAR_inst102001.rcp  Reason=time_limit  Steps=20696  Nodes=20696  Best_Ms=46  Inc_Improves=2  Reward=-206.66  rwd_std=0.00147  elapsed=30400s
+
+[Update 114] steps=1701385  episodes=114  valid=20670/20696  pg=-0.0200  vf=0.9380  ev=-0.022  ret_std=0.9088  ent=1.5264  kl=0.0052  elapsed=30729s
+[Episode 115] start  SP_inst51001.rcp
+
+[Episode 115] Done  Instance=SP_inst51001.rcp  Reason=search_exhausted  Steps=32  Nodes=32  Best_Ms=106  Inc_Improves=0  Reward=-0.10  rwd_std=0.03870  elapsed=30729s
+
+[Update 115] steps=1701417  episodes=115  valid=32/32  pg=-0.0075  vf=0.2073  ev=-4.450  ret_std=0.0539  ent=0.3319  kl=0.0016  elapsed=30730s
+[Episode 116] start  TF_inst506001.rcp
+
+[Episode 116] Done  Instance=TF_inst506001.rcp  Reason=time_limit  Steps=26571  Nodes=26571  Best_Ms=167  Inc_Improves=3  Reward=-265.48  rwd_std=0.00115  elapsed=30790s
+
+[Update 116] steps=1727988  episodes=116  valid=26543/26571  pg=-0.0051  vf=0.7073  ev=-0.022  ret_std=0.4794  ent=0.3721  kl=0.0018  elapsed=31200s
+[Episode 117] start  LA_inst418001.rcp
+
+[Episode 117] Done  Instance=LA_inst418001.rcp  Reason=search_exhausted  Steps=5301  Nodes=5301  Best_Ms=113  Inc_Improves=7  Reward=-52.02  rwd_std=0.00645  elapsed=31212s
+
+[Update 117] steps=1733289  episodes=117  valid=5301/5301  pg=-0.0503  vf=0.1364  ev=-0.018  ret_std=0.2646  ent=0.7089  kl=0.0010  elapsed=31285s
+[Episode 118] start  TF_inst165001.rcp
+
+[Episode 118] Done  Instance=TF_inst165001.rcp  Reason=time_limit  Steps=21900  Nodes=21900  Best_Ms=98  Inc_Improves=5  Reward=-217.77  rwd_std=0.00685  elapsed=31345s
+
+[Update 118] steps=1755189  episodes=118  valid=21874/21900  pg=-0.0080  vf=2.1310  ev=-0.006  ret_std=1.4534  ent=1.2645  kl=0.0018  elapsed=31695s
+[Episode 119] start  LA_inst317001.rcp
+
+[Episode 119] Done  Instance=LA_inst317001.rcp  Reason=time_limit  Steps=23594  Nodes=23594  Best_Ms=124  Inc_Improves=2  Reward=-235.81  rwd_std=0.00061  elapsed=31755s
+
+[Update 119] steps=1778783  episodes=119  valid=23567/23594  pg=+0.0822  vf=0.7733  ev=+0.086  ret_std=0.8213  ent=0.5588  kl=0.0004  elapsed=32121s
+[Episode 120] start  LA_inst466001.rcp
+
+[Episode 120] Done  Instance=LA_inst466001.rcp  Reason=search_exhausted  Steps=7147  Nodes=7147  Best_Ms=116  Inc_Improves=6  Reward=-70.75  rwd_std=0.00393  elapsed=32138s
+
+[Update 120] steps=1785930  episodes=120  valid=7147/7147  pg=+0.3854  vf=0.6861  ev=+0.044  ret_std=0.3117  ent=0.5121  kl=0.0007  elapsed=32240s
+[Episode 121] start  TF_inst615001.rcp
+
+[Episode 121] Done  Instance=TF_inst615001.rcp  Reason=time_limit  Steps=24940  Nodes=24940  Best_Ms=174  Inc_Improves=0  Reward=-249.30  rwd_std=0.00066  elapsed=32300s
+
+[Update 121] steps=1810870  episodes=121  valid=24909/24940  pg=-0.0084  vf=0.8770  ev=+0.068  ret_std=0.9702  ent=0.2088  kl=0.0004  elapsed=32683s
+[Episode 122] start  RU_inst85001.rcp
+
+[Episode 122] Done  Instance=RU_inst85001.rcp  Reason=search_exhausted  Steps=2279  Nodes=2279  Best_Ms=94  Inc_Improves=7  Reward=-21.56  rwd_std=0.02122  elapsed=32689s
+
+[Update 122] steps=1813149  episodes=122  valid=2279/2279  pg=+0.0793  vf=0.1719  ev=+0.094  ret_std=0.3268  ent=0.7656  kl=0.0005  elapsed=32721s
+[Episode 123] start  RC_inst261001.rcp
+
+[Episode 123] Done  Instance=RC_inst261001.rcp  Reason=time_limit  Steps=23084  Nodes=23084  Best_Ms=90  Inc_Improves=3  Reward=-229.75  rwd_std=0.00660  elapsed=32781s
+
+[Update 123] steps=1836233  episodes=123  valid=23055/23084  pg=-0.0109  vf=0.6535  ev=+0.051  ret_std=0.8146  ent=0.7329  kl=0.0006  elapsed=33144s
+[Episode 124] start  TF_inst510001.rcp
+
+[Episode 124] Done  Instance=TF_inst510001.rcp  Reason=time_limit  Steps=23132  Nodes=23132  Best_Ms=147  Inc_Improves=0  Reward=-231.26  rwd_std=0.00042  elapsed=33205s
+
+[Update 124] steps=1859365  episodes=124  valid=23101/23132  pg=-0.0528  vf=1.4047  ev=+0.042  ret_std=1.1875  ent=0.5517  kl=0.0010  elapsed=33564s
+[Episode 125] start  TF_inst22001.rcp
+
+[Episode 125] Done  Instance=TF_inst22001.rcp  Reason=search_exhausted  Steps=41  Nodes=41  Best_Ms=81  Inc_Improves=1  Reward=+1.12  rwd_std=0.20710  elapsed=33564s
+
+[Update 125] steps=1859406  episodes=125  valid=41/41  pg=+0.1966  vf=0.2721  ev=+0.803  ret_std=0.6281  ent=0.7149  kl=0.0030  elapsed=33565s
+[Episode 126] start  TF_inst677001.rcp
+
+[Episode 126] Done  Instance=TF_inst677001.rcp  Reason=time_limit  Steps=23458  Nodes=23458  Best_Ms=155  Inc_Improves=0  Reward=-234.53  rwd_std=0.00033  elapsed=33625s
+
+[Update 126] steps=1882864  episodes=126  valid=23428/23458  pg=-0.0001  vf=1.8877  ev=+0.038  ret_std=1.3787  ent=0.1610  kl=0.0011  elapsed=33984s
+[Episode 127] start  AD_inst377001.rcp
+
+[Episode 127] Done  Instance=AD_inst377001.rcp  Reason=time_limit  Steps=23574  Nodes=23574  Best_Ms=128  Inc_Improves=0  Reward=-235.68  rwd_std=0.00037  elapsed=34044s
+
+[Update 127] steps=1906438  episodes=127  valid=23543/23574  pg=-0.0018  vf=0.9043  ev=+0.062  ret_std=0.9829  ent=0.2778  kl=0.0034  elapsed=34411s
+[Episode 128] start  VAR_inst470001.rcp
+
+[Episode 128] Done  Instance=VAR_inst470001.rcp  Reason=time_limit  Steps=25110  Nodes=25110  Best_Ms=166  Inc_Improves=0  Reward=-250.91  rwd_std=0.00120  elapsed=34471s
+
+[Update 128] steps=1931548  episodes=128  valid=25085/25110  pg=-0.0258  vf=0.3321  ev=+0.042  ret_std=0.5207  ent=0.1844  kl=0.0002  elapsed=34862s
+[Episode 129] start  TF_inst712001.rcp
+
+[Episode 129] Done  Instance=TF_inst712001.rcp  Reason=time_limit  Steps=25902  Nodes=25902  Best_Ms=168  Inc_Improves=0  Reward=-258.91  rwd_std=0.00067  elapsed=34922s
+
+[Update 129] steps=1957450  episodes=129  valid=25872/25902  pg=+0.0004  vf=1.0649  ev=+0.057  ret_std=1.0566  ent=0.1785  kl=0.0025  elapsed=35320s
+[Episode 130] start  TF_inst138001.rcp
+
+[Episode 130] Done  Instance=TF_inst138001.rcp  Reason=time_limit  Steps=22032  Nodes=22032  Best_Ms=78  Inc_Improves=5  Reward=-219.50  rwd_std=0.00299  elapsed=35380s
+
+[Update 130] steps=1979482  episodes=130  valid=22016/22032  pg=-0.0008  vf=0.8785  ev=+0.024  ret_std=0.9494  ent=0.9721  kl=0.0004  elapsed=35724s
+[Episode 131] start  TF_inst67001.rcp
+
+[Episode 131] Done  Instance=TF_inst67001.rcp  Reason=search_exhausted  Steps=32  Nodes=32  Best_Ms=137  Inc_Improves=0  Reward=-0.10  rwd_std=0.03870  elapsed=35724s
+
+[Update 131] steps=1979514  episodes=131  valid=32/32  pg=-0.0162  vf=0.2655  ev=-13.380  ret_std=0.0433  ent=0.3347  kl=0.0026  elapsed=35726s
+[Episode 132] start  TF_inst152001.rcp
+
+[Episode 132] Done  Instance=TF_inst152001.rcp  Reason=search_exhausted  Steps=65  Nodes=65  Best_Ms=147  Inc_Improves=2  Reward=+0.58  rwd_std=0.09516  elapsed=35726s
+
+[Update 132] steps=1979579  episodes=132  valid=65/65  pg=+0.0175  vf=0.1763  ev=+0.808  ret_std=0.8623  ent=0.4098  kl=0.0013  elapsed=35727s
+[Episode 133] start  RC_inst53001.rcp
+
+[Episode 133] Done  Instance=RC_inst53001.rcp  Reason=search_exhausted  Steps=32  Nodes=32  Best_Ms=142  Inc_Improves=0  Reward=-0.10  rwd_std=0.03870  elapsed=35727s
+
+[Update 133] steps=1979611  episodes=133  valid=32/32  pg=-0.0024  vf=0.0411  ev=-7.926  ret_std=0.0403  ent=0.1809  kl=0.0003  elapsed=35728s
+[Episode 134] start  VAR_inst213001.rcp
+
+[Episode 134] Done  Instance=VAR_inst213001.rcp  Reason=time_limit  Steps=21525  Nodes=21525  Best_Ms=81  Inc_Improves=2  Reward=-215.15  rwd_std=0.00050  elapsed=35788s
+
+[Update 134] steps=2001136  episodes=134  valid=21505/21525  pg=+0.1169  vf=1.3514  ev=+0.040  ret_std=0.9894  ent=1.2729  kl=0.0020  elapsed=36127s
+
+------------------------------------------------------------
+[Checkpoint] steps=2001136  solved=10.0%  gap=4.90%  nodes=3909  [best]
+[Checkpoint] saved  → models\stability_check_56\checkpoints\policy_ppo_step2001136.pt
+[Checkpoint] best   → models\stability_check_56\policy_ppo_best.pt  (gap=4.90%)
+------------------------------------------------------------
+
+[Episode 135] start  RU_inst7001.rcp
+
+[Episode 135] Done  Instance=RU_inst7001.rcp  Reason=search_exhausted  Steps=32  Nodes=32  Best_Ms=81  Inc_Improves=0  Reward=-0.10  rwd_std=0.03870  elapsed=36218s
+
+[Update 135] steps=2001168  episodes=135  valid=32/32  pg=-0.0095  vf=0.0845  ev=-0.793  ret_std=0.0741  ent=0.3603  kl=0.0015  elapsed=36218s
+[Episode 136] start  RC_inst149001.rcp
+
+[Episode 136] Done  Instance=RC_inst149001.rcp  Reason=search_exhausted  Steps=134  Nodes=134  Best_Ms=148  Inc_Improves=3  Reward=-0.41  rwd_std=0.04618  elapsed=36218s
+
+[Update 136] steps=2001302  episodes=136  valid=134/134  pg=+0.1100  vf=0.0614  ev=+0.874  ret_std=0.6833  ent=0.4088  kl=0.0023  elapsed=36220s
+[Episode 137] start  SP_inst90001.rcp
+
+[Episode 137] Done  Instance=SP_inst90001.rcp  Reason=time_limit  Steps=21465  Nodes=21465  Best_Ms=61  Inc_Improves=5  Reward=-214.52  rwd_std=0.00058  elapsed=36280s
+
+[Update 137] steps=2022767  episodes=137  valid=21440/21465  pg=-0.0000  vf=1.3167  ev=+0.020  ret_std=1.1166  ent=0.9658  kl=0.0016  elapsed=36618s
+[Episode 138] start  VAR_inst493001.rcp
+
+[Episode 138] Done  Instance=VAR_inst493001.rcp  Reason=time_limit  Steps=23756  Nodes=23756  Best_Ms=158  Inc_Improves=0  Reward=-237.45  rwd_std=0.00074  elapsed=36678s
+
+[Update 138] steps=2046523  episodes=138  valid=23725/23756  pg=-0.0119  vf=0.5169  ev=+0.071  ret_std=0.7385  ent=0.2960  kl=0.0018  elapsed=37047s
+[Episode 139] start  RC_inst403001.rcp
+
+[Episode 139] Done  Instance=RC_inst403001.rcp  Reason=time_limit  Steps=27115  Nodes=27115  Best_Ms=145  Inc_Improves=2  Reward=-271.02  rwd_std=0.00073  elapsed=37107s
+
+[Update 139] steps=2073638  episodes=139  valid=27088/27115  pg=-0.0002  vf=0.3780  ev=+0.036  ret_std=0.6269  ent=0.2803  kl=0.0006  elapsed=37525s
+[Episode 140] start  VAR_inst45001.rcp
+
+[Episode 140] Done  Instance=VAR_inst45001.rcp  Reason=time_limit  Steps=18783  Nodes=18783  Best_Ms=38  Inc_Improves=1  Reward=-187.49  rwd_std=0.00176  elapsed=37585s
+
+[Update 140] steps=2092421  episodes=140  valid=18761/18783  pg=-0.0290  vf=0.7727  ev=-0.037  ret_std=0.8594  ent=2.1057  kl=0.0018  elapsed=37893s
+[Episode 141] start  SP_inst218001.rcp
+
+[Episode 141] Done  Instance=SP_inst218001.rcp  Reason=time_limit  Steps=22384  Nodes=22384  Best_Ms=104  Inc_Improves=1  Reward=-223.75  rwd_std=0.00060  elapsed=37953s
+
+[Update 141] steps=2114805  episodes=141  valid=22357/22384  pg=-0.0074  vf=0.4640  ev=+0.069  ret_std=0.7065  ent=0.8562  kl=0.0008  elapsed=38305s
+[Episode 142] start  LA_inst555001.rcp
+
+[Episode 142] Done  Instance=LA_inst555001.rcp  Reason=time_limit  Steps=27510  Nodes=27510  Best_Ms=141  Inc_Improves=1  Reward=-274.68  rwd_std=0.00190  elapsed=38365s
+
+[Update 142] steps=2142315  episodes=142  valid=27481/27510  pg=-0.0162  vf=0.1736  ev=+0.077  ret_std=0.4207  ent=0.2676  kl=0.0009  elapsed=38792s
+[Episode 143] start  RC_inst287001.rcp
+
+[Episode 143] Done  Instance=RC_inst287001.rcp  Reason=search_exhausted  Steps=32  Nodes=32  Best_Ms=142  Inc_Improves=0  Reward=-0.10  rwd_std=0.03870  elapsed=38792s
+
+[Update 143] steps=2142347  episodes=143  valid=32/32  pg=-0.0029  vf=0.1706  ev=-1.975  ret_std=0.0495  ent=0.2564  kl=0.0001  elapsed=38793s
+[Episode 144] start  AD_inst230001.rcp
+
+[Episode 144] Done  Instance=AD_inst230001.rcp  Reason=time_limit  Steps=26889  Nodes=26889  Best_Ms=132  Inc_Improves=5  Reward=-268.73  rwd_std=0.00085  elapsed=38853s
+
+[Update 144] steps=2169236  episodes=144  valid=26861/26889  pg=-0.0430  vf=0.2831  ev=+0.097  ret_std=0.5131  ent=0.3927  kl=0.0002  elapsed=39272s
+[Episode 145] start  AD_inst451001.rcp
+
+[Episode 145] Done  Instance=AD_inst451001.rcp  Reason=time_limit  Steps=24011  Nodes=24011  Best_Ms=171  Inc_Improves=0  Reward=-240.02  rwd_std=0.00060  elapsed=39333s
+
+[Update 145] steps=2193247  episodes=145  valid=23980/24011  pg=+0.0006  vf=1.0841  ev=+0.076  ret_std=1.0863  ent=0.2220  kl=0.0052  elapsed=39711s
+[Episode 146] start  SP_inst293001.rcp
+
+[Episode 146] Done  Instance=SP_inst293001.rcp  Reason=search_exhausted  Steps=2495  Nodes=2495  Best_Ms=102  Inc_Improves=5  Reward=-24.55  rwd_std=0.00520  elapsed=39718s
+
+[Update 146] steps=2195742  episodes=146  valid=2495/2495  pg=+0.0537  vf=0.6002  ev=-0.045  ret_std=0.6569  ent=1.3673  kl=0.0003  elapsed=39755s
+[Episode 147] start  RC_inst512001.rcp
+
+[Episode 147] Done  Instance=RC_inst512001.rcp  Reason=search_exhausted  Steps=26627  Nodes=26627  Best_Ms=166  Inc_Improves=0  Reward=-266.08  rwd_std=0.00117  elapsed=39811s
+
+[Update 147] steps=2222369  episodes=147  valid=26627/26627  pg=-0.0316  vf=0.3923  ev=+0.067  ret_std=0.6286  ent=0.1779  kl=0.0005  elapsed=40235s
+[Episode 148] start  LA_inst143001.rcp
+
+[Episode 148] Done  Instance=LA_inst143001.rcp  Reason=time_limit  Steps=21882  Nodes=21882  Best_Ms=93  Inc_Improves=5  Reward=-215.04  rwd_std=0.02265  elapsed=40295s
+
+[Update 148] steps=2244251  episodes=148  valid=21859/21882  pg=+0.0037  vf=0.9430  ev=+0.033  ret_std=0.9869  ent=1.0523  kl=0.0007  elapsed=40647s
+[Episode 149] start  LA_inst201001.rcp
+
+[Episode 149] Done  Instance=LA_inst201001.rcp  Reason=search_exhausted  Steps=1556  Nodes=1556  Best_Ms=97  Inc_Improves=9  Reward=-15.11  rwd_std=0.00516  elapsed=40651s
+
+[Update 149] steps=2245807  episodes=149  valid=1556/1556  pg=-0.0009  vf=0.0405  ev=+0.515  ret_std=0.2359  ent=0.3331  kl=0.0002  elapsed=40672s
+[Episode 150] start  SP_inst351001.rcp
+
+[Episode 150] Done  Instance=SP_inst351001.rcp  Reason=time_limit  Steps=21172  Nodes=21172  Best_Ms=65  Inc_Improves=3  Reward=-211.49  rwd_std=0.00113  elapsed=40732s
+
+[Update 150] steps=2266979  episodes=150  valid=21146/21172  pg=-0.0086  vf=0.9058  ev=+0.040  ret_std=0.9660  ent=1.2653  kl=0.0013  elapsed=41078s
+[Episode 151] start  VAR_inst498001.rcp
+
+[Episode 151] Done  Instance=VAR_inst498001.rcp  Reason=time_limit  Steps=22749  Nodes=22749  Best_Ms=130  Inc_Improves=0  Reward=-227.44  rwd_std=0.00032  elapsed=41138s
+
+[Update 151] steps=2289728  episodes=151  valid=22718/22749  pg=-0.0152  vf=1.5057  ev=+0.051  ret_std=1.2556  ent=0.1817  kl=0.0007  elapsed=41501s
+[Episode 152] start  SP_inst272001.rcp
+
+[Episode 152] Done  Instance=SP_inst272001.rcp  Reason=time_limit  Steps=19494  Nodes=19494  Best_Ms=73  Inc_Improves=5  Reward=-194.74  rwd_std=0.00093  elapsed=41561s
+
+[Update 152] steps=2309222  episodes=152  valid=19467/19494  pg=-0.0329  vf=0.4967  ev=+0.059  ret_std=0.7223  ent=1.2143  kl=0.0005  elapsed=41876s
+[Episode 153] start  TF_inst406001.rcp
+
+[Episode 153] Done  Instance=TF_inst406001.rcp  Reason=search_exhausted  Steps=1227  Nodes=1227  Best_Ms=84  Inc_Improves=1  Reward=-12.06  rwd_std=0.00571  elapsed=41879s
+
+[Update 153] steps=2310449  episodes=153  valid=1227/1227  pg=-0.0232  vf=0.0944  ev=+0.387  ret_std=0.3297  ent=0.9284  kl=0.0008  elapsed=41896s
+[Episode 154] start  TF_inst574001.rcp
+
+[Episode 154] Done  Instance=TF_inst574001.rcp  Reason=time_limit  Steps=25851  Nodes=25851  Best_Ms=149  Inc_Improves=1  Reward=-258.39  rwd_std=0.00072  elapsed=41956s
+
+[Update 154] steps=2336300  episodes=154  valid=25825/25851  pg=-0.0328  vf=0.4971  ev=+0.120  ret_std=0.7507  ent=0.4923  kl=0.0007  elapsed=42368s
+[Episode 155] start  LA_inst5001.rcp
+
+[Episode 155] Done  Instance=LA_inst5001.rcp  Reason=time_limit  Steps=17185  Nodes=17185  Best_Ms=49  Inc_Improves=2  Reward=-171.61  rwd_std=0.00158  elapsed=42429s
+
+[Update 155] steps=2353485  episodes=155  valid=17163/17185  pg=-0.0153  vf=1.5719  ev=+0.005  ret_std=1.2546  ent=2.1179  kl=0.0005  elapsed=42714s
+[Episode 156] start  VAR_inst55001.rcp
+
+[Episode 156] Done  Instance=VAR_inst55001.rcp  Reason=search_exhausted  Steps=42  Nodes=42  Best_Ms=85  Inc_Improves=0  Reward=-0.21  rwd_std=0.03231  elapsed=42715s
+
+[Update 156] steps=2353527  episodes=156  valid=42/42  pg=+0.0915  vf=0.0936  ev=+0.883  ret_std=0.7410  ent=0.6300  kl=0.0018  elapsed=42715s
+[Episode 157] start  RC_inst101001.rcp
+
+[Episode 157] Done  Instance=RC_inst101001.rcp  Reason=search_exhausted  Steps=83  Nodes=83  Best_Ms=145  Inc_Improves=1  Reward=-0.35  rwd_std=0.03694  elapsed=42716s
+
+[Update 157] steps=2353610  episodes=157  valid=83/83  pg=-0.0244  vf=0.1608  ev=+0.836  ret_std=0.8533  ent=0.4632  kl=0.0006  elapsed=42717s
+[Episode 158] start  SP_inst446001.rcp
+
+[Episode 158] Done  Instance=SP_inst446001.rcp  Reason=time_limit  Steps=26012  Nodes=26012  Best_Ms=159  Inc_Improves=1  Reward=-259.90  rwd_std=0.00100  elapsed=42777s
+
+[Update 158] steps=2379622  episodes=158  valid=25989/26012  pg=-0.0158  vf=1.5242  ev=+0.035  ret_std=1.2137  ent=0.4829  kl=0.0011  elapsed=43197s
+[Episode 159] start  AD_inst276001.rcp
+
+[Episode 159] Done  Instance=AD_inst276001.rcp  Reason=time_limit  Steps=21704  Nodes=21704  Best_Ms=68  Inc_Improves=4  Reward=-216.91  rwd_std=0.00082  elapsed=43257s
+
+[Update 159] steps=2401326  episodes=159  valid=21678/21704  pg=-0.0225  vf=1.0222  ev=+0.037  ret_std=1.0130  ent=1.1347  kl=0.0008  elapsed=43610s
+
+------------------------------------------------------------
+[Checkpoint] steps=2401326  solved=20.0%  gap=10.31%  nodes=3926
+[Checkpoint] saved  → models\stability_check_56\checkpoints\policy_ppo_step2401326.pt
+------------------------------------------------------------
+
+[Episode 160] start  SP_inst469001.rcp
+
+[Episode 160] Done  Instance=SP_inst469001.rcp  Reason=time_limit  Steps=25104  Nodes=25104  Best_Ms=130  Inc_Improves=0  Reward=-250.99  rwd_std=0.00030  elapsed=43760s
+
+[Update 160] steps=2426430  episodes=160  valid=25073/25104  pg=-0.0196  vf=0.8247  ev=+0.102  ret_std=0.9596  ent=0.2764  kl=0.0005  elapsed=44160s
+[Episode 161] start  VAR_inst9001.rcp
+
+[Episode 161] Done  Instance=VAR_inst9001.rcp  Reason=time_limit  Steps=19671  Nodes=19671  Best_Ms=33  Inc_Improves=0  Reward=-196.52  rwd_std=0.00135  elapsed=44221s
+
+[Update 161] steps=2446101  episodes=161  valid=19660/19671  pg=-0.0007  vf=0.8135  ev=-0.003  ret_std=0.9010  ent=1.6669  kl=0.0006  elapsed=44551s
+[Episode 162] start  RC_inst150001.rcp
+
+[Episode 162] Done  Instance=RC_inst150001.rcp  Reason=time_limit  Steps=23279  Nodes=23279  Best_Ms=81  Inc_Improves=1  Reward=-232.42  rwd_std=0.00203  elapsed=44611s
+
+[Update 162] steps=2469380  episodes=162  valid=23252/23279  pg=-0.0001  vf=0.4439  ev=+0.004  ret_std=0.6725  ent=0.7474  kl=0.0014  elapsed=44994s
+[Episode 163] start  TF_inst485001.rcp
+
+[Episode 163] Done  Instance=TF_inst485001.rcp  Reason=time_limit  Steps=23370  Nodes=23370  Best_Ms=137  Inc_Improves=2  Reward=-233.64  rwd_std=0.00035  elapsed=45054s
+
+[Update 163] steps=2492750  episodes=163  valid=23340/23370  pg=-0.0010  vf=1.1218  ev=+0.087  ret_std=1.1088  ent=0.3055  kl=0.0004  elapsed=45420s
+[Episode 164] start  VAR_inst127001.rcp
+
+[Episode 164] Done  Instance=VAR_inst127001.rcp  Reason=search_exhausted  Steps=714  Nodes=714  Best_Ms=92  Inc_Improves=4  Reward=-5.81  rwd_std=0.03833  elapsed=45422s
+
+[Update 164] steps=2493464  episodes=164  valid=714/714  pg=-0.0920  vf=0.0712  ev=+0.469  ret_std=0.3075  ent=0.7588  kl=0.0010  elapsed=45434s
+[Episode 165] start  VAR_inst206001.rcp
+
+[Episode 165] Done  Instance=VAR_inst206001.rcp  Reason=search_exhausted  Steps=523  Nodes=523  Best_Ms=146  Inc_Improves=4  Reward=-4.50  rwd_std=0.01663  elapsed=45435s
+
+[Update 165] steps=2493987  episodes=165  valid=523/523  pg=+0.0328  vf=0.0326  ev=+0.836  ret_std=0.4015  ent=0.5642  kl=0.0003  elapsed=45442s
+[Episode 166] start  RC_inst260001.rcp
+
+[Episode 166] Done  Instance=RC_inst260001.rcp  Reason=search_exhausted  Steps=546  Nodes=546  Best_Ms=152  Inc_Improves=3  Reward=-4.54  rwd_std=0.02227  elapsed=45443s
+
+[Update 166] steps=2494533  episodes=166  valid=546/546  pg=+0.0307  vf=0.0241  ev=+0.859  ret_std=0.3689  ent=0.4153  kl=0.0006  elapsed=45451s
+[Episode 167] start  SP_inst440001.rcp
+
+[Episode 167] Done  Instance=SP_inst440001.rcp  Reason=search_exhausted  Steps=945  Nodes=945  Best_Ms=146  Inc_Improves=1  Reward=-9.24  rwd_std=0.00619  elapsed=45453s
+
+[Update 167] steps=2495478  episodes=167  valid=945/945  pg=-0.0391  vf=0.2830  ev=-0.001  ret_std=0.5244  ent=0.3864  kl=0.0000  elapsed=45466s
+[Episode 168] start  TF_inst693001.rcp
+
+[Episode 168] Done  Instance=TF_inst693001.rcp  Reason=time_limit  Steps=25727  Nodes=25727  Best_Ms=174  Inc_Improves=0  Reward=-257.17  rwd_std=0.00065  elapsed=45526s
+
+[Update 168] steps=2521205  episodes=168  valid=25698/25727  pg=-0.0095  vf=1.0894  ev=+0.107  ret_std=1.0996  ent=0.3242  kl=0.0009  elapsed=45941s
+[Episode 169] start  TF_inst692001.rcp
+
+[Episode 169] Done  Instance=TF_inst692001.rcp  Reason=time_limit  Steps=26423  Nodes=26423  Best_Ms=179  Inc_Improves=0  Reward=-264.05  rwd_std=0.00112  elapsed=46001s
+
+[Update 169] steps=2547628  episodes=169  valid=26396/26423  pg=+0.0003  vf=0.4035  ev=+0.098  ret_std=0.6804  ent=0.3088  kl=0.0013  elapsed=46422s
+[Episode 170] start  RC_inst41001.rcp
+
+[Episode 170] Done  Instance=RC_inst41001.rcp  Reason=search_exhausted  Steps=32  Nodes=32  Best_Ms=142  Inc_Improves=0  Reward=-0.10  rwd_std=0.03870  elapsed=46423s
+
+[Update 170] steps=2547660  episodes=170  valid=32/32  pg=-0.0016  vf=0.0430  ev=-9.663  ret_std=0.0415  ent=0.1746  kl=0.0002  elapsed=46425s
+[Episode 171] start  AD_inst228001.rcp
+
+[Episode 171] Done  Instance=AD_inst228001.rcp  Reason=time_limit  Steps=22184  Nodes=22184  Best_Ms=140  Inc_Improves=3  Reward=-220.45  rwd_std=0.00656  elapsed=46485s
+
+[Update 171] steps=2569844  episodes=171  valid=22156/22184  pg=-0.0006  vf=0.9815  ev=+0.049  ret_std=1.0178  ent=0.6543  kl=0.0012  elapsed=46841s
+[Episode 172] start  SP_inst206001.rcp
+
+[Episode 172] Done  Instance=SP_inst206001.rcp  Reason=search_exhausted  Steps=282  Nodes=282  Best_Ms=134  Inc_Improves=2  Reward=-2.43  rwd_std=0.01438  elapsed=46842s
+
+[Update 172] steps=2570126  episodes=172  valid=282/282  pg=+0.0009  vf=0.0634  ev=+0.775  ret_std=0.5265  ent=0.5241  kl=0.0000  elapsed=46848s
+[Episode 173] start  LA_inst387001.rcp
+
+[Episode 173] Done  Instance=LA_inst387001.rcp  Reason=search_exhausted  Steps=32  Nodes=32  Best_Ms=85  Inc_Improves=0  Reward=-0.10  rwd_std=0.03870  elapsed=46848s
+
+[Update 173] steps=2570158  episodes=173  valid=32/32  pg=-0.0055  vf=0.3362  ev=-2.640  ret_std=0.0612  ent=0.4370  kl=0.0002  elapsed=46848s
+[Episode 174] start  AD_inst13001.rcp
+
+[Episode 174] Done  Instance=AD_inst13001.rcp  Reason=time_limit  Steps=20661  Nodes=20661  Best_Ms=44  Inc_Improves=0  Reward=-206.44  rwd_std=0.00116  elapsed=46909s
+
+[Update 174] steps=2590819  episodes=174  valid=20641/20661  pg=-0.0303  vf=2.1129  ev=+0.014  ret_std=1.4584  ent=1.7850  kl=0.0014  elapsed=47253s
+[Episode 175] start  TF_inst347001.rcp
+
+[Episode 175] Done  Instance=TF_inst347001.rcp  Reason=time_limit  Steps=23630  Nodes=23630  Best_Ms=105  Inc_Improves=6  Reward=-234.36  rwd_std=0.00732  elapsed=47313s
+
+[Update 175] steps=2614449  episodes=175  valid=23605/23630  pg=-0.0145  vf=1.3498  ev=+0.079  ret_std=1.2025  ent=0.7301  kl=0.0008  elapsed=47697s
+[Episode 176] start  VAR_inst320001.rcp
+
+[Episode 176] Done  Instance=VAR_inst320001.rcp  Reason=search_exhausted  Steps=26627  Nodes=26627  Best_Ms=166  Inc_Improves=0  Reward=-266.08  rwd_std=0.00117  elapsed=47757s
+
+[Update 176] steps=2641076  episodes=176  valid=26627/26627  pg=-0.0281  vf=0.3965  ev=+0.074  ret_std=0.6280  ent=0.2007  kl=0.0001  elapsed=48179s
+[Episode 177] start  RC_inst529001.rcp
+
+[Episode 177] Done  Instance=RC_inst529001.rcp  Reason=time_limit  Steps=26960  Nodes=26960  Best_Ms=158  Inc_Improves=0  Reward=-269.49  rwd_std=0.00069  elapsed=48239s
+
+[Update 177] steps=2668036  episodes=177  valid=26932/26960  pg=-0.0003  vf=0.4520  ev=+0.150  ret_std=0.7269  ent=0.2503  kl=0.0004  elapsed=48668s
+[Episode 178] start  RC_inst487001.rcp
+
+[Episode 178] Done  Instance=RC_inst487001.rcp  Reason=time_limit  Steps=26874  Nodes=26874  Best_Ms=158  Inc_Improves=0  Reward=-268.63  rwd_std=0.00070  elapsed=48729s
+
+[Update 178] steps=2694910  episodes=178  valid=26844/26874  pg=-0.0003  vf=0.4432  ev=+0.144  ret_std=0.7226  ent=0.2526  kl=0.0009  elapsed=49155s
+[Episode 179] start  AD_inst130001.rcp
+
+[Episode 179] Done  Instance=AD_inst130001.rcp  Reason=search_exhausted  Steps=3180  Nodes=3180  Best_Ms=112  Inc_Improves=5  Reward=-31.56  rwd_std=0.00305  elapsed=49162s
+
+[Update 179] steps=2698090  episodes=179  valid=3180/3180  pg=-0.0010  vf=0.0594  ev=+0.290  ret_std=0.2859  ent=0.5254  kl=0.0004  elapsed=49209s
+[Episode 180] start  LA_inst512001.rcp
+
+[Episode 180] Done  Instance=LA_inst512001.rcp  Reason=search_exhausted  Steps=6985  Nodes=6985  Best_Ms=173  Inc_Improves=1  Reward=-69.66  rwd_std=0.00211  elapsed=49224s
+
+[Update 180] steps=2705075  episodes=180  valid=6985/6985  pg=-0.0547  vf=0.2931  ev=+0.018  ret_std=0.5322  ent=0.3072  kl=0.0002  elapsed=49325s
+[Episode 181] start  VAR_inst337001.rcp
+
+[Episode 181] Done  Instance=VAR_inst337001.rcp  Reason=time_limit  Steps=25415  Nodes=25415  Best_Ms=158  Inc_Improves=0  Reward=-254.04  rwd_std=0.00072  elapsed=49385s
+
+[Update 181] steps=2730490  episodes=181  valid=25384/25415  pg=-0.0003  vf=0.5516  ev=+0.111  ret_std=0.7852  ent=0.2505  kl=0.0001  elapsed=49785s
+[Episode 182] start  LA_inst385001.rcp
+
+[Episode 182] Done  Instance=LA_inst385001.rcp  Reason=search_exhausted  Steps=93  Nodes=93  Best_Ms=132  Inc_Improves=1  Reward=-0.57  rwd_std=0.02655  elapsed=49786s
+
+[Update 182] steps=2730583  episodes=182  valid=93/93  pg=-0.0672  vf=0.1779  ev=+0.835  ret_std=0.8583  ent=0.2059  kl=0.0027  elapsed=49789s
+[Episode 183] start  TF_inst585001.rcp
+
+[Episode 183] Done  Instance=TF_inst585001.rcp  Reason=time_limit  Steps=24999  Nodes=24999  Best_Ms=153  Inc_Improves=1  Reward=-249.87  rwd_std=0.00073  elapsed=49849s
+
+[Update 183] steps=2755582  episodes=183  valid=24970/24999  pg=-0.0391  vf=0.6836  ev=+0.098  ret_std=0.7961  ent=0.6165  kl=0.0021  elapsed=50251s
+[Episode 184] start  RC_inst455001.rcp
+
+[Episode 184] Done  Instance=RC_inst455001.rcp  Reason=search_exhausted  Steps=26627  Nodes=26627  Best_Ms=166  Inc_Improves=0  Reward=-266.08  rwd_std=0.00117  elapsed=50307s
+
+[Update 184] steps=2782209  episodes=184  valid=26627/26627  pg=-0.0168  vf=0.3583  ev=+0.093  ret_std=0.6323  ent=0.1445  kl=0.0001  elapsed=50739s
+[Episode 185] start  LA_inst232001.rcp
+
+[Episode 185] Done  Instance=LA_inst232001.rcp  Reason=search_exhausted  Steps=20675  Nodes=20675  Best_Ms=117  Inc_Improves=7  Reward=-205.90  rwd_std=0.00375  elapsed=50786s
+
+[Update 185] steps=2802884  episodes=185  valid=20675/20675  pg=-0.0389  vf=0.1535  ev=+0.043  ret_std=0.3888  ent=0.7712  kl=0.0011  elapsed=51111s
+
+------------------------------------------------------------
+[Checkpoint] steps=2802884  solved=20.0%  gap=8.03%  nodes=3959
+[Checkpoint] saved  → models\stability_check_56\checkpoints\policy_ppo_step2802884.pt
+------------------------------------------------------------
+
+[Episode 186] start  LA_inst38001.rcp
+
+[Episode 186] Done  Instance=LA_inst38001.rcp  Reason=search_exhausted  Steps=38  Nodes=38  Best_Ms=144  Inc_Improves=1  Reward=+0.01  rwd_std=0.04371  elapsed=51202s
+
+[Update 186] steps=2802922  episodes=186  valid=38/38  pg=-0.0314  vf=0.0894  ev=+0.793  ret_std=0.6907  ent=0.3053  kl=0.0013  elapsed=51202s
+[Episode 187] start  SP_inst208001.rcp
+
+[Episode 187] Done  Instance=SP_inst208001.rcp  Reason=time_limit  Steps=24429  Nodes=24429  Best_Ms=85  Inc_Improves=2  Reward=-244.15  rwd_std=0.00061  elapsed=51262s
+
+[Update 187] steps=2827351  episodes=187  valid=24400/24429  pg=-0.0008  vf=0.9266  ev=+0.083  ret_std=1.0108  ent=0.5754  kl=0.0008  elapsed=51647s
+[Episode 188] start  VAR_inst522001.rcp
+
+[Episode 188] Done  Instance=VAR_inst522001.rcp  Reason=time_limit  Steps=22524  Nodes=22524  Best_Ms=130  Inc_Improves=0  Reward=-225.19  rwd_std=0.00032  elapsed=51708s
+
+[Update 188] steps=2849875  episodes=188  valid=22497/22524  pg=-0.0041  vf=0.6431  ev=+0.152  ret_std=0.8741  ent=0.2603  kl=0.0019  elapsed=52064s
+[Episode 189] start  RC_inst390001.rcp
+
+[Episode 189] Done  Instance=RC_inst390001.rcp  Reason=time_limit  Steps=25367  Nodes=25367  Best_Ms=117  Inc_Improves=1  Reward=-253.62  rwd_std=0.00033  elapsed=52124s
+
+[Update 189] steps=2875242  episodes=189  valid=25339/25367  pg=-0.0077  vf=0.8506  ev=+0.125  ret_std=0.9899  ent=0.3618  kl=0.0005  elapsed=52527s
+[Episode 190] start  LA_inst465001.rcp
+
+[Episode 190] Done  Instance=LA_inst465001.rcp  Reason=search_exhausted  Steps=213  Nodes=213  Best_Ms=92  Inc_Improves=2  Reward=-1.63  rwd_std=0.02130  elapsed=52528s
+
+[Update 190] steps=2875455  episodes=190  valid=213/213  pg=+0.1384  vf=0.0338  ev=+0.924  ret_std=0.5462  ent=0.6071  kl=0.0010  elapsed=52531s
+[Episode 191] start  LA_inst719001.rcp
+
+[Episode 191] Done  Instance=LA_inst719001.rcp  Reason=time_limit  Steps=24442  Nodes=24442  Best_Ms=166  Inc_Improves=0  Reward=-244.36  rwd_std=0.00040  elapsed=52591s
+
+[Update 191] steps=2899897  episodes=191  valid=24413/24442  pg=-0.1132  vf=0.4415  ev=+0.028  ret_std=0.9689  ent=0.2556  kl=0.0132  elapsed=52786s  [KL stop]
+[Episode 192] start  VAR_inst462001.rcp
+
+[Episode 192] Done  Instance=VAR_inst462001.rcp  Reason=time_limit  Steps=22585  Nodes=22585  Best_Ms=130  Inc_Improves=0  Reward=-225.80  rwd_std=0.00032  elapsed=52846s
+
+[Update 192] steps=2922482  episodes=192  valid=22556/22585  pg=+0.0004  vf=1.0234  ev=+0.128  ret_std=1.0758  ent=0.2768  kl=0.0010  elapsed=53200s
+[Episode 193] start  AD_inst365001.rcp
+
+[Episode 193] Done  Instance=AD_inst365001.rcp  Reason=time_limit  Steps=24336  Nodes=24336  Best_Ms=130  Inc_Improves=0  Reward=-243.30  rwd_std=0.00036  elapsed=53261s
+
+[Update 193] steps=2946818  episodes=193  valid=24308/24336  pg=+0.0002  vf=1.8447  ev=+0.098  ret_std=1.4333  ent=0.2857  kl=0.0014  elapsed=53637s
+[Episode 194] start  LA_inst137001.rcp
+
+[Episode 194] Done  Instance=LA_inst137001.rcp  Reason=time_limit  Steps=19533  Nodes=19533  Best_Ms=84  Inc_Improves=5  Reward=-194.54  rwd_std=0.00352  elapsed=53698s
+
+[Update 194] steps=2966351  episodes=194  valid=19515/19533  pg=-0.0206  vf=1.3751  ev=+0.103  ret_std=1.2350  ent=1.4677  kl=0.0013  elapsed=54019s
+[Episode 195] start  LA_inst521001.rcp
+
+[Episode 195] Done  Instance=LA_inst521001.rcp  Reason=time_limit  Steps=23490  Nodes=23490  Best_Ms=161  Inc_Improves=0  Reward=-234.84  rwd_std=0.00042  elapsed=54079s
+
+[Update 195] steps=2989841  episodes=195  valid=23460/23490  pg=+0.0006  vf=0.6787  ev=+0.192  ret_std=0.9202  ent=0.3047  kl=0.0015  elapsed=54447s
+[Episode 196] start  SP_inst283001.rcp
+
+[Episode 196] Done  Instance=SP_inst283001.rcp  Reason=search_exhausted  Steps=919  Nodes=919  Best_Ms=96  Inc_Improves=3  Reward=-8.97  rwd_std=0.00579  elapsed=54449s
+
+[Update 196] steps=2990760  episodes=196  valid=919/919  pg=+0.2323  vf=0.0842  ev=+0.517  ret_std=0.2842  ent=0.8480  kl=0.0014  elapsed=54464s
+[Episode 197] start  SP_inst60001.rcp
+
+[Episode 197] Done  Instance=SP_inst60001.rcp  Reason=search_exhausted  Steps=32  Nodes=32  Best_Ms=106  Inc_Improves=0  Reward=-0.10  rwd_std=0.03870  elapsed=54465s
+
+[Update 197] steps=2990792  episodes=197  valid=32/32  pg=-0.0029  vf=0.1548  ev=-0.981  ret_std=0.0553  ent=0.3253  kl=0.0006  elapsed=54465s
+[Episode 198] start  TF_inst234001.rcp
+
+[Episode 198] Done  Instance=TF_inst234001.rcp  Reason=time_limit  Steps=22693  Nodes=22693  Best_Ms=92  Inc_Improves=2  Reward=-226.72  rwd_std=0.00102  elapsed=54525s
+
+[Update 198] steps=3013485  episodes=198  valid=22673/22693  pg=-0.0136  vf=0.9163  ev=-0.073  ret_std=0.9289  ent=0.9476  kl=0.0029  elapsed=54891s
+[Episode 199] start  AD_inst255001.rcp
+
+[Episode 199] Done  Instance=AD_inst255001.rcp  Reason=search_exhausted  Steps=389  Nodes=389  Best_Ms=71  Inc_Improves=10  Reward=-2.75  rwd_std=0.02636  elapsed=54892s
+
+[Update 199] steps=3013874  episodes=199  valid=389/389  pg=-0.1012  vf=0.0866  ev=+0.580  ret_std=0.3952  ent=0.8647  kl=0.0011  elapsed=54898s
+[Episode 200] start  TF_inst633001.rcp
+
+[Episode 200] Done  Instance=TF_inst633001.rcp  Reason=time_limit  Steps=25412  Nodes=25412  Best_Ms=174  Inc_Improves=0  Reward=-254.02  rwd_std=0.00066  elapsed=54958s
+
+[Update 200] steps=3039286  episodes=200  valid=25381/25412  pg=-0.0067  vf=1.1060  ev=+0.163  ret_std=1.1524  ent=0.4179  kl=0.0011  elapsed=55362s
+[Episode 201] start  TF_inst3001.rcp
+
+[Episode 201] Done  Instance=TF_inst3001.rcp  Reason=search_exhausted  Steps=65  Nodes=65  Best_Ms=82  Inc_Improves=2  Reward=+0.40  rwd_std=0.08459  elapsed=55363s
+
+[Update 201] steps=3039351  episodes=201  valid=65/65  pg=+0.0677  vf=0.0325  ev=+0.953  ret_std=0.7800  ent=1.0915  kl=0.0028  elapsed=55364s
+[Episode 202] start  RU_inst128001.rcp
+
+[Episode 202] Done  Instance=RU_inst128001.rcp  Reason=search_exhausted  Steps=3466  Nodes=3466  Best_Ms=157  Inc_Improves=3  Reward=-34.35  rwd_std=0.00359  elapsed=55372s
+
+[Update 202] steps=3042817  episodes=202  valid=3466/3466  pg=+0.0163  vf=0.3282  ev=-0.187  ret_std=0.4120  ent=0.4524  kl=0.0007  elapsed=55421s
+[Episode 203] start  SP_inst144001.rcp
+
+[Episode 203] Done  Instance=SP_inst144001.rcp  Reason=time_limit  Steps=21030  Nodes=21030  Best_Ms=66  Inc_Improves=2  Reward=-210.22  rwd_std=0.00057  elapsed=55481s
+
+[Update 203] steps=3063847  episodes=203  valid=21005/21030  pg=-0.0309  vf=1.4475  ev=+0.045  ret_std=1.1524  ent=1.4212  kl=0.0064  elapsed=55822s
+[Episode 204] start  AD_inst115001.rcp
+
+[Episode 204] Done  Instance=AD_inst115001.rcp  Reason=time_limit  Steps=22541  Nodes=22541  Best_Ms=98  Inc_Improves=1  Reward=-225.25  rwd_std=0.00106  elapsed=55882s
+
+[Update 204] steps=3086388  episodes=204  valid=22514/22541  pg=-0.0008  vf=0.8948  ev=+0.039  ret_std=0.9018  ent=1.3598  kl=0.0009  elapsed=56253s
+[Episode 205] start  TF_inst577001.rcp
+
+[Episode 205] Done  Instance=TF_inst577001.rcp  Reason=time_limit  Steps=25132  Nodes=25132  Best_Ms=159  Inc_Improves=0  Reward=-251.13  rwd_std=0.00121  elapsed=56313s
+
+[Update 205] steps=3111520  episodes=205  valid=25102/25132  pg=-0.0596  vf=0.5651  ev=+0.111  ret_std=0.7921  ent=0.5805  kl=0.0007  elapsed=56717s
+[Episode 206] start  RC_inst503001.rcp
+
+[Episode 206] Done  Instance=RC_inst503001.rcp  Reason=search_exhausted  Steps=26627  Nodes=26627  Best_Ms=166  Inc_Improves=0  Reward=-266.08  rwd_std=0.00117  elapsed=56774s
+
+[Update 206] steps=3138147  episodes=206  valid=26627/26627  pg=-0.0033  vf=0.3483  ev=+0.129  ret_std=0.6341  ent=0.2005  kl=0.0000  elapsed=57198s
+[Episode 207] start  RC_inst474001.rcp
+
+[Episode 207] Done  Instance=RC_inst474001.rcp  Reason=time_limit  Steps=25344  Nodes=25344  Best_Ms=130  Inc_Improves=0  Reward=-253.39  rwd_std=0.00030  elapsed=57259s
+
+[Update 207] steps=3163491  episodes=207  valid=25313/25344  pg=-0.0172  vf=0.9524  ev=+0.099  ret_std=1.0504  ent=0.4331  kl=0.0019  elapsed=57667s
+[Episode 208] start  RU_inst249001.rcp
+
+[Episode 208] Done  Instance=RU_inst249001.rcp  Reason=time_limit  Steps=22876  Nodes=22876  Best_Ms=130  Inc_Improves=0  Reward=-228.71  rwd_std=0.00032  elapsed=57727s
+
+[Update 208] steps=3186367  episodes=208  valid=22845/22876  pg=+0.0140  vf=0.7723  ev=+0.170  ret_std=1.1027  ent=0.3889  kl=0.0046  elapsed=58004s  [KL stop]
+[Episode 209] start  TF_inst313001.rcp
+
+[Episode 209] Done  Instance=TF_inst313001.rcp  Reason=search_exhausted  Steps=7405  Nodes=7405  Best_Ms=145  Inc_Improves=3  Reward=-72.97  rwd_std=0.01042  elapsed=58023s
+
+[Update 209] steps=3193772  episodes=209  valid=7405/7405  pg=-0.0843  vf=0.1760  ev=+0.012  ret_std=0.3777  ent=1.1513  kl=0.0009  elapsed=58136s
+[Episode 210] start  AD_inst303001.rcp
+
+[Episode 210] Done  Instance=AD_inst303001.rcp  Reason=time_limit  Steps=21848  Nodes=21848  Best_Ms=77  Inc_Improves=12  Reward=-217.52  rwd_std=0.00239  elapsed=58196s
+
+[Update 210] steps=3215620  episodes=210  valid=21822/21848  pg=-0.0285  vf=0.5341  ev=+0.061  ret_std=0.7460  ent=1.4561  kl=0.0008  elapsed=58552s
+
+------------------------------------------------------------
+[Checkpoint] steps=3215620  solved=20.0%  gap=6.73%  nodes=4026
+[Checkpoint] saved  → models\stability_check_56\checkpoints\policy_ppo_step3215620.pt
+------------------------------------------------------------
+
+[Episode 211] start  LA_inst626001.rcp
+
+[Episode 211] Done  Instance=LA_inst626001.rcp  Reason=time_limit  Steps=27646  Nodes=27646  Best_Ms=183  Inc_Improves=0  Reward=-276.29  rwd_std=0.00105  elapsed=58704s
+
+[Update 211] steps=3243266  episodes=211  valid=27621/27646  pg=-0.0299  vf=0.1346  ev=+0.286  ret_std=0.3620  ent=0.3114  kl=0.0002  elapsed=59139s
+[Episode 212] start  VAR_inst87001.rcp
+
+[Episode 212] Done  Instance=VAR_inst87001.rcp  Reason=time_limit  Steps=19881  Nodes=19881  Best_Ms=41  Inc_Improves=2  Reward=-198.65  rwd_std=0.00093  elapsed=59200s
+
+[Update 212] steps=3263147  episodes=212  valid=19863/19881  pg=-0.0239  vf=1.1881  ev=+0.005  ret_std=1.0879  ent=1.7409  kl=0.0026  elapsed=59523s
+[Episode 213] start  TF_inst174001.rcp
+
+[Episode 213] Done  Instance=TF_inst174001.rcp  Reason=time_limit  Steps=22438  Nodes=22438  Best_Ms=83  Inc_Improves=3  Reward=-224.19  rwd_std=0.00086  elapsed=59583s
+
+[Update 213] steps=3285585  episodes=213  valid=22415/22438  pg=-0.0126  vf=1.1124  ev=+0.116  ret_std=1.0767  ent=1.0924  kl=0.0012  elapsed=59941s
+[Episode 214] start  AD_inst272001.rcp
+
+[Episode 214] Done  Instance=AD_inst272001.rcp  Reason=time_limit  Steps=22111  Nodes=22111  Best_Ms=75  Inc_Improves=2  Reward=-220.44  rwd_std=0.00276  elapsed=60002s
+
+[Update 214] steps=3307696  episodes=214  valid=22082/22111  pg=-0.0110  vf=1.2123  ev=+0.081  ret_std=1.1555  ent=0.9063  kl=0.0014  elapsed=60354s
+[Episode 215] start  TF_inst246001.rcp
+
+[Episode 215] Done  Instance=TF_inst246001.rcp  Reason=time_limit  Steps=24371  Nodes=24371  Best_Ms=117  Inc_Improves=2  Reward=-243.62  rwd_std=0.00050  elapsed=60414s
+
+[Update 215] steps=3332067  episodes=215  valid=24343/24371  pg=-0.0174  vf=0.5238  ev=+0.095  ret_std=0.7793  ent=0.6697  kl=0.0052  elapsed=60804s
+[Episode 216] start  VAR_inst305001.rcp
+
+[Episode 216] Done  Instance=VAR_inst305001.rcp  Reason=search_exhausted  Steps=26627  Nodes=26627  Best_Ms=166  Inc_Improves=0  Reward=-266.08  rwd_std=0.00117  elapsed=60864s
+
+[Update 216] steps=3358694  episodes=216  valid=26627/26627  pg=+0.1123  vf=0.6181  ev=+0.127  ret_std=0.6386  ent=0.2533  kl=0.0003  elapsed=61288s
+[Episode 217] start  RC_inst381001.rcp
+
+[Episode 217] Done  Instance=RC_inst381001.rcp  Reason=time_limit  Steps=23748  Nodes=23748  Best_Ms=102  Inc_Improves=2  Reward=-237.41  rwd_std=0.00039  elapsed=61349s
+
+[Update 217] steps=3382442  episodes=217  valid=23720/23748  pg=+0.0012  vf=0.6883  ev=+0.181  ret_std=0.9303  ent=0.4243  kl=0.0009  elapsed=61720s
+[Episode 218] start  TF_inst117001.rcp
+
+[Episode 218] Done  Instance=TF_inst117001.rcp  Reason=search_exhausted  Steps=32  Nodes=32  Best_Ms=82  Inc_Improves=0  Reward=-0.10  rwd_std=0.03870  elapsed=61721s
+
+[Update 218] steps=3382474  episodes=218  valid=32/32  pg=+0.0048  vf=0.9225  ev=-52.425  ret_std=0.0690  ent=0.2622  kl=0.0202  elapsed=61723s  [KL stop]
+[Episode 219] start  VAR_inst293001.rcp
+
+[Episode 219] Done  Instance=VAR_inst293001.rcp  Reason=search_exhausted  Steps=9115  Nodes=9115  Best_Ms=161  Inc_Improves=0  Reward=-90.95  rwd_std=0.00205  elapsed=61743s
+
+[Update 219] steps=3391589  episodes=219  valid=9115/9115  pg=-0.0437  vf=0.2013  ev=+0.183  ret_std=0.4702  ent=0.3901  kl=0.0001  elapsed=61880s
+[Episode 220] start  SP_inst36001.rcp
+
+[Episode 220] Done  Instance=SP_inst36001.rcp  Reason=time_limit  Steps=19041  Nodes=19041  Best_Ms=34  Inc_Improves=1  Reward=-190.08  rwd_std=0.00171  elapsed=61940s
+
+[Update 220] steps=3410630  episodes=220  valid=19012/19041  pg=-0.0005  vf=2.6462  ev=+0.043  ret_std=1.6618  ent=1.6113  kl=0.0013  elapsed=62251s
+[Episode 221] start  RC_inst493001.rcp
+
+[Episode 221] Done  Instance=RC_inst493001.rcp  Reason=time_limit  Steps=27068  Nodes=27068  Best_Ms=158  Inc_Improves=0  Reward=-270.57  rwd_std=0.00069  elapsed=62311s
+
+[Update 221] steps=3437698  episodes=221  valid=27039/27068  pg=+0.0026  vf=0.4336  ev=+0.184  ret_std=0.7387  ent=0.3505  kl=0.0009  elapsed=62740s
+[Episode 222] start  RC_inst14001.rcp
+
+[Episode 222] Done  Instance=RC_inst14001.rcp  Reason=search_exhausted  Steps=32  Nodes=32  Best_Ms=142  Inc_Improves=0  Reward=-0.10  rwd_std=0.03870  elapsed=62741s
+
+[Update 222] steps=3437730  episodes=222  valid=32/32  pg=+0.0003  vf=0.6956  ev=-147.233  ret_std=0.0440  ent=0.2139  kl=0.0000  elapsed=62741s
+[Episode 223] start  SP_inst121001.rcp
+
+[Episode 223] Done  Instance=SP_inst121001.rcp  Reason=search_exhausted  Steps=1386  Nodes=1386  Best_Ms=96  Inc_Improves=7  Reward=-12.10  rwd_std=0.02403  elapsed=62744s
+
+[Update 223] steps=3439116  episodes=223  valid=1386/1386  pg=+0.0504  vf=0.0893  ev=+0.085  ret_std=0.2989  ent=0.9216  kl=0.0003  elapsed=62765s
+[Episode 224] start  AD_inst79001.rcp
+
+[Episode 224] Done  Instance=AD_inst79001.rcp  Reason=search_exhausted  Steps=168  Nodes=168  Best_Ms=71  Inc_Improves=2  Reward=-1.36  rwd_std=0.01729  elapsed=62765s
+
+[Update 224] steps=3439284  episodes=224  valid=168/168  pg=-0.0016  vf=0.2203  ev=+0.728  ret_std=0.6947  ent=0.8470  kl=0.0005  elapsed=62768s
+[Episode 225] start  LA_inst157001.rcp
+
+[Episode 225] Done  Instance=LA_inst157001.rcp  Reason=search_exhausted  Steps=42  Nodes=42  Best_Ms=131  Inc_Improves=1  Reward=+0.05  rwd_std=0.04972  elapsed=62768s
+
+[Update 225] steps=3439326  episodes=225  valid=42/42  pg=-0.0866  vf=0.1374  ev=+0.766  ret_std=0.7917  ent=0.1554  kl=0.0004  elapsed=62768s
+[Episode 226] start  VAR_inst184001.rcp
+
+[Episode 226] Done  Instance=VAR_inst184001.rcp  Reason=search_exhausted  Steps=2992  Nodes=2992  Best_Ms=103  Inc_Improves=8  Reward=-26.37  rwd_std=0.03923  elapsed=62776s
+
+[Update 226] steps=3442318  episodes=226  valid=2992/2992  pg=+0.0000  vf=0.3104  ev=-0.064  ret_std=0.4285  ent=0.7388  kl=0.0001  elapsed=62818s
+[Episode 227] start  TF_inst245001.rcp
+
+[Episode 227] Done  Instance=TF_inst245001.rcp  Reason=time_limit  Steps=21960  Nodes=21960  Best_Ms=99  Inc_Improves=2  Reward=-219.42  rwd_std=0.00087  elapsed=62878s
+
+[Update 227] steps=3464278  episodes=227  valid=21935/21960  pg=-0.0019  vf=0.8603  ev=+0.134  ret_std=0.9949  ent=1.1683  kl=0.0020  elapsed=63228s
+[Episode 228] start  RC_inst50001.rcp
+
+[Episode 228] Done  Instance=RC_inst50001.rcp  Reason=search_exhausted  Steps=32  Nodes=32  Best_Ms=142  Inc_Improves=0  Reward=-0.10  rwd_std=0.03870  elapsed=63228s
+
+[Update 228] steps=3464310  episodes=228  valid=32/32  pg=-0.0013  vf=0.0048  ev=-2.182  ret_std=0.0402  ent=0.1728  kl=0.0001  elapsed=63229s
+[Episode 229] start  LA_inst704001.rcp
+
+[Episode 229] Done  Instance=LA_inst704001.rcp  Reason=time_limit  Steps=27848  Nodes=27848  Best_Ms=183  Inc_Improves=0  Reward=-278.31  rwd_std=0.00105  elapsed=63289s
+
+[Update 229] steps=3492158  episodes=229  valid=27821/27848  pg=+0.0001  vf=0.0973  ev=+0.253  ret_std=0.3618  ent=0.2419  kl=0.0001  elapsed=63731s
+[Episode 230] start  VAR_inst271001.rcp
+
+[Episode 230] Done  Instance=VAR_inst271001.rcp  Reason=time_limit  Steps=25337  Nodes=25337  Best_Ms=158  Inc_Improves=0  Reward=-253.26  rwd_std=0.00072  elapsed=63792s
+
+[Update 230] steps=3517495  episodes=230  valid=25307/25337  pg=-0.0123  vf=0.5620  ev=+0.078  ret_std=0.7788  ent=0.3253  kl=0.0001  elapsed=64192s
+[Episode 231] start  RC_inst159001.rcp
+
+[Episode 231] Done  Instance=RC_inst159001.rcp  Reason=time_limit  Steps=21619  Nodes=21619  Best_Ms=73  Inc_Improves=4  Reward=-216.02  rwd_std=0.00063  elapsed=64252s
+
+[Update 231] steps=3539114  episodes=231  valid=21600/21619  pg=+0.0033  vf=1.5009  ev=+0.016  ret_std=1.2078  ent=1.0573  kl=0.0049  elapsed=64596s
+[Episode 232] start  LA_inst408001.rcp
+
+[Episode 232] Done  Instance=LA_inst408001.rcp  Reason=time_limit  Steps=22383  Nodes=22383  Best_Ms=73  Inc_Improves=4  Reward=-223.48  rwd_std=0.00143  elapsed=64657s
+
+[Update 232] steps=3561497  episodes=232  valid=22353/22383  pg=-0.0196  vf=1.3185  ev=+0.082  ret_std=1.1766  ent=0.9849  kl=0.0007  elapsed=65015s
+[Episode 233] start  TF_inst242001.rcp
+
+[Episode 233] Done  Instance=TF_inst242001.rcp  Reason=search_exhausted  Steps=2712  Nodes=2712  Best_Ms=156  Inc_Improves=4  Reward=-26.03  rwd_std=0.01434  elapsed=65022s
+
+[Update 233] steps=3564209  episodes=233  valid=2712/2712  pg=-0.0007  vf=0.0303  ev=+0.522  ret_std=0.2400  ent=0.4289  kl=0.0002  elapsed=65058s
+[Episode 234] start  SP_inst143001.rcp
+
+[Episode 234] Done  Instance=SP_inst143001.rcp  Reason=search_exhausted  Steps=290  Nodes=290  Best_Ms=134  Inc_Improves=2  Reward=-2.49  rwd_std=0.01552  elapsed=65059s
+
+[Update 234] steps=3564499  episodes=234  valid=290/290  pg=-0.0739  vf=0.0716  ev=+0.768  ret_std=0.5294  ent=0.5585  kl=0.0001  elapsed=65063s
+[Episode 235] start  VAR_inst118001.rcp
+
+[Episode 235] Done  Instance=VAR_inst118001.rcp  Reason=search_exhausted  Steps=101  Nodes=101  Best_Ms=88  Inc_Improves=1  Reward=-0.66  rwd_std=0.02447  elapsed=65063s
+
+[Update 235] steps=3564600  episodes=235  valid=101/101  pg=-0.1488  vf=0.0768  ev=+0.901  ret_std=0.7258  ent=0.6932  kl=0.0034  elapsed=65065s
+[Episode 236] start  RC_inst187001.rcp
+
+[Episode 236] Done  Instance=RC_inst187001.rcp  Reason=time_limit  Steps=26593  Nodes=26593  Best_Ms=122  Inc_Improves=4  Reward=-265.69  rwd_std=0.00092  elapsed=65125s
+
+[Update 236] steps=3591193  episodes=236  valid=26572/26593  pg=+0.0004  vf=0.5656  ev=+0.028  ret_std=0.7572  ent=0.5696  kl=0.0008  elapsed=65540s
+[Episode 237] start  LA_inst328001.rcp
+
+[Episode 237] Done  Instance=LA_inst328001.rcp  Reason=time_limit  Steps=27615  Nodes=27615  Best_Ms=150  Inc_Improves=0  Reward=-276.01  rwd_std=0.00086  elapsed=65601s
+
+[Update 237] steps=3618808  episodes=237  valid=27587/27615  pg=-0.0104  vf=0.4170  ev=+0.079  ret_std=0.6749  ent=0.4780  kl=0.0004  elapsed=66044s
+
+------------------------------------------------------------
+[Checkpoint] steps=3618808  solved=40.0%  gap=3.89%  nodes=3716  [best]
+[Checkpoint] saved  → models\stability_check_56\checkpoints\policy_ppo_step3618808.pt
+[Checkpoint] best   → models\stability_check_56\policy_ppo_best.pt  (gap=3.89%)
+------------------------------------------------------------
+
+[Episode 238] start  TF_inst359001.rcp
+
+[Episode 238] Done  Instance=TF_inst359001.rcp  Reason=time_limit  Steps=23434  Nodes=23434  Best_Ms=92  Inc_Improves=1  Reward=-234.24  rwd_std=0.00055  elapsed=66189s
+
+[Update 238] steps=3642242  episodes=238  valid=23405/23434  pg=-0.0795  vf=0.9734  ev=+0.040  ret_std=1.0435  ent=0.8813  kl=0.0082  elapsed=66561s
+[Episode 239] start  RC_inst426001.rcp
+
+[Episode 239] Done  Instance=RC_inst426001.rcp  Reason=time_limit  Steps=25007  Nodes=25007  Best_Ms=122  Inc_Improves=0  Reward=-250.02  rwd_std=0.00032  elapsed=66622s
+
+[Update 239] steps=3667249  episodes=239  valid=24976/25007  pg=+0.0032  vf=1.1959  ev=+0.154  ret_std=1.2142  ent=0.3502  kl=0.0023  elapsed=67009s
+[Episode 240] start  TF_inst424001.rcp
+
+[Episode 240] Done  Instance=TF_inst424001.rcp  Reason=search_exhausted  Steps=5945  Nodes=5945  Best_Ms=87  Inc_Improves=5  Reward=-58.95  rwd_std=0.00354  elapsed=67024s
+
+[Update 240] steps=3673194  episodes=240  valid=5945/5945  pg=-0.0573  vf=0.1459  ev=+0.210  ret_std=0.4223  ent=0.9565  kl=0.0007  elapsed=67111s
+[Episode 241] start  SP_inst437001.rcp
+
+[Episode 241] Done  Instance=SP_inst437001.rcp  Reason=time_limit  Steps=24853  Nodes=24853  Best_Ms=154  Inc_Improves=1  Reward=-248.39  rwd_std=0.00091  elapsed=67171s
+
+[Update 241] steps=3698047  episodes=241  valid=24833/24853  pg=+0.0228  vf=0.4655  ev=+0.161  ret_std=0.7512  ent=0.8714  kl=0.0020  elapsed=67563s
+[Episode 242] start  AD_inst1.rcp
+
+[Episode 242] Done  Instance=AD_inst1.rcp  Reason=search_exhausted  Steps=7869  Nodes=7869  Best_Ms=46  Inc_Improves=2  Reward=-78.36  rwd_std=0.00264  elapsed=67587s
+
+[Update 242] steps=3705916  episodes=242  valid=7869/7869  pg=+0.3789  vf=3.8063  ev=+0.131  ret_std=1.0707  ent=1.7503  kl=0.0017  elapsed=67707s
+[Episode 243] start  LA_inst553001.rcp
+
+[Episode 243] Done  Instance=LA_inst553001.rcp  Reason=search_exhausted  Steps=182  Nodes=182  Best_Ms=142  Inc_Improves=0  Reward=-1.62  rwd_std=0.01482  elapsed=67707s
+
+[Update 243] steps=3706098  episodes=243  valid=182/182  pg=-0.1362  vf=0.0688  ev=+0.850  ret_std=0.6614  ent=0.1796  kl=0.0002  elapsed=67710s
+[Episode 244] start  RC_inst153001.rcp
+
+[Episode 244] Done  Instance=RC_inst153001.rcp  Reason=time_limit  Steps=22942  Nodes=22942  Best_Ms=71  Inc_Improves=3  Reward=-228.71  rwd_std=0.00295  elapsed=67770s
+
+[Update 244] steps=3729040  episodes=244  valid=22911/22942  pg=+0.0069  vf=1.2993  ev=+0.116  ret_std=1.2021  ent=1.1305  kl=0.0008  elapsed=68138s
+[Episode 245] start  TF_inst551001.rcp
+
+[Episode 245] Done  Instance=TF_inst551001.rcp  Reason=time_limit  Steps=23593  Nodes=23593  Best_Ms=138  Inc_Improves=2  Reward=-235.87  rwd_std=0.00036  elapsed=68198s
+
+[Update 245] steps=3752633  episodes=245  valid=23566/23593  pg=-0.0232  vf=2.2975  ev=+0.140  ret_std=1.6394  ent=0.4801  kl=0.0016  elapsed=68569s
+[Episode 246] start  TF_inst398001.rcp
+
+[Episode 246] Done  Instance=TF_inst398001.rcp  Reason=search_exhausted  Steps=103  Nodes=103  Best_Ms=146  Inc_Improves=3  Reward=-0.15  rwd_std=0.05187  elapsed=68570s
+
+[Update 246] steps=3752736  episodes=246  valid=103/103  pg=-0.0448  vf=0.0883  ev=+0.916  ret_std=0.8378  ent=0.2789  kl=0.0010  elapsed=68571s
+[Episode 247] start  RU_inst53001.rcp
+
+[Episode 247] Done  Instance=RU_inst53001.rcp  Reason=search_exhausted  Steps=32  Nodes=32  Best_Ms=142  Inc_Improves=0  Reward=-0.10  rwd_std=0.03870  elapsed=68571s
+
+[Update 247] steps=3752768  episodes=247  valid=32/32  pg=-0.0030  vf=0.1010  ev=-0.261  ret_std=0.0464  ent=0.2466  kl=0.0002  elapsed=68572s
+[Episode 248] start  SP_inst24001.rcp
+
+[Episode 248] Done  Instance=SP_inst24001.rcp  Reason=search_exhausted  Steps=32  Nodes=32  Best_Ms=106  Inc_Improves=0  Reward=-0.10  rwd_std=0.03870  elapsed=68572s
+
+[Update 248] steps=3752800  episodes=248  valid=32/32  pg=-0.0166  vf=0.0204  ev=-5.655  ret_std=0.0446  ent=0.1703  kl=0.0005  elapsed=68572s
+[Episode 249] start  SP_inst241001.rcp
+
+[Episode 249] Done  Instance=SP_inst241001.rcp  Reason=search_exhausted  Steps=1532  Nodes=1532  Best_Ms=157  Inc_Improves=1  Reward=-15.04  rwd_std=0.00534  elapsed=68575s
+
+[Update 249] steps=3754332  episodes=249  valid=1532/1532  pg=-0.0000  vf=0.1660  ev=+0.467  ret_std=0.2695  ent=0.2906  kl=0.0002  elapsed=68596s
+[Episode 250] start  SP_inst426001.rcp
+
+[Episode 250] Done  Instance=SP_inst426001.rcp  Reason=time_limit  Steps=24108  Nodes=24108  Best_Ms=145  Inc_Improves=0  Reward=-240.97  rwd_std=0.00068  elapsed=68656s
+
+[Update 250] steps=3778440  episodes=250  valid=24081/24108  pg=-0.0080  vf=1.4452  ev=+0.099  ret_std=1.2705  ent=0.6127  kl=0.0005  elapsed=69036s
+[Episode 251] start  TF_inst417001.rcp
+
+[Episode 251] Done  Instance=TF_inst417001.rcp  Reason=time_limit  Steps=22274  Nodes=22274  Best_Ms=88  Inc_Improves=10  Reward=-222.06  rwd_std=0.00246  elapsed=69096s
+
+[Update 251] steps=3800714  episodes=251  valid=22251/22274  pg=-0.0179  vf=0.8654  ev=+0.100  ret_std=0.9879  ent=1.2838  kl=0.0033  elapsed=69454s
+[Episode 252] start  TF_inst421001.rcp
+
+[Episode 252] Done  Instance=TF_inst421001.rcp  Reason=search_exhausted  Steps=32  Nodes=32  Best_Ms=137  Inc_Improves=0  Reward=-0.10  rwd_std=0.03870  elapsed=69454s
+
+[Update 252] steps=3800746  episodes=252  valid=32/32  pg=+0.0004  vf=0.2719  ev=-12.583  ret_std=0.0415  ent=0.1202  kl=0.0000  elapsed=69454s
+[Episode 253] start  LA_inst268001.rcp
+
+[Episode 253] Done  Instance=LA_inst268001.rcp  Reason=time_limit  Steps=26068  Nodes=26068  Best_Ms=126  Inc_Improves=4  Reward=-260.49  rwd_std=0.00098  elapsed=69514s
+
+[Update 253] steps=3826814  episodes=253  valid=26052/26068  pg=+0.0001  vf=0.4608  ev=+0.078  ret_std=0.6534  ent=0.6535  kl=0.0001  elapsed=69926s
+[Episode 254] start  LA_inst141001.rcp
+
+[Episode 254] Done  Instance=LA_inst141001.rcp  Reason=search_exhausted  Steps=69  Nodes=69  Best_Ms=101  Inc_Improves=0  Reward=-0.50  rwd_std=0.02237  elapsed=69926s
+
+[Update 254] steps=3826883  episodes=254  valid=69/69  pg=+0.0856  vf=0.0482  ev=+0.918  ret_std=0.7782  ent=0.5266  kl=0.0012  elapsed=69930s
+[Episode 255] start  LA_inst426001.rcp
+
+[Episode 255] Done  Instance=LA_inst426001.rcp  Reason=time_limit  Steps=21578  Nodes=21578  Best_Ms=76  Inc_Improves=2  Reward=-215.65  rwd_std=0.00084  elapsed=69990s
+
+[Update 255] steps=3848461  episodes=255  valid=21552/21578  pg=-0.0000  vf=1.3474  ev=+0.114  ret_std=1.2023  ent=0.8236  kl=0.0006  elapsed=70331s
+[Episode 256] start  TF_inst53001.rcp
+
+[Episode 256] Done  Instance=TF_inst53001.rcp  Reason=time_limit  Steps=19787  Nodes=19787  Best_Ms=45  Inc_Improves=0  Reward=-197.70  rwd_std=0.00123  elapsed=70391s
+
+[Update 256] steps=3868248  episodes=256  valid=19766/19787  pg=-0.0143  vf=1.1987  ev=-0.429  ret_std=1.1687  ent=0.9734  kl=0.0163  elapsed=70555s  [KL stop]
+[Episode 257] start  LA_inst114001.rcp
+
+[Episode 257] Done  Instance=LA_inst114001.rcp  Reason=search_exhausted  Steps=3378  Nodes=3378  Best_Ms=46  Inc_Improves=2  Reward=-33.56  rwd_std=0.00352  elapsed=70565s
+
+[Update 257] steps=3871626  episodes=257  valid=3378/3378  pg=-0.0510  vf=0.4075  ev=+0.002  ret_std=0.6314  ent=1.6358  kl=0.0030  elapsed=70613s
+[Episode 258] start  LA_inst716001.rcp
+
+[Episode 258] Done  Instance=LA_inst716001.rcp  Reason=time_limit  Steps=27640  Nodes=27640  Best_Ms=183  Inc_Improves=0  Reward=-276.23  rwd_std=0.00105  elapsed=70673s
+
+[Update 258] steps=3899266  episodes=258  valid=27613/27640  pg=+0.0052  vf=0.1808  ev=+0.125  ret_std=0.4547  ent=0.3480  kl=0.0012  elapsed=71108s
+[Episode 259] start  RC_inst499001.rcp
+
+[Episode 259] Done  Instance=RC_inst499001.rcp  Reason=time_limit  Steps=26808  Nodes=26808  Best_Ms=158  Inc_Improves=0  Reward=-267.97  rwd_std=0.00070  elapsed=71168s
+
+[Update 259] steps=3926074  episodes=259  valid=26777/26808  pg=-0.0010  vf=0.3929  ev=+0.285  ret_std=0.7426  ent=0.2941  kl=0.0001  elapsed=71593s
+[Episode 260] start  LA_inst433001.rcp
+
+[Episode 260] Done  Instance=LA_inst433001.rcp  Reason=search_exhausted  Steps=50  Nodes=50  Best_Ms=133  Inc_Improves=0  Reward=-0.29  rwd_std=0.02996  elapsed=71593s
+
+[Update 260] steps=3926124  episodes=260  valid=50/50  pg=+0.0731  vf=2.1172  ev=+0.591  ret_std=0.8988  ent=0.2033  kl=0.0000  elapsed=71594s
+[Episode 261] start  VAR_inst410001.rcp
+
+[Episode 261] Done  Instance=VAR_inst410001.rcp  Reason=search_exhausted  Steps=7481  Nodes=7481  Best_Ms=160  Inc_Improves=2  Reward=-74.48  rwd_std=0.00272  elapsed=71612s
+
+[Update 261] steps=3933605  episodes=261  valid=7481/7481  pg=-0.0237  vf=0.4222  ev=+0.162  ret_std=0.4970  ent=0.3288  kl=0.0003  elapsed=71720s
+[Episode 262] start  RU_inst252001.rcp
+
+[Episode 262] Done  Instance=RU_inst252001.rcp  Reason=time_limit  Steps=22580  Nodes=22580  Best_Ms=130  Inc_Improves=0  Reward=-225.75  rwd_std=0.00032  elapsed=71780s
+
+[Update 262] steps=3956185  episodes=262  valid=22549/22580  pg=+0.0103  vf=0.7612  ev=+0.255  ret_std=1.0142  ent=0.4872  kl=0.0004  elapsed=72134s
+[Episode 263] start  SP_inst286001.rcp
+
+[Episode 263] Done  Instance=SP_inst286001.rcp  Reason=search_exhausted  Steps=32  Nodes=32  Best_Ms=142  Inc_Improves=0  Reward=-0.10  rwd_std=0.03870  elapsed=72135s
+
+[Update 263] steps=3956217  episodes=263  valid=32/32  pg=-0.0004  vf=0.2021  ev=-15.205  ret_std=0.0421  ent=0.1910  kl=0.0000  elapsed=72135s
+[Episode 264] start  SP_inst354001.rcp
+
+[Episode 264] Done  Instance=SP_inst354001.rcp  Reason=time_limit  Steps=23458  Nodes=23458  Best_Ms=84  Inc_Improves=3  Reward=-233.96  rwd_std=0.00244  elapsed=72195s
+
+[Update 264] steps=3979675  episodes=264  valid=23435/23458  pg=-0.0203  vf=0.8568  ev=+0.076  ret_std=0.8012  ent=1.1398  kl=0.0001  elapsed=72571s
+[Episode 265] start  SP_inst383001.rcp
+
+[Episode 265] Done  Instance=SP_inst383001.rcp  Reason=time_limit  Steps=26312  Nodes=26312  Best_Ms=156  Inc_Improves=2  Reward=-262.95  rwd_std=0.00088  elapsed=72631s
+
+[Update 265] steps=4005987  episodes=265  valid=26283/26312  pg=-0.0200  vf=0.4924  ev=+0.172  ret_std=0.7708  ent=0.4540  kl=0.0009  elapsed=73055s
+
+------------------------------------------------------------
+[Checkpoint] steps=4005987  solved=40.0%  gap=4.62%  nodes=3822
+[Checkpoint] saved  → models\stability_check_56\checkpoints\policy_ppo_step4005987.pt
+------------------------------------------------------------
+
+[Episode 266] start  SP_inst515001.rcp
+
+[Episode 266] Done  Instance=SP_inst515001.rcp  Reason=time_limit  Steps=22326  Nodes=22326  Best_Ms=174  Inc_Improves=0  Reward=-223.20  rwd_std=0.00038  elapsed=73206s
+
+[Update 266] steps=4028313  episodes=266  valid=22295/22326  pg=+0.0266  vf=1.0667  ev=-0.336  ret_std=1.0576  ent=0.3993  kl=0.0053  elapsed=73563s
+[Episode 267] start  TF_inst355001.rcp
+
+[Episode 267] Done  Instance=TF_inst355001.rcp  Reason=time_limit  Steps=24787  Nodes=24787  Best_Ms=141  Inc_Improves=7  Reward=-247.04  rwd_std=0.00302  elapsed=73623s
+
+[Update 267] steps=4053100  episodes=267  valid=24760/24787  pg=-0.0000  vf=0.3478  ev=+0.095  ret_std=0.6211  ent=0.8270  kl=0.0009  elapsed=74019s
+[Episode 268] start  SP_inst270001.rcp
+
+[Episode 268] Done  Instance=SP_inst270001.rcp  Reason=time_limit  Steps=21471  Nodes=21471  Best_Ms=52  Inc_Improves=2  Reward=-214.59  rwd_std=0.00074  elapsed=74079s
+
+[Update 268] steps=4074571  episodes=268  valid=21444/21471  pg=-0.0011  vf=1.0399  ev=+0.090  ret_std=1.0749  ent=0.9184  kl=0.0003  elapsed=74419s
+[Episode 269] start  AD_inst75001.rcp
+
+[Episode 269] Done  Instance=AD_inst75001.rcp  Reason=search_exhausted  Steps=127  Nodes=127  Best_Ms=71  Inc_Improves=3  Reward=-0.82  rwd_std=0.02220  elapsed=74420s
+
+[Update 269] steps=4074698  episodes=269  valid=127/127  pg=+0.0046  vf=0.4973  ev=-0.791  ret_std=0.7065  ent=0.4479  kl=0.0085  elapsed=74423s  [KL stop]
+[Episode 270] start  AD_inst44001.rcp
+
+[Episode 270] Done  Instance=AD_inst44001.rcp  Reason=search_exhausted  Steps=1589  Nodes=1589  Best_Ms=47  Inc_Improves=3  Reward=-15.38  rwd_std=0.00753  elapsed=74427s
+
+[Update 270] steps=4076287  episodes=270  valid=1589/1589  pg=+0.0137  vf=0.5667  ev=-0.219  ret_std=0.6970  ent=1.4753  kl=0.0036  elapsed=74450s
+[Episode 271] start  LA_inst168001.rcp
+
+[Episode 271] Done  Instance=LA_inst168001.rcp  Reason=time_limit  Steps=21696  Nodes=21696  Best_Ms=80  Inc_Improves=1  Reward=-216.84  rwd_std=0.00081  elapsed=74510s
+
+[Update 271] steps=4097983  episodes=271  valid=21672/21696  pg=+0.0007  vf=1.2315  ev=+0.051  ret_std=1.1170  ent=0.9614  kl=0.0012  elapsed=74855s
+[Episode 272] start  RC_inst244001.rcp
+
+[Episode 272] Done  Instance=RC_inst244001.rcp  Reason=time_limit  Steps=27945  Nodes=27945  Best_Ms=136  Inc_Improves=4  Reward=-279.17  rwd_std=0.00118  elapsed=74915s
+
+[Update 272] steps=4125928  episodes=272  valid=27919/27945  pg=-0.0175  vf=0.5176  ev=+0.046  ret_std=0.7356  ent=0.4303  kl=0.0001  elapsed=75365s
+[Episode 273] start  TF_inst648001.rcp
+
+[Episode 273] Done  Instance=TF_inst648001.rcp  Reason=time_limit  Steps=24006  Nodes=24006  Best_Ms=178  Inc_Improves=0  Reward=-240.01  rwd_std=0.00034  elapsed=75425s
+
+[Update 273] steps=4149934  episodes=273  valid=23975/24006  pg=-0.0062  vf=1.4501  ev=+0.189  ret_std=1.3279  ent=0.3794  kl=0.0003  elapsed=75809s
+[Episode 274] start  SP_inst179001.rcp
+
+[Episode 274] Done  Instance=SP_inst179001.rcp  Reason=search_exhausted  Steps=98  Nodes=98  Best_Ms=126  Inc_Improves=3  Reward=-0.27  rwd_std=0.03577  elapsed=75810s
+
+[Update 274] steps=4150032  episodes=274  valid=98/98  pg=+0.1232  vf=0.0735  ev=+0.916  ret_std=0.8265  ent=0.1393  kl=0.0000  elapsed=75811s
+[Episode 275] start  VAR_inst536001.rcp
+
+[Episode 275] Done  Instance=VAR_inst536001.rcp  Reason=time_limit  Steps=24965  Nodes=24965  Best_Ms=166  Inc_Improves=0  Reward=-249.46  rwd_std=0.00120  elapsed=75871s
+
+[Update 275] steps=4174997  episodes=275  valid=24938/24965  pg=+0.1422  vf=0.5164  ev=+0.174  ret_std=0.5516  ent=0.2353  kl=0.0004  elapsed=76271s
+[Episode 276] start  RU_inst182001.rcp
+
+[Episode 276] Done  Instance=RU_inst182001.rcp  Reason=search_exhausted  Steps=656  Nodes=656  Best_Ms=146  Inc_Improves=3  Reward=-5.91  rwd_std=0.01277  elapsed=76273s
+
+[Update 276] steps=4175653  episodes=276  valid=656/656  pg=-0.0007  vf=0.0257  ev=+0.810  ret_std=0.3594  ent=0.4474  kl=0.0002  elapsed=76282s
+[Episode 277] start  LA_inst425001.rcp
+
+[Episode 277] Done  Instance=LA_inst425001.rcp  Reason=time_limit  Steps=21959  Nodes=21959  Best_Ms=81  Inc_Improves=0  Reward=-219.46  rwd_std=0.00087  elapsed=76342s
+
+[Update 277] steps=4197612  episodes=277  valid=21935/21959  pg=-0.0073  vf=0.4454  ev=+0.131  ret_std=0.7065  ent=1.0059  kl=0.0007  elapsed=76694s
+[Episode 278] start  VAR_inst62001.rcp
+
+[Episode 278] Done  Instance=VAR_inst62001.rcp  Reason=search_exhausted  Steps=51  Nodes=51  Best_Ms=142  Inc_Improves=1  Reward=-0.19  rwd_std=0.03346  elapsed=76695s
+
+[Update 278] steps=4197663  episodes=278  valid=51/51  pg=-0.0161  vf=0.1173  ev=+0.899  ret_std=0.9412  ent=0.2317  kl=0.0001  elapsed=76696s
+[Episode 279] start  TF_inst104001.rcp
+
+[Episode 279] Done  Instance=TF_inst104001.rcp  Reason=search_exhausted  Steps=32  Nodes=32  Best_Ms=146  Inc_Improves=0  Reward=-0.10  rwd_std=0.03870  elapsed=76696s
+
+[Update 279] steps=4197695  episodes=279  valid=32/32  pg=-0.0034  vf=0.0010  ev=+0.355  ret_std=0.0432  ent=0.1781  kl=0.0004  elapsed=76696s
+[Episode 280] start  RU_inst159001.rcp
+
+[Episode 280] Done  Instance=RU_inst159001.rcp  Reason=time_limit  Steps=23876  Nodes=23876  Best_Ms=130  Inc_Improves=0  Reward=-238.71  rwd_std=0.00031  elapsed=76756s
+
+[Update 280] steps=4221571  episodes=280  valid=23849/23876  pg=-0.0107  vf=1.0606  ev=+0.028  ret_std=1.0354  ent=0.4228  kl=0.0001  elapsed=77138s
+[Episode 281] start  SP_inst287001.rcp
+
+[Episode 281] Done  Instance=SP_inst287001.rcp  Reason=search_exhausted  Steps=135  Nodes=135  Best_Ms=133  Inc_Improves=2  Reward=-1.00  rwd_std=0.02000  elapsed=77139s
+
+[Update 281] steps=4221706  episodes=281  valid=135/135  pg=-0.0710  vf=0.0492  ev=+0.958  ret_std=0.7229  ent=0.3946  kl=0.0000  elapsed=77141s
+[Episode 282] start  SP_inst419001.rcp
+
+[Episode 282] Done  Instance=SP_inst419001.rcp  Reason=time_limit  Steps=26628  Nodes=26628  Best_Ms=157  Inc_Improves=1  Reward=-266.06  rwd_std=0.00100  elapsed=77201s
+
+[Update 282] steps=4248334  episodes=282  valid=26598/26628  pg=-0.0157  vf=0.4790  ev=+0.124  ret_std=0.7737  ent=0.4708  kl=0.0013  elapsed=77630s
+[Episode 283] start  LA_inst78001.rcp
+
+[Episode 283] Done  Instance=LA_inst78001.rcp  Reason=search_exhausted  Steps=32  Nodes=32  Best_Ms=44  Inc_Improves=0  Reward=-0.10  rwd_std=0.03870  elapsed=77631s
+
+[Update 283] steps=4248366  episodes=283  valid=32/32  pg=+0.0281  vf=22.2457  ev=-191.912  ret_std=0.2119  ent=0.9935  kl=0.0105  elapsed=77631s  [KL stop]
+[Episode 284] start  TF_inst59001.rcp
+
+[Episode 284] Done  Instance=TF_inst59001.rcp  Reason=time_limit  Steps=20743  Nodes=20743  Best_Ms=37  Inc_Improves=2  Reward=-207.24  rwd_std=0.00132  elapsed=77691s
+
+[Update 284] steps=4269109  episodes=284  valid=20723/20743  pg=+0.0017  vf=0.8790  ev=-0.055  ret_std=0.9113  ent=1.6377  kl=0.0038  elapsed=78030s
+[Episode 285] start  SP_inst449001.rcp
+
+[Episode 285] Done  Instance=SP_inst449001.rcp  Reason=search_exhausted  Steps=996  Nodes=996  Best_Ms=144  Inc_Improves=1  Reward=-9.75  rwd_std=0.00604  elapsed=78032s
+
+[Update 285] steps=4270105  episodes=285  valid=996/996  pg=-0.0002  vf=0.2806  ev=+0.057  ret_std=0.5489  ent=0.3399  kl=0.0000  elapsed=78046s
+[Episode 286] start  TF_inst126001.rcp
+
+[Episode 286] Done  Instance=TF_inst126001.rcp  Reason=time_limit  Steps=21654  Nodes=21654  Best_Ms=83  Inc_Improves=5  Reward=-216.31  rwd_std=0.00107  elapsed=78106s
+
+[Update 286] steps=4291759  episodes=286  valid=21631/21654  pg=-0.0080  vf=1.5511  ev=+0.132  ret_std=1.3481  ent=1.2002  kl=0.0009  elapsed=78457s
+[Episode 287] start  LA_inst299001.rcp
+
+[Episode 287] Done  Instance=LA_inst299001.rcp  Reason=time_limit  Steps=22222  Nodes=22222  Best_Ms=115  Inc_Improves=0  Reward=-222.13  rwd_std=0.00061  elapsed=78518s
+
+[Update 287] steps=4313981  episodes=287  valid=22198/22222  pg=+0.0126  vf=0.4103  ev=+0.295  ret_std=0.7572  ent=0.9304  kl=0.0009  elapsed=78881s
+[Episode 288] start  RC_inst98001.rcp
+
+[Episode 288] Done  Instance=RC_inst98001.rcp  Reason=search_exhausted  Steps=69  Nodes=69  Best_Ms=148  Inc_Improves=0  Reward=-0.48  rwd_std=0.02550  elapsed=78882s
+
+[Update 288] steps=4314050  episodes=288  valid=69/69  pg=+0.0393  vf=0.0357  ev=+0.961  ret_std=0.8989  ent=0.5214  kl=0.0036  elapsed=78883s
+[Episode 289] start  AD_inst280001.rcp
+
+[Episode 289] Done  Instance=AD_inst280001.rcp  Reason=time_limit  Steps=21578  Nodes=21578  Best_Ms=77  Inc_Improves=5  Reward=-215.07  rwd_std=0.00355  elapsed=78943s
+
+[Update 289] steps=4335628  episodes=289  valid=21550/21578  pg=-0.0108  vf=2.2077  ev=+0.016  ret_std=1.5024  ent=0.9656  kl=0.0002  elapsed=79297s
+[Episode 290] start  SP_inst501001.rcp
+
+[Episode 290] Done  Instance=SP_inst501001.rcp  Reason=time_limit  Steps=25875  Nodes=25875  Best_Ms=161  Inc_Improves=0  Reward=-258.60  rwd_std=0.00091  elapsed=79357s
+
+[Update 290] steps=4361503  episodes=290  valid=25844/25875  pg=+0.0020  vf=0.5857  ev=+0.226  ret_std=0.9188  ent=0.3200  kl=0.0008  elapsed=79778s
+[Episode 291] start  LA_inst630001.rcp
+
+[Episode 291] Done  Instance=LA_inst630001.rcp  Reason=time_limit  Steps=23997  Nodes=23997  Best_Ms=178  Inc_Improves=0  Reward=-239.92  rwd_std=0.00035  elapsed=79838s
+
+[Update 291] steps=4385500  episodes=291  valid=23966/23997  pg=+0.1016  vf=1.4649  ev=+0.181  ret_std=1.3252  ent=0.4615  kl=0.0048  elapsed=80229s  [KL stop]
+[Episode 292] start  TF_inst144001.rcp
+
+[Episode 292] Done  Instance=TF_inst144001.rcp  Reason=time_limit  Steps=21439  Nodes=21439  Best_Ms=83  Inc_Improves=4  Reward=-214.27  rwd_std=0.00073  elapsed=80289s
+
+[Update 292] steps=4406939  episodes=292  valid=21417/21439  pg=-0.0358  vf=3.0874  ev=+0.145  ret_std=1.6029  ent=1.0088  kl=0.0168  elapsed=80557s  [KL stop]
+
+------------------------------------------------------------
+[Checkpoint] steps=4406939  solved=40.0%  gap=2.70%  nodes=3822  [best]
+[Checkpoint] saved  → models\stability_check_56\checkpoints\policy_ppo_step4406939.pt
+[Checkpoint] best   → models\stability_check_56\policy_ppo_best.pt  (gap=2.70%)
+------------------------------------------------------------
+
+[Episode 293] start  LA_inst7001.rcp
+
+[Episode 293] Done  Instance=LA_inst7001.rcp  Reason=search_exhausted  Steps=32  Nodes=32  Best_Ms=128  Inc_Improves=0  Reward=-0.10  rwd_std=0.03870  elapsed=80648s
+
+[Update 293] steps=4406971  episodes=293  valid=32/32  pg=-0.0093  vf=0.0124  ev=-6.337  ret_std=0.0355  ent=0.1701  kl=0.0005  elapsed=80648s
+[Episode 294] start  AD_inst159001.rcp
+
+[Episode 294] Done  Instance=AD_inst159001.rcp  Reason=time_limit  Steps=22991  Nodes=22991  Best_Ms=91  Inc_Improves=9  Reward=-227.00  rwd_std=0.01292  elapsed=80708s
+
+[Update 294] steps=4429962  episodes=294  valid=22966/22991  pg=-0.0051  vf=0.7969  ev=+0.155  ret_std=0.9805  ent=1.2529  kl=0.0007  elapsed=81091s
+[Episode 295] start  RC_inst539001.rcp
+
+[Episode 295] Done  Instance=RC_inst539001.rcp  Reason=search_exhausted  Steps=26627  Nodes=26627  Best_Ms=166  Inc_Improves=0  Reward=-266.08  rwd_std=0.00117  elapsed=81148s
+
+[Update 295] steps=4456589  episodes=295  valid=26627/26627  pg=-0.0281  vf=0.4043  ev=-0.249  ret_std=0.6421  ent=0.2492  kl=0.0030  elapsed=81584s
+[Episode 296] start  TF_inst339001.rcp
+
+[Episode 296] Done  Instance=TF_inst339001.rcp  Reason=time_limit  Steps=24405  Nodes=24405  Best_Ms=142  Inc_Improves=5  Reward=-242.20  rwd_std=0.00970  elapsed=81644s
+
+[Update 296] steps=4480994  episodes=296  valid=24380/24405  pg=+0.0030  vf=2.1202  ev=+0.052  ret_std=1.5191  ent=0.7008  kl=0.0042  elapsed=82042s
+[Episode 297] start  TF_inst140001.rcp
+
+[Episode 297] Done  Instance=TF_inst140001.rcp  Reason=search_exhausted  Steps=130  Nodes=130  Best_Ms=152  Inc_Improves=2  Reward=-0.72  rwd_std=0.03590  elapsed=82043s
+
+[Update 297] steps=4481124  episodes=297  valid=130/130  pg=+0.0582  vf=0.0601  ev=+0.924  ret_std=0.7610  ent=0.3561  kl=0.0003  elapsed=82047s
+[Episode 298] start  TF_inst376001.rcp
+
+[Episode 298] Done  Instance=TF_inst376001.rcp  Reason=search_exhausted  Steps=280  Nodes=280  Best_Ms=81  Inc_Improves=6  Reward=-1.78  rwd_std=0.04174  elapsed=82048s
+
+[Update 298] steps=4481404  episodes=298  valid=280/280  pg=+0.0028  vf=1.2609  ev=-5.834  ret_std=0.5135  ent=0.6333  kl=0.0039  elapsed=82052s
+[Episode 299] start  RU_inst239001.rcp
+
+[Episode 299] Done  Instance=RU_inst239001.rcp  Reason=time_limit  Steps=25078  Nodes=25078  Best_Ms=166  Inc_Improves=0  Reward=-250.59  rwd_std=0.00120  elapsed=82112s
+
+[Update 299] steps=4506482  episodes=299  valid=25054/25078  pg=-0.0219  vf=0.2646  ev=+0.142  ret_std=0.5531  ent=0.2472  kl=0.0008  elapsed=82523s
+[Episode 300] start  LA_inst572001.rcp
+
+[Episode 300] Done  Instance=LA_inst572001.rcp  Reason=search_exhausted  Steps=8823  Nodes=8823  Best_Ms=174  Inc_Improves=2  Reward=-87.92  rwd_std=0.00220  elapsed=82542s
+
+[Update 300] steps=4515305  episodes=300  valid=8823/8823  pg=-0.0173  vf=0.2914  ev=+0.039  ret_std=0.5479  ent=0.3285  kl=0.0010  elapsed=82676s
+[Episode 301] start  LA_inst441001.rcp
+
+[Episode 301] Done  Instance=LA_inst441001.rcp  Reason=search_exhausted  Steps=375  Nodes=375  Best_Ms=97  Inc_Improves=1  Reward=-3.55  rwd_std=0.00996  elapsed=82677s
+
+[Update 301] steps=4515680  episodes=301  valid=375/375  pg=-0.0028  vf=0.0351  ev=+0.827  ret_std=0.4261  ent=0.4713  kl=0.0005  elapsed=82682s
+[Episode 302] start  SP_inst491001.rcp
+
+[Episode 302] Done  Instance=SP_inst491001.rcp  Reason=time_limit  Steps=26052  Nodes=26052  Best_Ms=164  Inc_Improves=0  Reward=-260.38  rwd_std=0.00084  elapsed=82743s
+
+[Update 302] steps=4541732  episodes=302  valid=26026/26052  pg=+0.0093  vf=0.5131  ev=+0.304  ret_std=0.8985  ent=0.3154  kl=0.0008  elapsed=83168s
+[Episode 303] start  VAR_inst152001.rcp
+
+[Episode 303] Done  Instance=VAR_inst152001.rcp  Reason=search_exhausted  Steps=112  Nodes=112  Best_Ms=142  Inc_Improves=3  Reward=-0.66  rwd_std=0.02464  elapsed=83169s
+
+[Update 303] steps=4541844  episodes=303  valid=112/112  pg=-0.0063  vf=0.0487  ev=+0.951  ret_std=0.8295  ent=0.3042  kl=0.0014  elapsed=83170s
+[Episode 304] start  AD_inst231001.rcp
+
+[Episode 304] Done  Instance=AD_inst231001.rcp  Reason=time_limit  Steps=24362  Nodes=24362  Best_Ms=127  Inc_Improves=8  Reward=-242.98  rwd_std=0.00190  elapsed=83230s
+
+[Update 304] steps=4566206  episodes=304  valid=24337/24362  pg=+0.0396  vf=1.0824  ev=+0.139  ret_std=1.1410  ent=1.0238  kl=0.0024  elapsed=83636s
+[Episode 305] start  VAR_inst78001.rcp
+
+[Episode 305] Done  Instance=VAR_inst78001.rcp  Reason=time_limit  Steps=20662  Nodes=20662  Best_Ms=40  Inc_Improves=5  Reward=-205.83  rwd_std=0.00444  elapsed=83697s
+
+[Update 305] steps=4586868  episodes=305  valid=20647/20662  pg=+0.0369  vf=0.5691  ev=-0.114  ret_std=0.8013  ent=1.1840  kl=0.0118  elapsed=83954s  [KL stop]
+[Episode 306] start  AD_inst247001.rcp
+
+[Episode 306] Done  Instance=AD_inst247001.rcp  Reason=time_limit  Steps=22028  Nodes=22028  Best_Ms=94  Inc_Improves=2  Reward=-220.04  rwd_std=0.00116  elapsed=84015s
+
+[Update 306] steps=4608896  episodes=306  valid=22002/22028  pg=-0.0418  vf=0.8413  ev=+0.085  ret_std=0.9801  ent=1.2616  kl=0.0032  elapsed=84380s
+[Episode 307] start  LA_inst57001.rcp
+
+[Episode 307] Done  Instance=LA_inst57001.rcp  Reason=search_exhausted  Steps=37  Nodes=37  Best_Ms=89  Inc_Improves=0  Reward=-0.16  rwd_std=0.03444  elapsed=84380s
+
+[Update 307] steps=4608933  episodes=307  valid=37/37  pg=+0.1101  vf=0.0795  ev=+0.929  ret_std=0.6185  ent=0.4208  kl=0.0049  elapsed=84381s
+[Episode 308] start  RC_inst319001.rcp
+
+[Episode 308] Done  Instance=RC_inst319001.rcp  Reason=search_exhausted  Steps=77  Nodes=77  Best_Ms=85  Inc_Improves=2  Reward=-0.02  rwd_std=0.04951  elapsed=84381s
+
+[Update 308] steps=4609010  episodes=308  valid=77/77  pg=+0.0244  vf=0.0802  ev=+0.872  ret_std=0.7886  ent=0.6632  kl=0.0003  elapsed=84382s
+[Episode 309] start  LA_inst24001.rcp
+
+[Episode 309] Done  Instance=LA_inst24001.rcp  Reason=search_exhausted  Steps=952  Nodes=952  Best_Ms=44  Inc_Improves=3  Reward=-9.28  rwd_std=0.00678  elapsed=84385s
+
+[Update 309] steps=4609962  episodes=309  valid=952/952  pg=-0.0015  vf=0.2529  ev=-0.280  ret_std=0.5184  ent=1.2091  kl=0.0006  elapsed=84399s
+[Episode 310] start  SP_inst127001.rcp
+
+[Episode 310] Done  Instance=SP_inst127001.rcp  Reason=time_limit  Steps=24117  Nodes=24117  Best_Ms=61  Inc_Improves=9  Reward=-239.92  rwd_std=0.00412  elapsed=84459s
+
+[Update 310] steps=4634079  episodes=310  valid=24091/24117  pg=+0.0180  vf=0.6783  ev=+0.205  ret_std=0.9207  ent=0.9068  kl=0.0003  elapsed=84854s
+[Episode 311] start  TF_inst705001.rcp
+
+[Episode 311] Done  Instance=TF_inst705001.rcp  Reason=time_limit  Steps=25756  Nodes=25756  Best_Ms=174  Inc_Improves=0  Reward=-257.46  rwd_std=0.00065  elapsed=84915s
+
+[Update 311] steps=4659835  episodes=311  valid=25726/25756  pg=-0.0056  vf=0.9501  ev=+0.288  ret_std=1.1591  ent=0.4043  kl=0.0001  elapsed=85336s
+[Episode 312] start  SP_inst72001.rcp
+
+[Episode 312] Done  Instance=SP_inst72001.rcp  Reason=time_limit  Steps=20658  Nodes=20658  Best_Ms=33  Inc_Improves=3  Reward=-206.38  rwd_std=0.00114  elapsed=85397s
+
+[Update 312] steps=4680493  episodes=312  valid=20633/20658  pg=-0.0322  vf=0.9154  ev=+0.035  ret_std=0.9704  ent=1.6951  kl=0.0009  elapsed=85743s
+[Episode 313] start  TF_inst257001.rcp
+
+[Episode 313] Done  Instance=TF_inst257001.rcp  Reason=time_limit  Steps=21070  Nodes=21070  Best_Ms=94  Inc_Improves=0  Reward=-210.62  rwd_std=0.00057  elapsed=85803s
+
+[Update 313] steps=4701563  episodes=313  valid=21043/21070  pg=-0.0017  vf=1.2229  ev=+0.119  ret_std=1.1999  ent=1.3760  kl=0.0052  elapsed=86159s
+[Episode 314] start  RC_inst520001.rcp
+
+[Episode 314] Done  Instance=RC_inst520001.rcp  Reason=time_limit  Steps=24256  Nodes=24256  Best_Ms=158  Inc_Improves=0  Reward=-242.45  rwd_std=0.00073  elapsed=86219s
+
+[Update 314] steps=4725819  episodes=314  valid=24225/24256  pg=-0.0162  vf=0.2987  ev=+0.381  ret_std=0.6975  ent=0.3066  kl=0.0002  elapsed=86626s
+[Episode 315] start  SP_inst412001.rcp
+
+[Episode 315] Done  Instance=SP_inst412001.rcp  Reason=search_exhausted  Steps=476  Nodes=476  Best_Ms=149  Inc_Improves=2  Reward=-4.34  rwd_std=0.01359  elapsed=86628s
+
+[Update 315] steps=4726295  episodes=315  valid=476/476  pg=-0.0016  vf=0.0240  ev=+0.855  ret_std=0.4136  ent=0.4803  kl=0.0001  elapsed=86634s
+[Episode 316] start  LA_inst171001.rcp
+
+[Episode 316] Done  Instance=LA_inst171001.rcp  Reason=search_exhausted  Steps=1920  Nodes=1920  Best_Ms=98  Inc_Improves=1  Reward=-19.01  rwd_std=0.00436  elapsed=86638s
+
+[Update 316] steps=4728215  episodes=316  valid=1920/1920  pg=+0.0002  vf=0.0618  ev=+0.262  ret_std=0.2628  ent=0.3360  kl=0.0001  elapsed=86666s
+[Episode 317] start  VAR_inst525001.rcp
+
+[Episode 317] Done  Instance=VAR_inst525001.rcp  Reason=time_limit  Steps=22539  Nodes=22539  Best_Ms=130  Inc_Improves=0  Reward=-225.34  rwd_std=0.00032  elapsed=86726s
+
+[Update 317] steps=4750754  episodes=317  valid=22509/22539  pg=-0.0110  vf=1.2857  ev=+0.204  ret_std=1.2831  ent=0.3638  kl=0.0004  elapsed=87093s
+[Episode 318] start  RC_inst179001.rcp
+
+[Episode 318] Done  Instance=RC_inst179001.rcp  Reason=search_exhausted  Steps=662  Nodes=662  Best_Ms=146  Inc_Improves=4  Reward=-5.90  rwd_std=0.01551  elapsed=87095s
+
+[Update 318] steps=4751416  episodes=318  valid=662/662  pg=-0.0693  vf=0.0246  ev=+0.838  ret_std=0.3714  ent=0.5940  kl=0.0011  elapsed=87104s
+[Episode 319] start  RU_inst62001.rcp
+
+[Episode 319] Done  Instance=RU_inst62001.rcp  Reason=search_exhausted  Steps=88  Nodes=88  Best_Ms=145  Inc_Improves=1  Reward=-0.59  rwd_std=0.02406  elapsed=87104s
+
+[Update 319] steps=4751504  episodes=319  valid=88/88  pg=-0.0052  vf=0.0281  ev=+0.965  ret_std=0.8769  ent=0.3866  kl=0.0011  elapsed=87106s
+[Episode 320] start  TF_inst569001.rcp
+
+[Episode 320] Done  Instance=TF_inst569001.rcp  Reason=time_limit  Steps=23128  Nodes=23128  Best_Ms=146  Inc_Improves=0  Reward=-231.23  rwd_std=0.00035  elapsed=87166s
+
+[Update 320] steps=4774632  episodes=320  valid=23102/23128  pg=-0.0420  vf=2.4998  ev=+0.198  ret_std=1.7441  ent=0.4739  kl=0.0003  elapsed=87541s
+[Episode 321] start  LA_inst395001.rcp
+
+[Episode 321] Done  Instance=LA_inst395001.rcp  Reason=time_limit  Steps=20255  Nodes=20255  Best_Ms=74  Inc_Improves=2  Reward=-202.32  rwd_std=0.00116  elapsed=87602s
+
+[Update 321] steps=4794887  episodes=321  valid=20233/20255  pg=-0.0051  vf=1.5202  ev=+0.138  ret_std=1.3558  ent=1.2653  kl=0.0020  elapsed=87945s
+[Episode 322] start  TF_inst474001.rcp
+
+[Episode 322] Done  Instance=TF_inst474001.rcp  Reason=time_limit  Steps=20961  Nodes=20961  Best_Ms=71  Inc_Improves=6  Reward=-208.92  rwd_std=0.00305  elapsed=88005s
+
+[Update 322] steps=4815848  episodes=322  valid=20937/20961  pg=-0.0275  vf=0.8122  ev=+0.135  ret_std=0.9626  ent=1.2898  kl=0.0003  elapsed=88366s
+
+------------------------------------------------------------
+[Checkpoint] steps=4815848  solved=30.0%  gap=2.25%  nodes=3323  [best]
+[Checkpoint] saved  → models\stability_check_56\checkpoints\policy_ppo_step4815848.pt
+[Checkpoint] best   → models\stability_check_56\policy_ppo_best.pt  (gap=2.25%)
+------------------------------------------------------------
+
+[Episode 323] start  RU_inst24001.rcp
+
+[Episode 323] Done  Instance=RU_inst24001.rcp  Reason=search_exhausted  Steps=796  Nodes=796  Best_Ms=28  Inc_Improves=2  Reward=-7.67  rwd_std=0.00747  elapsed=88456s
+
+[Update 323] steps=4816644  episodes=323  valid=796/796  pg=+0.0016  vf=1.1573  ev=-5.651  ret_std=0.5026  ent=1.3295  kl=0.0016  elapsed=88468s
+[Episode 324] start  RC_inst361001.rcp
+
+[Episode 324] Done  Instance=RC_inst361001.rcp  Reason=time_limit  Steps=24800  Nodes=24800  Best_Ms=154  Inc_Improves=0  Reward=-247.88  rwd_std=0.00074  elapsed=88529s
+
+[Update 324] steps=4841444  episodes=324  valid=24780/24800  pg=-0.0004  vf=0.3430  ev=+0.256  ret_std=0.6677  ent=0.2634  kl=0.0002  elapsed=88965s
+[Episode 325] start  RC_inst230001.rcp
+
+[Episode 325] Done  Instance=RC_inst230001.rcp  Reason=search_exhausted  Steps=810  Nodes=810  Best_Ms=149  Inc_Improves=2  Reward=-7.75  rwd_std=0.00854  elapsed=88967s
+
+[Update 325] steps=4842254  episodes=325  valid=810/810  pg=-0.0803  vf=0.0543  ev=+0.677  ret_std=0.3709  ent=0.6519  kl=0.0001  elapsed=88982s
+[Episode 326] start  TF_inst4001.rcp
+
+[Episode 326] Done  Instance=TF_inst4001.rcp  Reason=search_exhausted  Steps=32  Nodes=32  Best_Ms=81  Inc_Improves=0  Reward=-0.10  rwd_std=0.03870  elapsed=88982s
+
+[Update 326] steps=4842286  episodes=326  valid=32/32  pg=-0.0104  vf=0.0286  ev=-1.591  ret_std=0.0651  ent=0.5129  kl=0.0020  elapsed=88982s
+[Episode 327] start  RC_inst219001.rcp
+
+[Episode 327] Done  Instance=RC_inst219001.rcp  Reason=time_limit  Steps=24092  Nodes=24092  Best_Ms=91  Inc_Improves=4  Reward=-240.26  rwd_std=0.00271  elapsed=89043s
+
+[Update 327] steps=4866378  episodes=327  valid=24062/24092  pg=+0.0276  vf=0.8011  ev=+0.115  ret_std=0.8945  ent=0.7619  kl=0.0003  elapsed=89467s
+[Episode 328] start  TF_inst13001.rcp
+
+[Episode 328] Done  Instance=TF_inst13001.rcp  Reason=search_exhausted  Steps=59  Nodes=59  Best_Ms=137  Inc_Improves=1  Reward=-0.33  rwd_std=0.02882  elapsed=89467s
+
+[Update 328] steps=4866437  episodes=328  valid=59/59  pg=-0.0308  vf=0.0446  ev=+0.958  ret_std=0.9721  ent=0.2428  kl=0.0002  elapsed=89468s
+[Episode 329] start  AD_inst53001.rcp
+
+[Episode 329] Done  Instance=AD_inst53001.rcp  Reason=time_limit  Steps=21533  Nodes=21533  Best_Ms=35  Inc_Improves=5  Reward=-214.75  rwd_std=0.00260  elapsed=89528s
+
+[Update 329] steps=4887970  episodes=329  valid=21509/21533  pg=+0.0209  vf=2.0275  ev=+0.017  ret_std=1.4305  ent=1.6844  kl=0.0003  elapsed=89898s
+[Episode 330] start  VAR_inst132001.rcp
+
+[Episode 330] Done  Instance=VAR_inst132001.rcp  Reason=time_limit  Steps=20831  Nodes=20831  Best_Ms=51  Inc_Improves=6  Reward=-207.44  rwd_std=0.00426  elapsed=89958s
+
+[Update 330] steps=4908801  episodes=330  valid=20802/20831  pg=+0.0036  vf=1.1578  ev=+0.087  ret_std=1.1635  ent=1.4935  kl=0.0019  elapsed=90303s
+[Episode 331] start  SP_inst85001.rcp
+
+[Episode 331] Done  Instance=SP_inst85001.rcp  Reason=search_exhausted  Steps=75  Nodes=75  Best_Ms=84  Inc_Improves=1  Reward=-0.50  rwd_std=0.02465  elapsed=90304s
+
+[Update 331] steps=4908876  episodes=331  valid=75/75  pg=-0.0447  vf=0.0189  ev=+0.979  ret_std=0.8726  ent=0.6980  kl=0.0023  elapsed=90305s
+[Episode 332] start  AD_inst420001.rcp
+
+[Episode 332] Done  Instance=AD_inst420001.rcp  Reason=time_limit  Steps=23678  Nodes=23678  Best_Ms=185  Inc_Improves=0  Reward=-236.73  rwd_std=0.00031  elapsed=90365s
+
+[Update 332] steps=4932554  episodes=332  valid=23647/23678  pg=+0.0136  vf=0.8115  ev=+0.340  ret_std=1.0947  ent=0.4353  kl=0.0001  elapsed=90752s
+[Episode 333] start  LA_inst664001.rcp
+
+[Episode 333] Done  Instance=LA_inst664001.rcp  Reason=time_limit  Steps=26080  Nodes=26080  Best_Ms=187  Inc_Improves=0  Reward=-260.69  rwd_std=0.00071  elapsed=90812s
+
+[Update 333] steps=4958634  episodes=333  valid=26050/26080  pg=-0.0203  vf=0.3697  ev=+0.303  ret_std=0.7036  ent=0.3664  kl=0.0014  elapsed=91239s
+[Episode 334] start  RC_inst173001.rcp
+
+[Episode 334] Done  Instance=RC_inst173001.rcp  Reason=search_exhausted  Steps=814  Nodes=814  Best_Ms=152  Inc_Improves=0  Reward=-7.93  rwd_std=0.00728  elapsed=91242s
+
+[Update 334] steps=4959448  episodes=334  valid=814/814  pg=-0.0876  vf=0.0310  ev=+0.747  ret_std=0.3341  ent=0.5617  kl=0.0003  elapsed=91253s
+[Episode 335] start  AD_inst73001.rcp
+
+[Episode 335] Done  Instance=AD_inst73001.rcp  Reason=time_limit  Steps=20209  Nodes=20209  Best_Ms=35  Inc_Improves=0  Reward=-201.88  rwd_std=0.00147  elapsed=91313s
+
+[Update 335] steps=4979657  episodes=335  valid=20190/20209  pg=-0.0220  vf=2.6567  ev=+0.019  ret_std=1.6335  ent=2.0035  kl=0.0011  elapsed=91661s
+[Episode 336] start  SP_inst119001.rcp
+
+[Episode 336] Done  Instance=SP_inst119001.rcp  Reason=time_limit  Steps=20288  Nodes=20288  Best_Ms=82  Inc_Improves=1  Reward=-202.76  rwd_std=0.00081  elapsed=91721s
+
+[Update 336] steps=4999945  episodes=336  valid=20259/20288  pg=+0.0209  vf=1.7817  ev=+0.074  ret_std=1.4129  ent=1.6354  kl=0.0042  elapsed=92061s
+[Episode 337] start  LA_inst162001.rcp
+
+[Episode 337] Done  Instance=LA_inst162001.rcp  Reason=time_limit  Steps=20697  Nodes=20697  Best_Ms=84  Inc_Improves=12  Reward=-204.78  rwd_std=0.00733  elapsed=92121s
+
+[Update 337] steps=5020642  episodes=337  valid=20670/20697  pg=-0.0030  vf=0.8300  ev=+0.231  ret_std=1.0263  ent=1.3369  kl=0.0010  elapsed=92463s
+[Episode 338] start  LA_inst295001.rcp
+
+[Episode 338] Done  Instance=LA_inst295001.rcp  Reason=search_exhausted  Steps=194  Nodes=194  Best_Ms=139  Inc_Improves=0  Reward=-1.74  rwd_std=0.01467  elapsed=92464s
+
+[Update 338] steps=5020836  episodes=338  valid=194/194  pg=+0.1065  vf=0.0147  ev=+0.981  ret_std=0.6462  ent=0.1744  kl=0.0001  elapsed=92466s
+[Episode 339] start  RC_inst405001.rcp
+
+[Episode 339] Done  Instance=RC_inst405001.rcp  Reason=time_limit  Steps=24421  Nodes=24421  Best_Ms=114  Inc_Improves=1  Reward=-244.15  rwd_std=0.00035  elapsed=92526s
+
+[Update 339] steps=5045257  episodes=339  valid=24390/24421  pg=+0.0384  vf=1.1920  ev=-0.059  ret_std=1.1804  ent=0.5966  kl=0.0066  elapsed=92929s
+[Episode 340] start  AD_inst117001.rcp
+
+[Episode 340] Done  Instance=AD_inst117001.rcp  Reason=time_limit  Steps=20318  Nodes=20318  Best_Ms=75  Inc_Improves=5  Reward=-202.68  rwd_std=0.00244  elapsed=92989s
+
+[Update 340] steps=5065575  episodes=340  valid=20294/20318  pg=+0.0247  vf=0.7351  ev=+0.132  ret_std=0.9315  ent=1.5267  kl=0.0013  elapsed=93328s
+[Episode 341] start  SP_inst289001.rcp
+
+[Episode 341] Done  Instance=SP_inst289001.rcp  Reason=time_limit  Steps=20993  Nodes=20993  Best_Ms=56  Inc_Improves=4  Reward=-209.66  rwd_std=0.00098  elapsed=93388s
+
+[Update 341] steps=5086568  episodes=341  valid=20964/20993  pg=+0.0008  vf=1.0844  ev=+0.166  ret_std=1.1411  ent=1.1535  kl=0.0020  elapsed=93731s
+[Episode 342] start  VAR_inst433001.rcp
+
+[Episode 342] Done  Instance=VAR_inst433001.rcp  Reason=time_limit  Steps=23833  Nodes=23833  Best_Ms=158  Inc_Improves=0  Reward=-238.22  rwd_std=0.00074  elapsed=93791s
+
+[Update 342] steps=5110401  episodes=342  valid=23802/23833  pg=-0.0067  vf=0.1952  ev=+0.370  ret_std=0.5866  ent=0.3506  kl=0.0001  elapsed=94177s
+[Episode 343] start  VAR_inst220001.rcp
+
+[Episode 343] Done  Instance=VAR_inst220001.rcp  Reason=time_limit  Steps=26560  Nodes=26560  Best_Ms=118  Inc_Improves=2  Reward=-265.43  rwd_std=0.00091  elapsed=94237s
+
+[Update 343] steps=5136961  episodes=343  valid=26532/26560  pg=+0.0023  vf=0.2219  ev=-0.073  ret_std=0.4375  ent=0.6517  kl=0.0013  elapsed=94672s
+[Episode 344] start  RU_inst160001.rcp
+
+[Episode 344] Done  Instance=RU_inst160001.rcp  Reason=time_limit  Steps=25270  Nodes=25270  Best_Ms=158  Inc_Improves=0  Reward=-252.59  rwd_std=0.00072  elapsed=94732s
+
+[Update 344] steps=5162231  episodes=344  valid=25240/25270  pg=+0.0037  vf=0.2584  ev=+0.273  ret_std=0.6034  ent=0.2643  kl=0.0004  elapsed=95139s
+[Episode 345] start  AD_inst54001.rcp
+
+[Episode 345] Done  Instance=AD_inst54001.rcp  Reason=search_exhausted  Steps=32  Nodes=32  Best_Ms=92  Inc_Improves=0  Reward=-0.10  rwd_std=0.03870  elapsed=95139s
+
+[Update 345] steps=5162263  episodes=345  valid=32/32  pg=+0.0199  vf=0.5620  ev=-277.310  ret_std=0.0537  ent=0.4168  kl=0.0059  elapsed=95142s
+[Episode 346] start  LA_inst388001.rcp
+
+[Episode 346] Done  Instance=LA_inst388001.rcp  Reason=search_exhausted  Steps=1351  Nodes=1351  Best_Ms=111  Inc_Improves=3  Reward=-13.07  rwd_std=0.00693  elapsed=95145s
+
+[Update 346] steps=5163614  episodes=346  valid=1351/1351  pg=+0.0037  vf=0.0851  ev=-0.626  ret_std=0.2477  ent=0.8948  kl=0.0007  elapsed=95165s
+[Episode 347] start  LA_inst352001.rcp
+
+[Episode 347] Done  Instance=LA_inst352001.rcp  Reason=time_limit  Steps=27055  Nodes=27055  Best_Ms=160  Inc_Improves=9  Reward=-270.07  rwd_std=0.00120  elapsed=95225s
+
+[Update 347] steps=5190669  episodes=347  valid=27025/27055  pg=-0.0136  vf=0.2485  ev=+0.179  ret_std=0.5540  ent=0.4910  kl=0.0001  elapsed=95674s
+[Episode 348] start  VAR_inst354001.rcp
+
+[Episode 348] Done  Instance=VAR_inst354001.rcp  Reason=time_limit  Steps=22585  Nodes=22585  Best_Ms=129  Inc_Improves=0  Reward=-225.80  rwd_std=0.00032  elapsed=95734s
+
+[Update 348] steps=5213254  episodes=348  valid=22559/22585  pg=-0.0152  vf=0.9963  ev=+0.056  ret_std=1.0344  ent=0.3919  kl=0.0001  elapsed=96101s
+
+------------------------------------------------------------
+[Checkpoint] steps=5213254  solved=10.0%  gap=3.99%  nodes=3942
+[Checkpoint] saved  → models\stability_check_56\checkpoints\policy_ppo_step5213254.pt
+------------------------------------------------------------
+
+[Episode 349] start  LA_inst390001.rcp
+
+[Episode 349] Done  Instance=LA_inst390001.rcp  Reason=time_limit  Steps=20724  Nodes=20724  Best_Ms=79  Inc_Improves=5  Reward=-206.51  rwd_std=0.00395  elapsed=96252s
+
+[Update 349] steps=5233978  episodes=349  valid=20697/20724  pg=-0.0010  vf=3.4355  ev=+0.156  ret_std=2.0445  ent=1.3413  kl=0.0004  elapsed=96588s
+[Episode 350] start  AD_inst432001.rcp
+
+[Episode 350] Done  Instance=AD_inst432001.rcp  Reason=time_limit  Steps=23834  Nodes=23834  Best_Ms=185  Inc_Improves=0  Reward=-238.29  rwd_std=0.00031  elapsed=96649s
+
+[Update 350] steps=5257812  episodes=350  valid=23804/23834  pg=+0.0047  vf=1.6823  ev=-0.433  ret_std=1.2985  ent=0.3184  kl=0.0012  elapsed=97026s
+[Episode 351] start  LA_inst415001.rcp
+
+[Episode 351] Done  Instance=LA_inst415001.rcp  Reason=search_exhausted  Steps=49  Nodes=49  Best_Ms=129  Inc_Improves=1  Reward=-0.04  rwd_std=0.04419  elapsed=97026s
+
+[Update 351] steps=5257861  episodes=351  valid=49/49  pg=+0.0818  vf=0.3126  ev=+0.908  ret_std=0.8776  ent=0.1434  kl=0.0000  elapsed=97029s
+[Episode 352] start  TF_inst547001.rcp
+
+[Episode 352] Done  Instance=TF_inst547001.rcp  Reason=time_limit  Steps=23401  Nodes=23401  Best_Ms=140  Inc_Improves=7  Reward=-232.83  rwd_std=0.00364  elapsed=97089s
+
+[Update 352] steps=5281262  episodes=352  valid=23376/23401  pg=+0.0096  vf=0.4824  ev=-0.620  ret_std=0.6273  ent=0.8588  kl=0.0051  elapsed=97467s
+[Episode 353] start  TF_inst42001.rcp
+
+[Episode 353] Done  Instance=TF_inst42001.rcp  Reason=search_exhausted  Steps=956  Nodes=956  Best_Ms=42  Inc_Improves=2  Reward=-9.31  rwd_std=0.00670  elapsed=97470s
+
+[Update 353] steps=5282218  episodes=353  valid=956/956  pg=+0.0028  vf=1.4120  ev=-4.656  ret_std=0.6089  ent=1.1856  kl=0.0053  elapsed=97485s
+[Episode 354] start  TF_inst668001.rcp
+
+[Episode 354] Done  Instance=TF_inst668001.rcp  Reason=time_limit  Steps=26656  Nodes=26656  Best_Ms=179  Inc_Improves=0  Reward=-266.38  rwd_std=0.00111  elapsed=97545s
+
+[Update 354] steps=5308874  episodes=354  valid=26628/26656  pg=+0.0003  vf=0.3824  ev=+0.086  ret_std=0.6845  ent=0.3179  kl=0.0005  elapsed=97967s
+[Episode 355] start  TF_inst356001.rcp
+
+[Episode 355] Done  Instance=TF_inst356001.rcp  Reason=search_exhausted  Steps=2762  Nodes=2762  Best_Ms=161  Inc_Improves=1  Reward=-27.42  rwd_std=0.00372  elapsed=97974s
+
+[Update 355] steps=5311636  episodes=355  valid=2762/2762  pg=+0.0454  vf=0.0434  ev=+0.455  ret_std=0.2858  ent=0.6506  kl=0.0010  elapsed=98015s
+[Episode 356] start  RC_inst480001.rcp
+
+[Episode 356] Done  Instance=RC_inst480001.rcp  Reason=time_limit  Steps=25171  Nodes=25171  Best_Ms=130  Inc_Improves=0  Reward=-251.66  rwd_std=0.00030  elapsed=98075s
+
+[Update 356] steps=5336807  episodes=356  valid=25140/25171  pg=+0.0003  vf=0.9960  ev=+0.084  ret_std=1.0746  ent=0.3162  kl=0.0002  elapsed=98477s
+[Episode 357] start  RC_inst345001.rcp
+
+[Episode 357] Done  Instance=RC_inst345001.rcp  Reason=time_limit  Steps=23350  Nodes=23350  Best_Ms=69  Inc_Improves=2  Reward=-233.32  rwd_std=0.00076  elapsed=98537s
+
+[Update 357] steps=5360157  episodes=357  valid=23322/23350  pg=-0.0175  vf=0.9296  ev=+0.206  ret_std=1.0844  ent=0.8334  kl=0.0009  elapsed=98947s
+[Episode 358] start  LA_inst325001.rcp
+
+[Episode 358] Done  Instance=LA_inst325001.rcp  Reason=search_exhausted  Steps=277  Nodes=277  Best_Ms=142  Inc_Improves=2  Reward=-2.26  rwd_std=0.01939  elapsed=98948s
+
+[Update 358] steps=5360434  episodes=358  valid=277/277  pg=+0.0366  vf=0.0151  ev=+0.940  ret_std=0.5333  ent=0.1439  kl=0.0002  elapsed=98952s
+[Episode 359] start  LA_inst30001.rcp
+
+[Episode 359] Done  Instance=LA_inst30001.rcp  Reason=search_exhausted  Steps=136  Nodes=136  Best_Ms=44  Inc_Improves=3  Reward=-0.97  rwd_std=0.01999  elapsed=98952s
+
+[Update 359] steps=5360570  episodes=359  valid=136/136  pg=-0.0030  vf=0.2526  ev=-0.705  ret_std=0.5724  ent=1.0599  kl=0.0027  elapsed=98954s
+[Episode 360] start  AD_inst200001.rcp
+
+[Episode 360] Done  Instance=AD_inst200001.rcp  Reason=time_limit  Steps=21609  Nodes=21609  Best_Ms=130  Inc_Improves=1  Reward=-215.99  rwd_std=0.00051  elapsed=99014s
+
+[Update 360] steps=5382179  episodes=360  valid=21581/21609  pg=-0.0064  vf=0.9922  ev=+0.073  ret_std=1.1876  ent=0.9363  kl=0.0073  elapsed=99281s  [KL stop]
+[Episode 361] start  LA_inst502001.rcp
+
+[Episode 361] Done  Instance=LA_inst502001.rcp  Reason=time_limit  Steps=25776  Nodes=25776  Best_Ms=187  Inc_Improves=0  Reward=-257.65  rwd_std=0.00071  elapsed=99341s
+
+[Update 361] steps=5407955  episodes=361  valid=25745/25776  pg=-0.0280  vf=0.5975  ev=+0.073  ret_std=0.8105  ent=0.4339  kl=0.0001  elapsed=99762s
+[Episode 362] start  VAR_inst534001.rcp
+
+[Episode 362] Done  Instance=VAR_inst534001.rcp  Reason=time_limit  Steps=22639  Nodes=22639  Best_Ms=130  Inc_Improves=0  Reward=-226.34  rwd_std=0.00032  elapsed=99822s
+
+[Update 362] steps=5430594  episodes=362  valid=22608/22639  pg=+0.0023  vf=0.9226  ev=+0.172  ret_std=1.1316  ent=0.3253  kl=0.0007  elapsed=100182s
+[Episode 363] start  AD_inst136001.rcp
+
+[Episode 363] Done  Instance=AD_inst136001.rcp  Reason=time_limit  Steps=21536  Nodes=21536  Best_Ms=87  Inc_Improves=7  Reward=-215.16  rwd_std=0.00079  elapsed=100242s
+
+[Update 363] steps=5452130  episodes=363  valid=21511/21536  pg=-0.0094  vf=1.9958  ev=+0.093  ret_std=1.4982  ent=1.0905  kl=0.0004  elapsed=100595s
+[Episode 364] start  VAR_inst117001.rcp
+
+[Episode 364] Done  Instance=VAR_inst117001.rcp  Reason=time_limit  Steps=20736  Nodes=20736  Best_Ms=37  Inc_Improves=6  Reward=-207.16  rwd_std=0.00095  elapsed=100655s
+
+[Update 364] steps=5472866  episodes=364  valid=20723/20736  pg=-0.0501  vf=0.9265  ev=+0.007  ret_std=0.9554  ent=1.6307  kl=0.0008  elapsed=100999s
+[Episode 365] start  LA_inst634001.rcp
+
+[Episode 365] Done  Instance=LA_inst634001.rcp  Reason=time_limit  Steps=26188  Nodes=26188  Best_Ms=187  Inc_Improves=0  Reward=-261.77  rwd_std=0.00071  elapsed=101059s
+
+[Update 365] steps=5499054  episodes=365  valid=26159/26188  pg=-0.0044  vf=0.1350  ev=+0.591  ret_std=0.6033  ent=0.4251  kl=0.0009  elapsed=101515s
+[Episode 366] start  VAR_inst515001.rcp
+
+[Episode 366] Done  Instance=VAR_inst515001.rcp  Reason=time_limit  Steps=25335  Nodes=25335  Best_Ms=166  Inc_Improves=0  Reward=-253.16  rwd_std=0.00120  elapsed=101575s
+
+[Update 366] steps=5524389  episodes=366  valid=25314/25335  pg=+0.0421  vf=0.7524  ev=-2.466  ret_std=0.5431  ent=0.1923  kl=0.0025  elapsed=101986s
+[Episode 367] start  VAR_inst252001.rcp
+
+[Episode 367] Done  Instance=VAR_inst252001.rcp  Reason=time_limit  Steps=23426  Nodes=23426  Best_Ms=109  Inc_Improves=3  Reward=-234.15  rwd_std=0.00048  elapsed=102047s
+
+[Update 367] steps=5547815  episodes=367  valid=23396/23426  pg=+0.0005  vf=0.7627  ev=+0.082  ret_std=0.9188  ent=0.4692  kl=0.0002  elapsed=102421s
+[Episode 368] start  RU_inst83001.rcp
+
+[Episode 368] Done  Instance=RU_inst83001.rcp  Reason=search_exhausted  Steps=76  Nodes=76  Best_Ms=148  Inc_Improves=1  Reward=-0.20  rwd_std=0.04673  elapsed=102422s
+
+[Update 368] steps=5547891  episodes=368  valid=76/76  pg=-0.0037  vf=0.0164  ev=+0.991  ret_std=0.8569  ent=0.3763  kl=0.0004  elapsed=102425s
+[Episode 369] start  SP_inst279001.rcp
+
+[Episode 369] Done  Instance=SP_inst279001.rcp  Reason=time_limit  Steps=20888  Nodes=20888  Best_Ms=56  Inc_Improves=1  Reward=-208.78  rwd_std=0.00070  elapsed=102485s
+
+[Update 369] steps=5568779  episodes=369  valid=20860/20888  pg=+0.0003  vf=1.3644  ev=+0.150  ret_std=1.2843  ent=0.9155  kl=0.0011  elapsed=102822s
+[Episode 370] start  VAR_inst516001.rcp
+
+[Episode 370] Done  Instance=VAR_inst516001.rcp  Reason=time_limit  Steps=22551  Nodes=22551  Best_Ms=130  Inc_Improves=0  Reward=-225.46  rwd_std=0.00032  elapsed=102882s
+
+[Update 370] steps=5591330  episodes=370  valid=22521/22551  pg=+0.0446  vf=0.6926  ev=-0.030  ret_std=0.9611  ent=0.3683  kl=0.0015  elapsed=103244s
+[Episode 371] start  LA_inst492001.rcp
+
+[Episode 371] Done  Instance=LA_inst492001.rcp  Reason=time_limit  Steps=23059  Nodes=23059  Best_Ms=162  Inc_Improves=1  Reward=-229.82  rwd_std=0.00472  elapsed=103305s
+
+[Update 371] steps=5614389  episodes=371  valid=23030/23059  pg=-0.0009  vf=0.9987  ev=+0.194  ret_std=1.1193  ent=0.5882  kl=0.0011  elapsed=103675s
+
+------------------------------------------------------------
+[Checkpoint] steps=5614389  solved=10.0%  gap=6.56%  nodes=4040
+[Checkpoint] saved  → models\stability_check_56\checkpoints\policy_ppo_step5614389.pt
+------------------------------------------------------------
+
+[Episode 372] start  SP_inst157001.rcp
+
+[Episode 372] Done  Instance=SP_inst157001.rcp  Reason=search_exhausted  Steps=4450  Nodes=4450  Best_Ms=104  Inc_Improves=4  Reward=-43.82  rwd_std=0.00789  elapsed=103778s
+
+[Update 372] steps=5618839  episodes=372  valid=4450/4450  pg=+0.0026  vf=0.1743  ev=-0.086  ret_std=0.3959  ent=0.8120  kl=0.0006  elapsed=103843s
+[Episode 373] start  LA_inst443001.rcp
+
+[Episode 373] Done  Instance=LA_inst443001.rcp  Reason=time_limit  Steps=22017  Nodes=22017  Best_Ms=87  Inc_Improves=6  Reward=-220.01  rwd_std=0.00077  elapsed=103903s
+
+[Update 373] steps=5640856  episodes=373  valid=21989/22017  pg=-0.0315  vf=0.3634  ev=+0.309  ret_std=0.7067  ent=1.0215  kl=0.0010  elapsed=104262s
+[Episode 374] start  TF_inst262001.rcp
+
+[Episode 374] Done  Instance=TF_inst262001.rcp  Reason=time_limit  Steps=25704  Nodes=25704  Best_Ms=125  Inc_Improves=11  Reward=-256.29  rwd_std=0.00233  elapsed=104322s
+
+[Update 374] steps=5666560  episodes=374  valid=25680/25704  pg=-0.0001  vf=0.6714  ev=+0.112  ret_std=0.8695  ent=0.6051  kl=0.0008  elapsed=104740s
+[Episode 375] start  VAR_inst235001.rcp
+
+[Episode 375] Done  Instance=VAR_inst235001.rcp  Reason=time_limit  Steps=27880  Nodes=27880  Best_Ms=119  Inc_Improves=1  Reward=-278.65  rwd_std=0.00087  elapsed=104800s
+
+[Update 375] steps=5694440  episodes=375  valid=27854/27880  pg=+0.0173  vf=0.3252  ev=+0.252  ret_std=0.6826  ent=0.3665  kl=0.0005  elapsed=105260s
+[Episode 376] start  AD_inst458001.rcp
+
+[Episode 376] Done  Instance=AD_inst458001.rcp  Reason=time_limit  Steps=26284  Nodes=26284  Best_Ms=169  Inc_Improves=0  Reward=-262.72  rwd_std=0.00075  elapsed=105320s
+
+[Update 376] steps=5720724  episodes=376  valid=26260/26284  pg=+0.0033  vf=1.3254  ev=-3.260  ret_std=0.7145  ent=0.2617  kl=0.0015  elapsed=105742s
+[Episode 377] start  TF_inst477001.rcp
+
+[Episode 377] Done  Instance=TF_inst477001.rcp  Reason=time_limit  Steps=22214  Nodes=22214  Best_Ms=93  Inc_Improves=2  Reward=-221.81  rwd_std=0.00157  elapsed=105802s
+
+[Update 377] steps=5742938  episodes=377  valid=22188/22214  pg=-0.0002  vf=1.3975  ev=+0.086  ret_std=1.2398  ent=1.1392  kl=0.0005  elapsed=106162s
+[Episode 378] start  LA_inst411001.rcp
+
+[Episode 378] Done  Instance=LA_inst411001.rcp  Reason=search_exhausted  Steps=326  Nodes=326  Best_Ms=91  Inc_Improves=3  Reward=-2.87  rwd_std=0.01251  elapsed=106163s
+
+[Update 378] steps=5743264  episodes=378  valid=326/326  pg=+0.0146  vf=0.0284  ev=+0.886  ret_std=0.4799  ent=0.3772  kl=0.0006  elapsed=106170s
+[Episode 379] start  RU_inst190001.rcp
+
+[Episode 379] Done  Instance=RU_inst190001.rcp  Reason=time_limit  Steps=23242  Nodes=23242  Best_Ms=114  Inc_Improves=1  Reward=-232.27  rwd_std=0.00100  elapsed=106230s
+
+[Update 379] steps=5766506  episodes=379  valid=23219/23242  pg=+0.0010  vf=0.2888  ev=+0.250  ret_std=0.6268  ent=0.5443  kl=0.0010  elapsed=106606s
+[Episode 380] start  TF_inst183001.rcp
+
+[Episode 380] Done  Instance=TF_inst183001.rcp  Reason=time_limit  Steps=22368  Nodes=22368  Best_Ms=104  Inc_Improves=7  Reward=-220.29  rwd_std=0.02011  elapsed=106666s
+
+[Update 380] steps=5788874  episodes=380  valid=22342/22368  pg=+0.1503  vf=1.7247  ev=+0.207  ret_std=1.2212  ent=1.3359  kl=0.0012  elapsed=107037s
+[Episode 381] start  TF_inst33001.rcp
+
+[Episode 381] Done  Instance=TF_inst33001.rcp  Reason=time_limit  Steps=20145  Nodes=20145  Best_Ms=86  Inc_Improves=0  Reward=-201.24  rwd_std=0.00149  elapsed=107097s
+
+[Update 381] steps=5809019  episodes=381  valid=20126/20145  pg=+0.0557  vf=0.4365  ev=-0.739  ret_std=0.5752  ent=2.1028  kl=0.0036  elapsed=107440s
+[Episode 382] start  VAR_inst290001.rcp
+
+[Episode 382] Done  Instance=VAR_inst290001.rcp  Reason=search_exhausted  Steps=325  Nodes=325  Best_Ms=151  Inc_Improves=4  Reward=-2.38  rwd_std=0.02752  elapsed=107441s
+
+[Update 382] steps=5809344  episodes=382  valid=325/325  pg=-0.1025  vf=0.0622  ev=+0.931  ret_std=0.4588  ent=0.3809  kl=0.0001  elapsed=107446s
+[Episode 383] start  SP_inst476001.rcp
+
+[Episode 383] Done  Instance=SP_inst476001.rcp  Reason=search_exhausted  Steps=1049  Nodes=1049  Best_Ms=148  Inc_Improves=0  Reward=-10.30  rwd_std=0.00584  elapsed=107448s
+
+[Update 383] steps=5810393  episodes=383  valid=1049/1049  pg=+0.0082  vf=0.2836  ev=+0.148  ret_std=0.5738  ent=0.3758  kl=0.0002  elapsed=107463s
+[Episode 384] start  RC_inst303001.rcp
+
+[Episode 384] Done  Instance=RC_inst303001.rcp  Reason=time_limit  Steps=21287  Nodes=21287  Best_Ms=45  Inc_Improves=5  Reward=-212.52  rwd_std=0.00127  elapsed=107523s
+
+[Update 384] steps=5831680  episodes=384  valid=21259/21287  pg=-0.0024  vf=1.4474  ev=+0.161  ret_std=1.2884  ent=1.4960  kl=0.0004  elapsed=107876s
+[Episode 385] start  VAR_inst265001.rcp
+
+[Episode 385] Done  Instance=VAR_inst265001.rcp  Reason=time_limit  Steps=25664  Nodes=25664  Best_Ms=157  Inc_Improves=1  Reward=-256.36  rwd_std=0.00126  elapsed=107936s
+
+[Update 385] steps=5857344  episodes=385  valid=25633/25664  pg=-0.0101  vf=0.3549  ev=+0.082  ret_std=0.6195  ent=0.3450  kl=0.0000  elapsed=108355s
+[Episode 386] start  SP_inst113001.rcp
+
+[Episode 386] Done  Instance=SP_inst113001.rcp  Reason=search_exhausted  Steps=1244  Nodes=1244  Best_Ms=105  Inc_Improves=13  Reward=-10.27  rwd_std=0.01784  elapsed=108359s
+
+[Update 386] steps=5858588  episodes=386  valid=1244/1244  pg=+0.0050  vf=0.4540  ev=-0.420  ret_std=0.6166  ent=0.9483  kl=0.0034  elapsed=108377s
+[Episode 387] start  RC_inst507001.rcp
+
+[Episode 387] Done  Instance=RC_inst507001.rcp  Reason=time_limit  Steps=24848  Nodes=24848  Best_Ms=130  Inc_Improves=0  Reward=-248.43  rwd_std=0.00030  elapsed=108437s
+
+[Update 387] steps=5883436  episodes=387  valid=24818/24848  pg=+0.0063  vf=1.0626  ev=+0.067  ret_std=1.0594  ent=0.3680  kl=0.0001  elapsed=108842s
+[Episode 388] start  LA_inst322001.rcp
+
+[Episode 388] Done  Instance=LA_inst322001.rcp  Reason=time_limit  Steps=26669  Nodes=26669  Best_Ms=159  Inc_Improves=6  Reward=-266.26  rwd_std=0.00147  elapsed=108902s
+
+[Update 388] steps=5910105  episodes=388  valid=26642/26669  pg=+0.0150  vf=0.4372  ev=+0.087  ret_std=0.6991  ent=0.5785  kl=0.0006  elapsed=109339s
+[Episode 389] start  RC_inst469001.rcp
+
+[Episode 389] Done  Instance=RC_inst469001.rcp  Reason=time_limit  Steps=26743  Nodes=26743  Best_Ms=158  Inc_Improves=0  Reward=-267.32  rwd_std=0.00070  elapsed=109399s
+
+[Update 389] steps=5936848  episodes=389  valid=26716/26743  pg=-0.0000  vf=0.3520  ev=+0.383  ret_std=0.7814  ent=0.2588  kl=0.0003  elapsed=109834s
+[Episode 390] start  TF_inst541001.rcp
+
+[Episode 390] Done  Instance=TF_inst541001.rcp  Reason=time_limit  Steps=25667  Nodes=25667  Best_Ms=146  Inc_Improves=2  Reward=-255.28  rwd_std=0.00550  elapsed=109894s
+
+[Update 390] steps=5962515  episodes=390  valid=25640/25667  pg=+0.0064  vf=0.8472  ev=-1.253  ret_std=0.8156  ent=0.4168  kl=0.0025  elapsed=110306s
+[Episode 391] start  VAR_inst425001.rcp
+
+[Episode 391] Done  Instance=VAR_inst425001.rcp  Reason=time_limit  Steps=25054  Nodes=25054  Best_Ms=166  Inc_Improves=0  Reward=-250.35  rwd_std=0.00120  elapsed=110366s
+
+[Update 391] steps=5987569  episodes=391  valid=25029/25054  pg=-0.0446  vf=0.1947  ev=+0.325  ret_std=0.5288  ent=0.1897  kl=0.0003  elapsed=110775s
+[Episode 392] start  VAR_inst466001.rcp
+
+[Episode 392] Done  Instance=VAR_inst466001.rcp  Reason=time_limit  Steps=23476  Nodes=23476  Best_Ms=158  Inc_Improves=0  Reward=-234.65  rwd_std=0.00074  elapsed=110835s
+
+[Update 392] steps=6011045  episodes=392  valid=23446/23476  pg=-0.0209  vf=0.1710  ev=+0.415  ret_std=0.5334  ent=0.2827  kl=0.0000  elapsed=111214s
+
+------------------------------------------------------------
+[Checkpoint] steps=6011045  solved=40.0%  gap=2.72%  nodes=3675
+[Checkpoint] saved  → models\stability_check_56\checkpoints\policy_ppo_step6011045.pt
+------------------------------------------------------------
+
+[Episode 393] start  SP_inst355001.rcp
+
+[Episode 393] Done  Instance=SP_inst355001.rcp  Reason=search_exhausted  Steps=603  Nodes=603  Best_Ms=91  Inc_Improves=0  Reward=-5.83  rwd_std=0.00805  elapsed=111301s
+
+[Update 393] steps=6011648  episodes=393  valid=603/603  pg=+0.0354  vf=0.5572  ev=-3.921  ret_std=0.3833  ent=0.8038  kl=0.0049  elapsed=111310s
+[Episode 394] start  VAR_inst483001.rcp
+
+[Episode 394] Done  Instance=VAR_inst483001.rcp  Reason=time_limit  Steps=22472  Nodes=22472  Best_Ms=130  Inc_Improves=0  Reward=-224.67  rwd_std=0.00032  elapsed=111370s
+
+[Update 394] steps=6034120  episodes=394  valid=22441/22472  pg=-0.0057  vf=0.5239  ev=+0.186  ret_std=0.8373  ent=0.4530  kl=0.0002  elapsed=111731s
+[Episode 395] start  TF_inst23001.rcp
+
+[Episode 395] Done  Instance=TF_inst23001.rcp  Reason=time_limit  Steps=18511  Nodes=18511  Best_Ms=37  Inc_Improves=0  Reward=-184.90  rwd_std=0.00155  elapsed=111791s
+
+[Update 395] steps=6052631  episodes=395  valid=18492/18511  pg=-0.0003  vf=1.5467  ev=+0.044  ret_std=1.3038  ent=1.7490  kl=0.0006  elapsed=112106s
+[Episode 396] start  AD_inst391001.rcp
+
+[Episode 396] Done  Instance=AD_inst391001.rcp  Reason=time_limit  Steps=23640  Nodes=23640  Best_Ms=152  Inc_Improves=2  Reward=-236.23  rwd_std=0.00078  elapsed=112166s
+
+[Update 396] steps=6076271  episodes=396  valid=23609/23640  pg=+0.0098  vf=0.5620  ev=+0.383  ret_std=0.9829  ent=0.5117  kl=0.0001  elapsed=112549s
+[Episode 397] start  RC_inst527001.rcp
+
+[Episode 397] Done  Instance=RC_inst527001.rcp  Reason=search_exhausted  Steps=26627  Nodes=26627  Best_Ms=166  Inc_Improves=0  Reward=-266.08  rwd_std=0.00117  elapsed=112606s
+
+[Update 397] steps=6102898  episodes=397  valid=26627/26627  pg=+0.0844  vf=2.4183  ev=-9.557  ret_std=0.6397  ent=0.1762  kl=0.0082  elapsed=113040s
+[Episode 398] start  RC_inst26001.rcp
+
+[Episode 398] Done  Instance=RC_inst26001.rcp  Reason=search_exhausted  Steps=32  Nodes=32  Best_Ms=142  Inc_Improves=0  Reward=-0.10  rwd_std=0.03870  elapsed=113040s
+
+[Update 398] steps=6102930  episodes=398  valid=32/32  pg=-0.0059  vf=0.0991  ev=-4.791  ret_std=0.0503  ent=0.2257  kl=0.0015  elapsed=113041s
+[Episode 399] start  LA_inst339001.rcp
+
+[Episode 399] Done  Instance=LA_inst339001.rcp  Reason=search_exhausted  Steps=10871  Nodes=10871  Best_Ms=115  Inc_Improves=3  Reward=-108.51  rwd_std=0.00155  elapsed=113064s
+
+[Update 399] steps=6113801  episodes=399  valid=10871/10871  pg=-0.0264  vf=0.1512  ev=+0.244  ret_std=0.2895  ent=0.4727  kl=0.0000  elapsed=113229s
+[Episode 400] start  LA_inst377001.rcp
+
+[Episode 400] Done  Instance=LA_inst377001.rcp  Reason=time_limit  Steps=21384  Nodes=21384  Best_Ms=77  Inc_Improves=8  Reward=-213.17  rwd_std=0.00278  elapsed=113289s
+
+[Update 400] steps=6135185  episodes=400  valid=21362/21384  pg=-0.0091  vf=1.6239  ev=+0.148  ret_std=1.3703  ent=1.2012  kl=0.0002  elapsed=113638s
+[Episode 401] start  TF_inst623001.rcp
+
+[Episode 401] Done  Instance=TF_inst623001.rcp  Reason=time_limit  Steps=24538  Nodes=24538  Best_Ms=155  Inc_Improves=0  Reward=-245.33  rwd_std=0.00032  elapsed=113698s
+
+[Update 401] steps=6159723  episodes=401  valid=24507/24538  pg=-0.0048  vf=2.0427  ev=+0.172  ret_std=1.6123  ent=0.3975  kl=0.0004  elapsed=114099s
+[Episode 402] start  TF_inst78001.rcp
+
+[Episode 402] Done  Instance=TF_inst78001.rcp  Reason=search_exhausted  Steps=4672  Nodes=4672  Best_Ms=50  Inc_Improves=0  Reward=-46.53  rwd_std=0.00273  elapsed=114112s
+
+[Update 402] steps=6164395  episodes=402  valid=4672/4672  pg=-0.0001  vf=1.2914  ev=-0.301  ret_std=1.0158  ent=1.3774  kl=0.0026  elapsed=114182s
+[Episode 403] start  VAR_inst396001.rcp
+
+[Episode 403] Done  Instance=VAR_inst396001.rcp  Reason=time_limit  Steps=21266  Nodes=21266  Best_Ms=109  Inc_Improves=1  Reward=-212.61  rwd_std=0.00036  elapsed=114242s
+
+[Update 403] steps=6185661  episodes=403  valid=21235/21266  pg=+0.0094  vf=1.2707  ev=+0.155  ret_std=1.1939  ent=0.6052  kl=0.0007  elapsed=114583s
+[Episode 404] start  LA_inst544001.rcp
+
+[Episode 404] Done  Instance=LA_inst544001.rcp  Reason=time_limit  Steps=25908  Nodes=25908  Best_Ms=181  Inc_Improves=1  Reward=-258.93  rwd_std=0.00074  elapsed=114643s
+
+[Update 404] steps=6211569  episodes=404  valid=25878/25908  pg=+0.0071  vf=0.2699  ev=+0.117  ret_std=0.5578  ent=0.4274  kl=0.0003  elapsed=115065s
+[Episode 405] start  TF_inst368001.rcp
+
+[Episode 405] Done  Instance=TF_inst368001.rcp  Reason=search_exhausted  Steps=62  Nodes=62  Best_Ms=151  Inc_Improves=1  Reward=-0.04  rwd_std=0.05357  elapsed=115065s
+
+[Update 405] steps=6211631  episodes=405  valid=62/62  pg=+0.0168  vf=0.0755  ev=+0.943  ret_std=0.8808  ent=0.3078  kl=0.0004  elapsed=115066s
+[Episode 406] start  VAR_inst194001.rcp
+
+[Episode 406] Done  Instance=VAR_inst194001.rcp  Reason=search_exhausted  Steps=175  Nodes=175  Best_Ms=145  Inc_Improves=2  Reward=-1.19  rwd_std=0.02961  elapsed=115067s
+
+[Update 406] steps=6211806  episodes=406  valid=175/175  pg=+0.0070  vf=0.0229  ev=+0.957  ret_std=0.6744  ent=0.4396  kl=0.0005  elapsed=115069s
+[Episode 407] start  AD_inst163001.rcp
+
+[Episode 407] Done  Instance=AD_inst163001.rcp  Reason=time_limit  Steps=23151  Nodes=23151  Best_Ms=114  Inc_Improves=8  Reward=-231.00  rwd_std=0.00212  elapsed=115129s
+
+[Update 407] steps=6234957  episodes=407  valid=23129/23151  pg=+0.0369  vf=0.9410  ev=+0.113  ret_std=1.0988  ent=1.0019  kl=0.0016  elapsed=115516s
+[Episode 408] start  AD_inst418001.rcp
+
+[Episode 408] Done  Instance=AD_inst418001.rcp  Reason=time_limit  Steps=26133  Nodes=26133  Best_Ms=169  Inc_Improves=0  Reward=-261.21  rwd_std=0.00075  elapsed=115576s
+
+[Update 408] steps=6261090  episodes=408  valid=26102/26133  pg=+0.0251  vf=0.6522  ev=-1.442  ret_std=0.7363  ent=0.3452  kl=0.0005  elapsed=115999s
+[Episode 409] start  RC_inst225001.rcp
+
+[Episode 409] Done  Instance=RC_inst225001.rcp  Reason=time_limit  Steps=24419  Nodes=24419  Best_Ms=86  Inc_Improves=2  Reward=-243.55  rwd_std=0.00368  elapsed=116059s
+
+[Update 409] steps=6285509  episodes=409  valid=24389/24419  pg=+0.0095  vf=1.1087  ev=+0.201  ret_std=1.1556  ent=0.4498  kl=0.0001  elapsed=116457s
+[Episode 410] start  SP_inst13001.rcp
+
+[Episode 410] Done  Instance=SP_inst13001.rcp  Reason=search_exhausted  Steps=32  Nodes=32  Best_Ms=81  Inc_Improves=0  Reward=-0.10  rwd_std=0.03870  elapsed=116457s
+
+[Update 410] steps=6285541  episodes=410  valid=32/32  pg=-0.0149  vf=0.0543  ev=-6.747  ret_std=0.0646  ent=0.4415  kl=0.0023  elapsed=116458s
+[Episode 411] start  LA_inst545001.rcp
+
+[Episode 411] Done  Instance=LA_inst545001.rcp  Reason=time_limit  Steps=23860  Nodes=23860  Best_Ms=152  Inc_Improves=0  Reward=-238.53  rwd_std=0.00045  elapsed=116518s
+
+[Update 411] steps=6309401  episodes=411  valid=23830/23860  pg=-0.0154  vf=0.8266  ev=+0.273  ret_std=1.0225  ent=0.4531  kl=0.0004  elapsed=116906s
+[Episode 412] start  LA_inst453001.rcp
+
+[Episode 412] Done  Instance=LA_inst453001.rcp  Reason=search_exhausted  Steps=224  Nodes=224  Best_Ms=93  Inc_Improves=2  Reward=-1.72  rwd_std=0.02165  elapsed=116907s
+
+[Update 412] steps=6309625  episodes=412  valid=224/224  pg=-0.0047  vf=0.0204  ev=+0.925  ret_std=0.5264  ent=0.4318  kl=0.0017  elapsed=116910s
+[Episode 413] start  TF_inst196001.rcp
+
+[Episode 413] Done  Instance=TF_inst196001.rcp  Reason=time_limit  Steps=25080  Nodes=25080  Best_Ms=115  Inc_Improves=4  Reward=-250.62  rwd_std=0.00089  elapsed=116970s
+
+[Update 413] steps=6334705  episodes=413  valid=25054/25080  pg=-0.0228  vf=0.3592  ev=+0.099  ret_std=0.6424  ent=0.9363  kl=0.0004  elapsed=117389s
+[Episode 414] start  RU_inst144001.rcp
+
+[Episode 414] Done  Instance=RU_inst144001.rcp  Reason=time_limit  Steps=23355  Nodes=23355  Best_Ms=114  Inc_Improves=2  Reward=-233.47  rwd_std=0.00039  elapsed=117449s
+
+[Update 414] steps=6358060  episodes=414  valid=23326/23355  pg=-0.0089  vf=1.2842  ev=+0.251  ret_std=1.3205  ent=0.6467  kl=0.0008  elapsed=117826s
+[Episode 415] start  TF_inst223001.rcp
+
+[Episode 415] Done  Instance=TF_inst223001.rcp  Reason=search_exhausted  Steps=69  Nodes=69  Best_Ms=137  Inc_Improves=2  Reward=-0.34  rwd_std=0.02850  elapsed=117827s
+
+[Update 415] steps=6358129  episodes=415  valid=69/69  pg=-0.1214  vf=0.0743  ev=+0.899  ret_std=0.9578  ent=0.2153  kl=0.0008  elapsed=117828s
+[Episode 416] start  RU_inst13001.rcp
+
+[Episode 416] Done  Instance=RU_inst13001.rcp  Reason=search_exhausted  Steps=32  Nodes=32  Best_Ms=81  Inc_Improves=0  Reward=-0.10  rwd_std=0.03870  elapsed=117828s
+
+[Update 416] steps=6358161  episodes=416  valid=32/32  pg=-0.0007  vf=0.1118  ev=-63.147  ret_std=0.0701  ent=0.5059  kl=0.0017  elapsed=117828s
+[Episode 417] start  RC_inst485001.rcp
+
+[Episode 417] Done  Instance=RC_inst485001.rcp  Reason=search_exhausted  Steps=26627  Nodes=26627  Best_Ms=166  Inc_Improves=0  Reward=-266.08  rwd_std=0.00117  elapsed=117885s
+
+[Update 417] steps=6384788  episodes=417  valid=26627/26627  pg=+0.0031  vf=0.4050  ev=-0.371  ret_std=0.6336  ent=0.2005  kl=0.0009  elapsed=118318s
+[Episode 418] start  TF_inst425001.rcp
+
+[Episode 418] Done  Instance=TF_inst425001.rcp  Reason=time_limit  Steps=21415  Nodes=21415  Best_Ms=55  Inc_Improves=1  Reward=-213.99  rwd_std=0.00096  elapsed=118378s
+
+[Update 418] steps=6406203  episodes=418  valid=21392/21415  pg=+0.0016  vf=1.1631  ev=+0.184  ret_std=1.2131  ent=0.9872  kl=0.0009  elapsed=118726s
+
+------------------------------------------------------------
+[Checkpoint] steps=6406203  solved=20.0%  gap=2.49%  nodes=3882
+[Checkpoint] saved  → models\stability_check_56\checkpoints\policy_ppo_step6406203.pt
+------------------------------------------------------------
+
+[Episode 419] start  RU_inst31001.rcp
+
+[Episode 419] Done  Instance=RU_inst31001.rcp  Reason=search_exhausted  Steps=46  Nodes=46  Best_Ms=91  Inc_Improves=0  Reward=-0.26  rwd_std=0.02887  elapsed=118816s
+
+[Update 419] steps=6406249  episodes=419  valid=46/46  pg=+0.0291  vf=0.0100  ev=+0.989  ret_std=0.7733  ent=0.6111  kl=0.0015  elapsed=118819s
+[Episode 420] start  VAR_inst4001.rcp
+
+[Episode 420] Done  Instance=VAR_inst4001.rcp  Reason=search_exhausted  Steps=71  Nodes=71  Best_Ms=82  Inc_Improves=0  Reward=-0.49  rwd_std=0.02589  elapsed=118819s
+
+[Update 420] steps=6406320  episodes=420  valid=71/71  pg=+0.0176  vf=0.0424  ev=+0.964  ret_std=0.8826  ent=0.7222  kl=0.0018  elapsed=118820s
+[Episode 421] start  SP_inst89001.rcp
+
+[Episode 421] Done  Instance=SP_inst89001.rcp  Reason=search_exhausted  Steps=32  Nodes=32  Best_Ms=126  Inc_Improves=0  Reward=-0.10  rwd_std=0.03870  elapsed=118820s
+
+[Update 421] steps=6406352  episodes=421  valid=32/32  pg=-0.0008  vf=0.0977  ev=-0.007  ret_std=0.0660  ent=0.2273  kl=0.0000  elapsed=118821s
+[Episode 422] start  VAR_inst278001.rcp
+
+[Episode 422] Done  Instance=VAR_inst278001.rcp  Reason=search_exhausted  Steps=1874  Nodes=1874  Best_Ms=150  Inc_Improves=2  Reward=-18.12  rwd_std=0.00921  elapsed=118825s
+
+[Update 422] steps=6408226  episodes=422  valid=1874/1874  pg=-0.0054  vf=0.1574  ev=+0.405  ret_std=0.3693  ent=0.4709  kl=0.0002  elapsed=118851s
+[Episode 423] start  AD_inst423001.rcp
+
+[Episode 423] Done  Instance=AD_inst423001.rcp  Reason=time_limit  Steps=25343  Nodes=25343  Best_Ms=171  Inc_Improves=0  Reward=-253.34  rwd_std=0.00058  elapsed=118911s
+
+[Update 423] steps=6433569  episodes=423  valid=25314/25343  pg=+0.0060  vf=1.5610  ev=+0.283  ret_std=1.4981  ent=0.4061  kl=0.0003  elapsed=119321s
+[Episode 424] start  AD_inst408001.rcp
+
+[Episode 424] Done  Instance=AD_inst408001.rcp  Reason=time_limit  Steps=23843  Nodes=23843  Best_Ms=185  Inc_Improves=0  Reward=-238.38  rwd_std=0.00031  elapsed=119381s
+
+[Update 424] steps=6457412  episodes=424  valid=23813/23843  pg=-0.0208  vf=1.0071  ev=+0.364  ret_std=1.2479  ent=0.4497  kl=0.0001  elapsed=119769s
+[Episode 425] start  AD_inst473001.rcp
+
+[Episode 425] Done  Instance=AD_inst473001.rcp  Reason=time_limit  Steps=24313  Nodes=24313  Best_Ms=154  Inc_Improves=0  Reward=-243.08  rwd_std=0.00031  elapsed=119830s
+
+[Update 425] steps=6481725  episodes=425  valid=24282/24313  pg=-0.0391  vf=0.5810  ev=+0.454  ret_std=1.0634  ent=0.4400  kl=0.0003  elapsed=120225s
+[Episode 426] start  AD_inst178001.rcp
+
+[Episode 426] Done  Instance=AD_inst178001.rcp  Reason=time_limit  Steps=27157  Nodes=27157  Best_Ms=145  Inc_Improves=1  Reward=-271.42  rwd_std=0.00084  elapsed=120285s
+
+[Update 426] steps=6508882  episodes=426  valid=27126/27157  pg=-0.0199  vf=0.5751  ev=+0.129  ret_std=0.8450  ent=0.3337  kl=0.0005  elapsed=120728s
+[Episode 427] start  AD_inst383001.rcp
+
+[Episode 427] Done  Instance=AD_inst383001.rcp  Reason=time_limit  Steps=25573  Nodes=25573  Best_Ms=150  Inc_Improves=1  Reward=-254.77  rwd_std=0.00540  elapsed=120789s
+
+[Update 427] steps=6534455  episodes=427  valid=25545/25573  pg=-0.0012  vf=0.5315  ev=+0.408  ret_std=0.9630  ent=0.5342  kl=0.0006  elapsed=121206s
+[Episode 428] start  SP_inst302001.rcp
+
+[Episode 428] Done  Instance=SP_inst302001.rcp  Reason=time_limit  Steps=22946  Nodes=22946  Best_Ms=103  Inc_Improves=9  Reward=-228.90  rwd_std=0.00212  elapsed=121266s
+
+[Update 428] steps=6557401  episodes=428  valid=22932/22946  pg=+0.0072  vf=0.7862  ev=-0.616  ret_std=0.7881  ent=0.9522  kl=0.0044  elapsed=121638s
+[Episode 429] start  VAR_inst66001.rcp
+
+[Episode 429] Done  Instance=VAR_inst66001.rcp  Reason=time_limit  Steps=19386  Nodes=19386  Best_Ms=44  Inc_Improves=1  Reward=-193.72  rwd_std=0.00099  elapsed=121698s
+
+[Update 429] steps=6576787  episodes=429  valid=19363/19386  pg=-0.0229  vf=1.5953  ev=+0.173  ret_std=1.3695  ent=1.7769  kl=0.0022  elapsed=122022s
+[Episode 430] start  TF_inst277001.rcp
+
+[Episode 430] Done  Instance=TF_inst277001.rcp  Reason=search_exhausted  Steps=157  Nodes=157  Best_Ms=137  Inc_Improves=5  Reward=-0.32  rwd_std=0.06520  elapsed=122023s
+
+[Update 430] steps=6576944  episodes=430  valid=157/157  pg=-0.0569  vf=0.1027  ev=+0.947  ret_std=0.7028  ent=0.3548  kl=0.0009  elapsed=122025s
+[Episode 431] start  RC_inst368001.rcp
+
+[Episode 431] Done  Instance=RC_inst368001.rcp  Reason=search_exhausted  Steps=415  Nodes=415  Best_Ms=148  Inc_Improves=1  Reward=-3.78  rwd_std=0.01283  elapsed=122026s
+
+[Update 431] steps=6577359  episodes=431  valid=415/415  pg=-0.0212  vf=0.0240  ev=+0.943  ret_std=0.4575  ent=0.5242  kl=0.0003  elapsed=122032s
+[Episode 432] start  VAR_inst47001.rcp
+
+[Episode 432] Done  Instance=VAR_inst47001.rcp  Reason=search_exhausted  Steps=32  Nodes=32  Best_Ms=142  Inc_Improves=0  Reward=-0.10  rwd_std=0.03870  elapsed=122032s
+
+[Update 432] steps=6577391  episodes=432  valid=32/32  pg=-0.0027  vf=0.0091  ev=-4.455  ret_std=0.0350  ent=0.1211  kl=0.0001  elapsed=122032s
+[Episode 433] start  RC_inst448001.rcp
+
+[Episode 433] Done  Instance=RC_inst448001.rcp  Reason=time_limit  Steps=26994  Nodes=26994  Best_Ms=156  Inc_Improves=0  Reward=-269.82  rwd_std=0.00070  elapsed=122092s
+
+[Update 433] steps=6604385  episodes=433  valid=26966/26994  pg=-0.0008  vf=0.2121  ev=+0.459  ret_std=0.6545  ent=0.3265  kl=0.0002  elapsed=122535s
+[Episode 434] start  SP_inst203001.rcp
+
+[Episode 434] Done  Instance=SP_inst203001.rcp  Reason=time_limit  Steps=24533  Nodes=24533  Best_Ms=129  Inc_Improves=7  Reward=-245.00  rwd_std=0.00117  elapsed=122596s
+
+[Update 434] steps=6628918  episodes=434  valid=24507/24533  pg=+0.0084  vf=0.2516  ev=+0.196  ret_std=0.5454  ent=0.9888  kl=0.0010  elapsed=123005s
+[Episode 435] start  TF_inst357001.rcp
+
+[Episode 435] Done  Instance=TF_inst357001.rcp  Reason=time_limit  Steps=22933  Nodes=22933  Best_Ms=121  Inc_Improves=2  Reward=-229.06  rwd_std=0.00128  elapsed=123065s
+
+[Update 435] steps=6651851  episodes=435  valid=22904/22933  pg=+0.0010  vf=0.8009  ev=+0.338  ret_std=1.1220  ent=0.8580  kl=0.0014  elapsed=123439s
+[Episode 436] start  RC_inst240001.rcp
+
+[Episode 436] Done  Instance=RC_inst240001.rcp  Reason=time_limit  Steps=23427  Nodes=23427  Best_Ms=77  Inc_Improves=1  Reward=-234.11  rwd_std=0.00072  elapsed=123499s
+
+[Update 436] steps=6675278  episodes=436  valid=23399/23427  pg=+0.0310  vf=2.3239  ev=-0.394  ret_std=1.4890  ent=0.9286  kl=0.0028  elapsed=123907s
+[Episode 437] start  SP_inst15001.rcp
+
+[Episode 437] Done  Instance=SP_inst15001.rcp  Reason=search_exhausted  Steps=32  Nodes=32  Best_Ms=106  Inc_Improves=0  Reward=-0.10  rwd_std=0.03870  elapsed=123908s
+
+[Update 437] steps=6675310  episodes=437  valid=32/32  pg=-0.0072  vf=0.1131  ev=-3.671  ret_std=0.0429  ent=0.1419  kl=0.0010  elapsed=123908s
+[Episode 438] start  RC_inst375001.rcp
+
+[Episode 438] Done  Instance=RC_inst375001.rcp  Reason=time_limit  Steps=24566  Nodes=24566  Best_Ms=87  Inc_Improves=3  Reward=-245.59  rwd_std=0.00044  elapsed=123968s
+
+[Update 438] steps=6699876  episodes=438  valid=24538/24566  pg=+0.0341  vf=1.3878  ev=+0.111  ret_std=1.0450  ent=0.5809  kl=0.0004  elapsed=124369s
+[Episode 439] start  LA_inst658001.rcp
+
+[Episode 439] Done  Instance=LA_inst658001.rcp  Reason=time_limit  Steps=25818  Nodes=25818  Best_Ms=187  Inc_Improves=0  Reward=-258.07  rwd_std=0.00071  elapsed=124429s
+
+[Update 439] steps=6725694  episodes=439  valid=25788/25818  pg=-0.0002  vf=0.6182  ev=+0.098  ret_std=0.8459  ent=0.3239  kl=0.0007  elapsed=124846s
+[Episode 440] start  RC_inst32001.rcp
+
+[Episode 440] Done  Instance=RC_inst32001.rcp  Reason=search_exhausted  Steps=32  Nodes=32  Best_Ms=142  Inc_Improves=0  Reward=-0.10  rwd_std=0.03870  elapsed=124846s
+
+[Update 440] steps=6725726  episodes=440  valid=32/32  pg=-0.0005  vf=0.0127  ev=-2.712  ret_std=0.0374  ent=0.1434  kl=0.0000  elapsed=124849s
+[Episode 441] start  VAR_inst367001.rcp
+
+[Episode 441] Done  Instance=VAR_inst367001.rcp  Reason=time_limit  Steps=24701  Nodes=24701  Best_Ms=155  Inc_Improves=1  Reward=-246.90  rwd_std=0.00073  elapsed=124909s
+
+[Update 441] steps=6750427  episodes=441  valid=24671/24701  pg=+0.0103  vf=0.1483  ev=+0.413  ret_std=0.5226  ent=0.3164  kl=0.0004  elapsed=125311s
+[Episode 442] start  VAR_inst424001.rcp
+
+[Episode 442] Done  Instance=VAR_inst424001.rcp  Reason=time_limit  Steps=23854  Nodes=23854  Best_Ms=158  Inc_Improves=0  Reward=-238.43  rwd_std=0.00074  elapsed=125371s
+
+[Update 442] steps=6774281  episodes=442  valid=23825/23854  pg=+0.0097  vf=0.3591  ev=+0.379  ret_std=0.7966  ent=0.3472  kl=0.0002  elapsed=125754s
+[Episode 443] start  TF_inst718001.rcp
+
+[Episode 443] Done  Instance=TF_inst718001.rcp  Reason=time_limit  Steps=25946  Nodes=25946  Best_Ms=168  Inc_Improves=0  Reward=-259.35  rwd_std=0.00067  elapsed=125814s
+
+[Update 443] steps=6800227  episodes=443  valid=25916/25946  pg=+0.0008  vf=0.4835  ev=+0.376  ret_std=0.9433  ent=0.3383  kl=0.0005  elapsed=126258s
+
+------------------------------------------------------------
+[Checkpoint] steps=6800227  solved=20.0%  gap=2.97%  nodes=3680
+[Checkpoint] saved  → models\stability_check_56\checkpoints\policy_ppo_step6800227.pt
+------------------------------------------------------------
+
+[Episode 444] start  VAR_inst231001.rcp
+
+[Episode 444] Done  Instance=VAR_inst231001.rcp  Reason=time_limit  Steps=21699  Nodes=21699  Best_Ms=95  Inc_Improves=1  Reward=-216.93  rwd_std=0.00042  elapsed=126403s
+
+[Update 444] steps=6821926  episodes=444  valid=21670/21699  pg=-0.3346  vf=5.7048  ev=-2.098  ret_std=0.6949  ent=1.0453  kl=0.0054  elapsed=126755s
+[Episode 445] start  RC_inst171001.rcp
+
+[Episode 445] Done  Instance=RC_inst171001.rcp  Reason=time_limit  Steps=22991  Nodes=22991  Best_Ms=73  Inc_Improves=5  Reward=-229.54  rwd_std=0.00132  elapsed=126815s
+
+[Update 445] steps=6844917  episodes=445  valid=22969/22991  pg=-0.0178  vf=0.6465  ev=+0.260  ret_std=0.9682  ent=0.9521  kl=0.0004  elapsed=127190s
+[Episode 446] start  SP_inst226001.rcp
+
+[Episode 446] Done  Instance=SP_inst226001.rcp  Reason=time_limit  Steps=23744  Nodes=23744  Best_Ms=74  Inc_Improves=2  Reward=-237.34  rwd_std=0.00053  elapsed=127250s
+
+[Update 446] steps=6868661  episodes=446  valid=23721/23744  pg=-0.0179  vf=0.7286  ev=+0.229  ret_std=0.9918  ent=0.7856  kl=0.0010  elapsed=127639s
+[Episode 447] start  SP_inst164001.rcp
+
+[Episode 447] Done  Instance=SP_inst164001.rcp  Reason=time_limit  Steps=19704  Nodes=19704  Best_Ms=77  Inc_Improves=2  Reward=-195.64  rwd_std=0.00919  elapsed=127699s
+
+[Update 447] steps=6888365  episodes=447  valid=19677/19704  pg=+0.0228  vf=1.1106  ev=+0.194  ret_std=1.1633  ent=1.6557  kl=0.0012  elapsed=128027s
+[Episode 448] start  RU_inst79001.rcp
+
+[Episode 448] Done  Instance=RU_inst79001.rcp  Reason=search_exhausted  Steps=1265  Nodes=1265  Best_Ms=97  Inc_Improves=6  Reward=-11.72  rwd_std=0.01780  elapsed=128030s
+
+[Update 448] steps=6889630  episodes=448  valid=1265/1265  pg=-0.1202  vf=0.1191  ev=+0.008  ret_std=0.2876  ent=0.7903  kl=0.0007  elapsed=128048s
+[Episode 449] start  VAR_inst193001.rcp
+
+[Episode 449] Done  Instance=VAR_inst193001.rcp  Reason=search_exhausted  Steps=2016  Nodes=2016  Best_Ms=99  Inc_Improves=3  Reward=-19.89  rwd_std=0.00415  elapsed=128053s
+
+[Update 449] steps=6891646  episodes=449  valid=2016/2016  pg=-0.0019  vf=0.0840  ev=+0.124  ret_std=0.3162  ent=0.6630  kl=0.0006  elapsed=128081s
+[Episode 450] start  TF_inst487001.rcp
+
+[Episode 450] Done  Instance=TF_inst487001.rcp  Reason=time_limit  Steps=26187  Nodes=26187  Best_Ms=152  Inc_Improves=4  Reward=-261.54  rwd_std=0.00133  elapsed=128141s
+
+[Update 450] steps=6917833  episodes=450  valid=26159/26187  pg=-0.0798  vf=0.7805  ev=+0.165  ret_std=0.9668  ent=0.4123  kl=0.0004  elapsed=128561s
+[Episode 451] start  SP_inst403001.rcp
+
+[Episode 451] Done  Instance=SP_inst403001.rcp  Reason=search_exhausted  Steps=6360  Nodes=6360  Best_Ms=158  Inc_Improves=1  Reward=-63.38  rwd_std=0.00248  elapsed=128575s
+
+[Update 451] steps=6924193  episodes=451  valid=6360/6360  pg=+0.0004  vf=0.1780  ev=+0.247  ret_std=0.4513  ent=0.2779  kl=0.0002  elapsed=128667s
+[Episode 452] start  VAR_inst376001.rcp
+
+[Episode 452] Done  Instance=VAR_inst376001.rcp  Reason=time_limit  Steps=23927  Nodes=23927  Best_Ms=119  Inc_Improves=2  Reward=-239.12  rwd_std=0.00095  elapsed=128727s
+
+[Update 452] steps=6948120  episodes=452  valid=23904/23927  pg=-0.0002  vf=0.2029  ev=+0.219  ret_std=0.4896  ent=0.2803  kl=0.0002  elapsed=129102s
+[Episode 453] start  RC_inst252001.rcp
+
+[Episode 453] Done  Instance=RC_inst252001.rcp  Reason=time_limit  Steps=24444  Nodes=24444  Best_Ms=97  Inc_Improves=1  Reward=-244.37  rwd_std=0.00040  elapsed=129162s
+
+[Update 453] steps=6972564  episodes=453  valid=24415/24444  pg=+0.0228  vf=0.8824  ev=+0.239  ret_std=1.0704  ent=0.6241  kl=0.0002  elapsed=129559s
+[Episode 454] start  LA_inst63001.rcp
+
+[Episode 454] Done  Instance=LA_inst63001.rcp  Reason=search_exhausted  Steps=59  Nodes=59  Best_Ms=90  Inc_Improves=0  Reward=-0.38  rwd_std=0.02711  elapsed=129560s
+
+[Update 454] steps=6972623  episodes=454  valid=59/59  pg=-0.0198  vf=0.0221  ev=+0.949  ret_std=0.8635  ent=0.5245  kl=0.0011  elapsed=129561s
+[Episode 455] start  VAR_inst383001.rcp
+
+[Episode 455] Done  Instance=VAR_inst383001.rcp  Reason=time_limit  Steps=25062  Nodes=25062  Best_Ms=166  Inc_Improves=0  Reward=-250.43  rwd_std=0.00120  elapsed=129621s
+
+[Update 455] steps=6997685  episodes=455  valid=25042/25062  pg=-0.0153  vf=0.1945  ev=+0.275  ret_std=0.5462  ent=0.2360  kl=0.0008  elapsed=130024s
+[Episode 456] start  LA_inst119001.rcp
+
+[Episode 456] Done  Instance=LA_inst119001.rcp  Reason=time_limit  Steps=21698  Nodes=21698  Best_Ms=60  Inc_Improves=3  Reward=-215.92  rwd_std=0.00630  elapsed=130084s
+
+[Update 456] steps=7019383  episodes=456  valid=21676/21698  pg=+0.0014  vf=0.4958  ev=+0.120  ret_std=0.7766  ent=0.9834  kl=0.0025  elapsed=130431s
+
+------------------------------------------------------------
+[Final Eval] steps=7019383  solved=20.0%  gap=2.67%  nodes=3881
+------------------------------------------------------------
+
+================================================================================
+  Training complete
+  steps=7,019,383  episodes=456  updates=456  elapsed=130431s
+  best gap     : 2.25% at step 4,815,848
+  best solved  : 30.0% at step 4,815,848
+  best model   → models\stability_check_56\policy_ppo_best.pt
+  eval log     → models\stability_check_56\policy_ppo_eval_log.json
+================================================================================
