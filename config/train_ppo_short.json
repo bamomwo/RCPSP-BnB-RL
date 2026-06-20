@@ -5,7 +5,7 @@
   "max_resources": 4,
   "dominance": "set_based",
 
-  "bc_checkpoint": "models/policy_bc.pt",
+  "bc_checkpoint": "models/stability_check_5f/policy_ppo_best.pt",
   "d_model": 64,
   "n_heads": 4,
   "n_layers": 2,
@@ -26,8 +26,8 @@
   "time_limit_s": 60.0,
 
   "alpha": 0.01,
-  "beta1": 1.0,
-  "beta2": 1.0,
+  "beta1": 1,
+  "beta2": 1,
 
   "eval_every_steps": 400000,
   "eval_root": "data/eval/j30/j30_10",
@@ -35,8 +35,8 @@
   "eval_time_limit_s": 10.0,
   "eval_optimal_json": "data/baseline/j30_opt.json",
 
-  "save_path": "models/stability_check_5/policy_ppo.pt",
-  "checkpoint_dir": "models/stability_check_5/checkpoints",
+  "save_path": "models/stability_check_5ff/policy_ppo.pt",
+  "checkpoint_dir": "models/stability_check_5ff/checkpoints",
   "seed": 42,
   "device": "cpu"
 }
