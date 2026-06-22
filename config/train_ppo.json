@@ -5,7 +5,7 @@
   "max_resources": 4,
   "dominance": "set_based",
 
-  "bc_checkpoint": "models/policy_bc.pt",
+  "bc_checkpoint": "models/best/policy_ppo_tree_56.pt",
   "d_model": 64,
   "n_heads": 4,
   "n_layers": 2,
@@ -14,17 +14,17 @@
 
   "total_env_steps": 1000000,
   "ppo_epochs": 4,
-  "minibatches": 4,
+  "minibatches": 8,
   "clip_eps": 0.1,
-  "tree_gamma_cost": 1.0,
+  "tree_gamma_cost": 0.85,
   "tree_gamma_bonus": 1.0,
   "tree_keep_open": false,
   "ent_coef": 0.01,
-  "vf_coef": 0.5,
-  "lr": 3e-4,
+  "vf_coef": 0.25,
+  "lr": 1e-3,
   "max_grad_norm": 0.5,
   "target_kl": 0.05,
-  "time_limit_s": 60.0,
+  "time_limit_s": 120.0,
 
   "alpha": 0.01,
   "beta1": 1.0,
@@ -36,8 +36,8 @@
   "eval_time_limit_s": 60.0,
   "eval_optimal_json": "data/baseline/j30_opt.json",
 
-  "save_path": "models/9m_01/policy_ppo.pt",
-  "checkpoint_dir": "models/9m_01/checkpoints",
+  "save_path": "models/train_1/policy_ppo.pt",
+  "checkpoint_dir": "models/train_1/checkpoints",
   "seed": 42,
   "device": "cpu"
 }

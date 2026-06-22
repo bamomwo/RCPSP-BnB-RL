@@ -70,29 +70,8 @@ class BranchingTransformer(nn.Module):
     """
     Attention-based branching policy for RCPSP branch-and-bound.
 
-    Architecture
-    ------------
-    1. Project global node features into a CLS token embedding  [d_model]
-    2. Project each candidate activity's features into an embedding  [R, d_model]
-    3. Prepend the CLS token: sequence = [cls | cand_1 | ... | cand_R]  [R+1, d_model]
-    4. Run N transformer encoder layers — candidates attend to each other
-       and to the global context through the CLS token
-    5. Score each candidate position with a linear head  →  logits [R]
-    6. (Optional) Estimate state value from the CLS token output  →  scalar
-
-    The CLS token acts as the global context carrier. After encoding, each
-    candidate's representation has attended to all other candidates and to
-    the global state, solving the isolation problem of the previous MLP.
-
-    Parameters
-    ----------
-    global_dim    : dimension of global feature vector (Fg)
-    candidate_dim : dimension of per-candidate feature vector (Fc)
-    d_model       : internal embedding dimension
-    n_heads       : number of attention heads (must divide d_model)
-    n_layers      : number of transformer encoder layers
-    ffn_dim       : feed-forward network hidden dimension
-    dropout       : dropout rate applied in attention and FFN
+    CLS token (global features) + per-candidate embeddings → transformer encoder
+    → logits [R] over candidates + value scalar from CLS output.
     """
 
     def __init__(
@@ -126,12 +105,7 @@ class BranchingTransformer(nn.Module):
         # Scoring head: maps each candidate embedding → scalar logit
         self.score_head = nn.Linear(d_model, 1)
 
-        # Value head: maps [CLS token ⊕ critic runtime features] → scalar state
-        # value (used in RL). The CLS token carries the scheduling state (shared
-        # with the actor); the critic_feature_dim extra inputs carry search
-        # lifetime quantities (nodes burned, time fraction, frontier size, ...)
-        # that the actor does not see. critic_feature_dim=0 reproduces the
-        # original CLS-only value head, so existing checkpoints stay loadable.
+        # Value head: CLS token + optional critic features → scalar
         self.value_head = nn.Sequential(
             nn.Linear(d_model + critic_feature_dim, d_model),
             nn.ReLU(),
@@ -155,24 +129,11 @@ class BranchingTransformer(nn.Module):
         critic_feats: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
-        Forward pass for a single node (unbatched over nodes).
+        Unbatched forward pass.
 
-        Parameters
-        ----------
-        candidate_feats : [R, Fc]  — one row per ready activity
-        global_feats    : [Fg]     — global node features (1D)
-        action_mask     : [R] bool — True where action is feasible (optional)
-        critic_feats    : [Fk]     — critic-only runtime features (optional).
-                          Concatenated onto the CLS output before the value
-                          head. When the model was built with
-                          critic_feature_dim > 0 and this is None (e.g. at
-                          inference, where only logits are used), zeros are
-                          substituted so the value head still runs.
-
-        Returns
-        -------
-        logits : [R]   — unnormalised scores; higher = preferred branch
-        value  : []    — scalar state value estimate
+        Parameters: candidate_feats [R, Fc], global_feats [Fg],
+                    action_mask [R] bool, critic_feats [Fk] optional.
+        Returns: logits [R], value scalar.
         """
         R = candidate_feats.shape[0]
 
@@ -205,15 +166,11 @@ class BranchingTransformer(nn.Module):
         # Score each candidate
         logits = self.score_head(cand_out).squeeze(-1)  # [R]
 
-        # Mask infeasible candidates with large negative value
+        # Mask infeasible candidates
         if action_mask is not None:
             logits = logits.masked_fill(~action_mask, -1e9)
 
-        # State value from CLS token, augmented with critic-only runtime
-        # features. The CLS output carries the (actor-shared) scheduling state;
-        # critic_feats carries the search-lifetime quantities the actor never
-        # sees. When the value head expects extra features but none are given
-        # (inference / logits-only callers), substitute zeros.
+        # Value from CLS + optional critic features
         if self.critic_feature_dim > 0:
             if critic_feats is None:
                 critic_feats = torch.zeros(
@@ -227,6 +184,68 @@ class BranchingTransformer(nn.Module):
         value = self.value_head(value_in).squeeze(-1)  # scalar
 
         return logits, value
+
+    def forward_batch(
+        self,
+        candidate_feats: torch.Tensor,
+        global_feats: torch.Tensor,
+        action_mask: torch.Tensor,
+        critic_feats: Optional[torch.Tensor] = None,
+        pad_mask: Optional[torch.Tensor] = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Batched forward pass for GPU-optimized PPO updates.
+
+        Parameters: candidate_feats [B, R_max, Fc], global_feats [B, Fg],
+                    action_mask [B, R_max] bool, critic_feats [B, Fk] optional,
+                    pad_mask [B, R_max] bool (True=real, False=padding).
+        Returns: logits [B, R_max], values [B].
+        """
+        B, R_max, _ = candidate_feats.shape
+
+        # Project inputs into d_model space
+        cls_tokens = self.cls_proj(global_feats)              # [B, d_model]
+        cand_emb = self.cand_proj(candidate_feats)            # [B, R_max, d_model]
+
+        # Build sequence: [CLS, cand_1, ..., cand_R_max] per item
+        seq = torch.cat([cls_tokens.unsqueeze(1), cand_emb], dim=1)  # [B, R_max+1, d_model]
+
+        # Build key_padding_mask [B, R_max+1]: True = IGNORE in attention.
+        # CLS (position 0) is always attended; padded candidate positions are ignored.
+        if pad_mask is not None:
+            cls_col = torch.zeros(B, 1, dtype=torch.bool, device=seq.device)
+            key_padding_mask = torch.cat([cls_col, ~pad_mask], dim=1)  # [B, R_max+1]
+        else:
+            key_padding_mask = None
+
+        # Transformer encoding
+        x = seq
+        for layer in self.layers:
+            x = layer(x, key_padding_mask=key_padding_mask)
+        x = self.final_norm(x)  # [B, R_max+1, d_model]
+
+        cls_out = x[:, 0]    # [B, d_model]
+        cand_out = x[:, 1:]  # [B, R_max, d_model]
+
+        # Score each candidate
+        logits = self.score_head(cand_out).squeeze(-1)  # [B, R_max]
+
+        # Mask infeasible and padded positions
+        logits = logits.masked_fill(~action_mask, -1e9)
+
+        # State value from CLS token + critic features
+        if self.critic_feature_dim > 0:
+            if critic_feats is None:
+                critic_feats = torch.zeros(
+                    B, self.critic_feature_dim,
+                    dtype=cls_out.dtype, device=cls_out.device,
+                )
+            value_in = torch.cat([cls_out, critic_feats], dim=-1)  # [B, d_model+Fk]
+        else:
+            value_in = cls_out
+        values = self.value_head(value_in).squeeze(-1)  # [B]
+
+        return logits, values
 
     def policy_logits(
         self,
@@ -248,18 +267,7 @@ class BranchingTransformer(nn.Module):
         lengths: torch.Tensor,
         targets: torch.Tensor,
     ) -> torch.Tensor:
-        """
-        Listwise negative log-likelihood loss.
-
-        For each state, apply softmax over its candidates and penalise the
-        log-probability of the expert-chosen candidate.
-
-        Parameters
-        ----------
-        logits  : [Nc]  — concatenated logits for all candidates in the batch
-        lengths : [B]   — number of candidates per state
-        targets : [B]   — index of expert choice within each state's ready list
-        """
+        """Listwise NLL loss: softmax over each state's candidates, penalise expert choice."""
         losses: list[torch.Tensor] = []
         offset = 0
         for length, target in zip(lengths.tolist(), targets):
@@ -333,20 +341,8 @@ def load_policy_checkpoint(
     critic_feature_dim: int | None = None,
 ) -> BranchingTransformer:
     """
-    Load a BranchingTransformer from a checkpoint file.
-
-    Parameters
-    ----------
-    path    : path to .pt file produced by save_policy_checkpoint
-    device  : torch device to map weights to
-    dropout : dropout rate to use at inference (typically 0.0)
-    critic_feature_dim : if given, OVERRIDE the checkpoint's value-head width
-                  with this many critic-only runtime features. Used when warm-
-                  starting RL from a BC checkpoint: the BC value head (CLS-only)
-                  has a different input width, so it is dropped and reinitialised
-                  while every other weight (cls_proj, cand_proj, transformer,
-                  score_head) loads verbatim. If None, use the checkpoint's own
-                  critic_feature_dim (0 for legacy checkpoints).
+    Load a BranchingTransformer from a checkpoint. If critic_feature_dim is given,
+    override the value-head width (for warm-starting RL from a BC checkpoint).
     """
     checkpoint = torch.load(path, map_location=device)
     if "model_state" not in checkpoint:
@@ -355,8 +351,7 @@ def load_policy_checkpoint(
     cfg = checkpoint.get("config", {})
     state = checkpoint["model_state"]
 
-    # Recover architecture dims from the saved weights when the config
-    # was overwritten by the training config (legacy checkpoint format).
+    # Recover architecture dims from saved weights if config is incomplete
     global_dim = cfg.get("global_dim") or state["cls_proj.weight"].shape[1]
     candidate_dim = cfg.get("candidate_dim") or state["cand_proj.weight"].shape[1]
     d_model = cfg.get("d_model") or state["cls_proj.weight"].shape[0]
@@ -380,9 +375,7 @@ def load_policy_checkpoint(
         critic_feature_dim=critic_feature_dim,
     ).to(device)
 
-    # Drop any checkpoint weights whose shape no longer matches the model — in
-    # practice only the value head, when critic_feature_dim differs from what
-    # the checkpoint was saved with. Those parameters keep their fresh init.
+    # Drop checkpoint weights whose shape no longer matches (e.g. resized value head).
     model_state = model.state_dict()
     filtered = {
         k: v for k, v in state.items()

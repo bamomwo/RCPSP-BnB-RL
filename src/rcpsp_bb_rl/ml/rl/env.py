@@ -56,15 +56,6 @@ class BranchingEnv:
 
     Each episode solves one RCPSP instance. Each step is one branching
     decision — the agent picks which ready activity to schedule next.
-
-    The environment wraps BnBSolver directly, so the B&B mechanics
-    (dominance, LB pruning, child generation) are identical to evaluation.
-    The solver is paused at each branching decision via a callback; the
-    agent provides the ordering, then the solver resumes.
-
-    Observations use NodeContext featurisation — identical to the IL
-    pipeline — so a BC-pretrained BranchingTransformer warm-starts
-    without any adaptation.
     """
 
     def __init__(
@@ -92,15 +83,10 @@ class BranchingEnv:
         self._pending_ctx: Optional[StepContext] = None
         self._pending_incumbent: Optional[int] = None
 
-        # Synchronisation between step() and the solver thread
         self._solver_gen = None
         self._done: bool = True
         self._done_reason: str = "unknown"
         self._steps: int = 0
-        # Full search tree (SolverResult) of the most recent episode, captured
-        # when the solver finishes. Consumed by the closure-based (subtree)
-        # return backup, which needs every node — including pruned and frontier
-        # nodes the agent never branched on — not just the decision nodes.
         self._result: Optional[SolverResult] = None
 
     # ------------------------------------------------------------------
@@ -174,13 +160,7 @@ class BranchingEnv:
         incumbent: Optional[int],
         ctx_step: Optional[StepContext],
     ) -> List[float]:
-        """
-        Build the critic-only runtime feature vector for the node the agent is
-        about to act on. Pulls search-lifetime quantities from the solver's
-        StepContext (nodes expanded, elapsed time, frontier size, dual bound).
-        When no StepContext is available (should not happen on the RL path),
-        falls back to neutral values so the vector is still well-formed.
-        """
+        """Build critic-only feature vector for the current node."""
         if ctx_step is not None:
             return critic_features(
                 incumbent=incumbent,
@@ -211,16 +191,8 @@ class BranchingEnv:
 
     def _run_solver(self, instance: RCPSPInstance):
         """
-        Generator that drives BnBSolver step by step.
-
-        BnBSolver is synchronous, so we run it in a daemon thread and
-        communicate via two single-slot queues:
-          to_env   : solver → env  ("branch", node, incumbent, ctx) or ("done", result)
-          to_solver: env → solver  (chosen ordering list)
-
-        The generator yields ("branch", node, incumbent, ctx) each time the
-        solver needs a branching decision, and ("done", result) when finished.
-        The caller sends back the chosen ordering via generator.send().
+        Generator driving BnBSolver via a daemon thread. Yields ("branch", ...)
+        at each branching decision; caller sends back the chosen ordering.
         """
         import queue
         import threading
@@ -337,21 +309,12 @@ class BranchingEnv:
             return StepOutput({}, True, info)
 
         chosen = ready_sorted[action_index]
-        # Put chosen first; solver pushes in reversed order so chosen is
-        # explored first (LIFO stack).
         ordering = [chosen] + [a for a in ready_sorted if a != chosen]
 
-        # ---- Snapshot pre-action state ----
-        # ctx was created when the solver paused for THIS branching decision,
-        # so ctx.incumbent_after / ctx.nodes_expanded reflect the moment the
-        # agent is about to act. node.lower_bound is the LOCAL lower bound of
-        # the node being branched on (not the frontier minimum).
         pre_inc: Optional[int] = ctx.incumbent_after
         pre_burden: int = ctx.proof_burden
         pre_frontier_min_lb: Optional[int] = ctx.frontier_min_lb
         pre_nodes: int = ctx.nodes_expanded
-        # Path-local stagnation of the node being branched on. Carried in the
-        # step info and used as a critic-only feature.
         pre_stagnation_depth: int = ctx.stagnation_depth
 
         # Resume the solver with the chosen ordering.
@@ -362,8 +325,7 @@ class BranchingEnv:
 
         self._steps += 1
 
-        # ---- Snapshot post-action state (after the advance triggered by
-        #      the chosen ordering) ----
+        # ---- Post-action state ----
         done = False
         done_reason = "running"
         next_ctx: Optional[StepContext] = None
@@ -407,7 +369,7 @@ class BranchingEnv:
             self._episode_stats.dominance_pruned = result_obj.dominance_pruned_children
             self._episode_stats.best_makespan = result_obj.best_makespan
 
-        # Incumbent-improvement tracking: pre_inc -> post_inc during this advance.
+        # Incumbent-improvement tracking
         if pre_inc is None and post_inc is not None:
             if self._episode_stats.first_incumbent_node is None:
                 self._episode_stats.first_incumbent_node = post_nodes
@@ -419,7 +381,7 @@ class BranchingEnv:
             self._episode_stats.last_incumbent_node = post_nodes
             self._episode_stats.last_incumbent_makespan = post_inc
 
-        # ---- Compute segment length for logging (nodes since last incumbent) ----
+        # ---- Compute segment length for logging ----
         nodes_since_last_incumbent = max(
             1, post_nodes - (self._episode_stats.last_incumbent_node or 0)
         )
@@ -427,9 +389,6 @@ class BranchingEnv:
         if done:
             self._done = True
             self._done_reason = done_reason
-            # Capture the full search tree for the closure-based return backup.
-            # result_obj is set only on a clean "done" message; on done_implicit
-            # (generator already exhausted) it stays None.
             self._result = result_obj
             self._episode_stats.done_reason = done_reason
             if self._episode_stats.best_makespan is not None:
@@ -447,11 +406,6 @@ class BranchingEnv:
             "done_reason": done_reason,
             "terminated": done and done_reason != "time_limit",
             "steps": self._steps,
-            # ---- Tree identity of the branched node ----
-            # The decision at this step was made AT this node; record its
-            # identity so each transition can be reattached to the search tree
-            # for the closure-based (subtree) return backup. parent_id lets us
-            # walk the tree bottom-up; depth is a convenience for diagnostics.
             "node_id": node.node_id,
             "parent_id": node.parent_id,
             "depth": node.depth,
@@ -494,31 +448,18 @@ class BranchingEnv:
 
     def search_tree(self) -> Optional[Dict[str, object]]:
         """
-        The complete search tree of the finished episode, in a flat,
-        backup-ready form for the closure-based (subtree) return.
-
-        Returns None until the episode is done. Otherwise a dict with:
-          - "nodes": list of per-node dicts, each:
-                {id, parent_id, depth, status, is_incumbent, makespan}
-            status is one of "pending" | "expanded" | "pruned" | "solution".
-            is_incumbent marks the solution nodes that strictly improved the
-            best makespan, in chronological (node-id) order — these are where
-            incumbent bonuses are earned. makespan is set only on solution
-            nodes (else None).
-          - "edges": list of (parent_id, child_id) tuples.
-          - "root_id": the root node id (or None for an empty tree).
-
-        This includes EVERY node the solver created — expanded, pruned, and
-        unexplored frontier ("pending") nodes — not just the decision nodes the
-        agent branched on. The subtree sum G(X) needs all of them.
+        The complete search tree of the finished episode for the subtree-return
+        backup. Returns None until episode is done. Dict with keys:
+          "nodes": list of {id, parent_id, depth, status, is_incumbent, makespan}
+          "edges": list of (parent_id, child_id)
+          "root_id": root node id
+          "root_lb": root lower bound
         """
         res = self._result
         if res is None:
             return None
 
-        # Mark incumbent-improving solution nodes. Solution nodes are produced
-        # in chronological order as node ids increase, so a single forward pass
-        # over ascending makespan reproduces the incumbent history.
+        # Mark incumbent-improving solution nodes
         best: Optional[int] = None
         incumbent_ids = set()
         sol_makespan: Dict[int, int] = {}
@@ -546,7 +487,5 @@ class BranchingEnv:
             "nodes": nodes,
             "edges": list(res.edges),
             "root_id": root_id,
-            # Root lower bound (critical-path LB at episode start). Used by the
-            # first-incumbent strength bonus: beta1 * (root_lb / first_inc).
             "root_lb": float(self._cp_lb),
         }

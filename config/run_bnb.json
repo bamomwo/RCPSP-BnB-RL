@@ -2,7 +2,7 @@
   "max_nodes": null,
   "branching_order": "policy",
   "time_limit_s": 60,
-  "policy_path": "models/1m/checkpoints/policy_ppo_step40960.pt",
+  "policy_path": "models/stability_check_56/policy_ppo_best.pt",
   "policy_device": "cpu",
   "policy_max_resources": 4,
   "search_strategy": "ubs",

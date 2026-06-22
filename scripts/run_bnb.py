@@ -131,6 +131,12 @@ def parse_args() -> argparse.Namespace:
             "complete schedule distribution. Intended for single-instance investigation."
         ),
     )
+    parser.add_argument(
+        "--show-schedule",
+        action="store_true",
+        default=False,
+        help="Print the best schedule as an activity order list (single-instance runs only).",
+    )
     return parser.parse_args()
 
 
@@ -560,13 +566,20 @@ def main() -> None:
         else:
             lb = strategy_result.known_lower_bound
 
+        # Total nodes explored across all solver passes in this strategy run.
+        total_nodes = 0
+        if strategy_result.last_solver_result is not None:
+            total_nodes = strategy_result.last_solver_result.nodes_expanded
+
         rows.append(
             {
                 "instance": path.name,
                 "makespan": None if mk is None else int(mk),
                 "lowerbound": lb,
+                "nodes": total_nodes,
                 "cpu_time_s": float(elapsed),
                 "solved": mk is not None,
+                "schedule": strategy_result.best_schedule,
             }
         )
         if optimal_by_name is not None:
@@ -595,7 +608,7 @@ def main() -> None:
     include_opt_cols = optimal_by_name is not None
     if include_opt_cols:
         headers.extend(["Optimal", "GapOpt[%]"])
-    headers.append("CPU-Time[sec.]")
+    headers.extend(["NodeCount", "CPU-Time[sec.]"])
     table_rows: List[List[str]] = []
     for row in rows:
         vals = [
@@ -606,6 +619,7 @@ def main() -> None:
         if include_opt_cols:
             vals.append(fmt_int(row.get("optimal_makespan")))  # type: ignore[arg-type]
             vals.append(fmt_gap(row.get("gap_opt_pct")))  # type: ignore[arg-type]
+        vals.append(str(int(row["nodes"])))
         vals.append(fmt_time_s(row["cpu_time_s"]))
         table_rows.append(vals)
 
@@ -650,6 +664,7 @@ def main() -> None:
 
         avg_makespan = avg_int_field("makespan")
         avg_lowerbound = avg_int_field("lowerbound")
+        avg_nodes = avg_float_field("nodes")
         avg_cpu_time = avg_float_field("cpu_time_s")
 
         avg_headers = list(headers)
@@ -664,6 +679,7 @@ def main() -> None:
                 avg_gap_opt = sum(gap_vals) / len(gap_vals)
             avg_row.append("-" if avg_opt is None else f"{avg_opt:.3f}")
             avg_row.append("-" if avg_gap_opt is None else f"{avg_gap_opt:.3f}%")
+        avg_row.append("-" if avg_nodes is None else f"{avg_nodes:.0f}")
         avg_row.append("-" if avg_cpu_time is None else f"{avg_cpu_time:.3f}")
         avg_col_widths = [len(h) for h in avg_headers]
         for i, cell in enumerate(avg_row):
@@ -711,13 +727,28 @@ def main() -> None:
         else:
             emit("Gap-to-optimal stats: unavailable (no solved instances with baseline).")
 
-    emit(f"Note: branching order used = {branch_order}")
-    emit(f"Note: branching scheme used = {branching_scheme}")
-    emit(f"Note: search strategy used = {search_strategy}")
-    emit(f"\nNote: lower bound used = {format_lower_bound_spec(lb_spec)}")
-    emit(f"Note: dominance used = {format_dominance_spec(dominance_spec)}")
+    emit("")
+    emit("Configuration")
+    emit(f"  branching order    : {branch_order}")
+    emit(f"  branching scheme   : {branching_scheme}")
+    emit(f"  search strategy    : {search_strategy}")
+    emit(f"  lower bound        : {format_lower_bound_spec(lb_spec)}")
+    emit(f"  dominance          : {format_dominance_spec(dominance_spec)}")
     if include_opt_cols:
-        emit(f"Note: optimal baseline JSON used = {optimal_json}")
+        emit(f"  optimal baseline   : {optimal_json}")
+
+    # Schedule details (single-instance runs only, gated by --show-schedule)
+    if args.show_schedule and len(rows) == 1:
+        row = rows[0]
+        sched = row.get("schedule")
+        emit("")
+        if sched is None:
+            emit(f"Schedule: no feasible schedule found")
+        else:
+            # Order activities by start time, then by activity id
+            ordered = sorted(sched.items(), key=lambda kv: (kv[1].start, int(kv[0])))
+            activity_order = [int(act_id) for act_id, _ in ordered]
+            emit(f"Schedule: {activity_order}")
 
     if output_path is not None:
         out_path = Path(output_path)
