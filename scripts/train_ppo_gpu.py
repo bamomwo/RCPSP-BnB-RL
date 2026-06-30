@@ -20,8 +20,9 @@ import json
 import random
 import sys
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -46,6 +47,27 @@ from rcpsp_bb_rl.ml.rl.tree_return import (  # noqa: E402
 )
 from rcpsp_bb_rl.bnb.branching_order import make_order_fn  # noqa: E402
 from rcpsp_bb_rl.bnb.solver import BnBSolver  # noqa: E402
+
+# Type alias for reward functions
+RewardFn = Callable[[Any], float]
+
+
+# ---------------------------------------------------------------------------
+# Episode record for multi-episode accumulation
+# ---------------------------------------------------------------------------
+
+@dataclass
+class EpisodeRecord:
+    """Tracks per-episode metadata for multi-episode PPO batching."""
+    tree: Optional[Dict]
+    cost_reward_fn: RewardFn
+    bonus_reward_fn: RewardFn
+    start_idx: int       # index into buffer where this episode starts
+    end_idx: int         # index into buffer where this episode ends (exclusive)
+    n_valid: int         # pre-counted valid transitions for this episode
+    # Cached advantages to avoid recomputing subtree returns at update time
+    returns: Optional[List[float]] = field(default=None)
+    valid_flags: Optional[List[bool]] = field(default=None)
 
 
 # ---------------------------------------------------------------------------
@@ -374,6 +396,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "tree_gamma_cost": None,
     "tree_gamma_bonus": None,
     "tree_keep_open": False,
+    "min_batch_size": 4096,
     "ent_coef": 0.01,
     "vf_coef": 0.5,
     "lr": 3e-4,
@@ -501,6 +524,7 @@ def main() -> None:
         config["tree_gamma_bonus"] if config["tree_gamma_bonus"] is not None else tree_gamma
     )
     tree_keep_open = bool(config["tree_keep_open"])
+    min_batch_size = int(config["min_batch_size"])
     alpha = float(config["alpha"])
     beta1 = float(config["beta1"])
     beta2 = float(config["beta2"])
@@ -551,17 +575,22 @@ def main() -> None:
 
     t_start = time.perf_counter()
     print(f"\n{'='*80}")
-    print(f"  PPO Training (GPU-batched update)")
+    print(f"  PPO Training (GPU-batched update, min_batch_size={min_batch_size})")
     print(f"  total_steps={total_env_steps:,}  backup=tree(cost_gamma={tree_gamma_cost},bonus_gamma={tree_gamma_bonus})  train_instances={len(instance_paths)}  eval_instances={len(eval_paths)}")
     print(f"{'='*80}")
     print(f"[Episode 1] start  {current_instance_path.name}\n")
 
     # === MAIN TRAINING LOOP ===
+    # Multi-episode accumulation: collect episodes until we have enough valid
+    # transitions (>= min_batch_size) before performing a PPO update.
+    episode_records: List[EpisodeRecord] = []
+    accumulated_valid = 0
+
     while global_step < total_env_steps:
 
-        # ---- Collect ONE complete episode (same as train_ppo.py) ----
+        # ---- Collect ONE complete episode ----
         ac.eval()
-        buffer.clear()
+        ep_start_idx = len(buffer)
         episode_tree = None
 
         while True:
@@ -593,7 +622,7 @@ def main() -> None:
             else:
                 obs = step_out.observation
 
-        # ---- Subtree-return backup (same as train_ppo.py) ----
+        # ---- Subtree-return backup ----
         cost_reward_fn = make_cost_reward_fn(alpha=alpha)
         bonus_reward_fn = make_bonus_reward_fn(
             episode_tree,
@@ -633,27 +662,35 @@ def main() -> None:
         )
         print()
 
-        # ---- Advantage computation (same as train_ppo.py) ----
+        # ---- Compute advantages for this episode and cache them ----
+        ep_end_idx = len(buffer)
+        ep_node_ids = buffer.node_ids[ep_start_idx:ep_end_idx]
+        ep_values = buffer.values[ep_start_idx:ep_end_idx]
+
         ta = compute_episode_advantages_decoupled(
             tree=episode_tree,
-            node_ids=buffer.node_ids,
-            values=buffer.values,
+            node_ids=ep_node_ids,
+            values=ep_values,
             cost_reward_fn=cost_reward_fn,
             bonus_reward_fn=bonus_reward_fn,
             gamma_cost=tree_gamma_cost,
             gamma_bonus=tree_gamma_bonus,
             keep_open=tree_keep_open,
         )
-        raw_returns = torch.tensor(ta.returns, dtype=torch.float32)
-        valid_mask = torch.tensor(ta.valid, dtype=torch.bool)
+        n_valid_ep = sum(ta.valid)
 
-        valid_idx = valid_mask.nonzero().squeeze(-1).tolist()
-        n_valid = len(valid_idx)
-        n_total = len(buffer)
-
-        if n_valid == 0:
-            print(f"[Update skipped] no closed subtrees this episode "
-                  f"(transitions={n_total})\n")
+        if n_valid_ep == 0:
+            # No usable transitions from this episode — remove from buffer
+            del buffer.obs[ep_start_idx:]
+            del buffer.actions[ep_start_idx:]
+            del buffer.log_probs[ep_start_idx:]
+            del buffer.values[ep_start_idx:]
+            del buffer.dones[ep_start_idx:]
+            del buffer.terminateds[ep_start_idx:]
+            del buffer.node_ids[ep_start_idx:]
+            del buffer.parent_ids[ep_start_idx:]
+            print(f"[Accumulate] no closed subtrees — skipping episode "
+                  f"(accumulated={accumulated_valid})\n")
             if global_step < total_env_steps:
                 current_instance_path = next_instance()
                 obs = env.reset(instance=load_instance(current_instance_path))
@@ -661,9 +698,50 @@ def main() -> None:
             episode_steps = 0
             continue
 
+        # Cache the per-episode tree advantages (avoids recomputing at update time)
+        episode_records.append(EpisodeRecord(
+            tree=episode_tree,
+            cost_reward_fn=cost_reward_fn,
+            bonus_reward_fn=bonus_reward_fn,
+            start_idx=ep_start_idx,
+            end_idx=ep_end_idx,
+            n_valid=n_valid_ep,
+            returns=ta.returns,
+            valid_flags=ta.valid,
+        ))
+        accumulated_valid += n_valid_ep
+
+        # ---- Check if we have enough transitions for a PPO update ----
+        if accumulated_valid < min_batch_size:
+            print(f"[Accumulate] valid={n_valid_ep}  accumulated={accumulated_valid}/{min_batch_size} — collecting more\n")
+            if global_step < total_env_steps:
+                current_instance_path = next_instance()
+                obs = env.reset(instance=load_instance(current_instance_path))
+                print(f"[Episode {episode_count+1}] start  {current_instance_path.name}\n")
+            episode_steps = 0
+            continue
+
+        # ==================================================================
+        # PPO UPDATE — we have accumulated >= min_batch_size valid transitions
+        # ==================================================================
+
+        # ---- Assemble combined returns and valid mask from all episodes ----
+        all_returns: List[float] = []
+        all_valid: List[bool] = []
+        for rec in episode_records:
+            all_returns.extend(rec.returns)
+            all_valid.extend(rec.valid_flags)
+
+        raw_returns = torch.tensor(all_returns, dtype=torch.float32)
+        valid_mask = torch.tensor(all_valid, dtype=torch.bool)
+
+        valid_idx = valid_mask.nonzero().squeeze(-1).tolist()
+        n_valid = len(valid_idx)
+        n_total = len(buffer)
+
         indices = np.array(valid_idx)
 
-        # ---- Value normalisation (same as train_ppo.py) ----
+        # ---- Value normalisation ----
         raw_valid = raw_returns[indices].numpy().astype(np.float64)
         ret_rms.update(raw_valid)
         std = ret_rms.std + 1e-8
@@ -703,14 +781,12 @@ def main() -> None:
         for _ in range(ppo_epochs):
             if early_stop:
                 break
-            # Shuffle within buckets: split into minibatch-sized chunks, shuffle
-            # the chunk order (not individual items) to keep similar-R together.
-            n_chunks = max(T // mb_size, 1)
-            chunk_order = np.arange(n_chunks)
-            np.random.shuffle(chunk_order)
+            # Shuffle within buckets: generate start indices that cover ALL
+            # transitions (including the remainder tail), then shuffle.
+            chunk_starts = list(range(0, T, mb_size))
+            np.random.shuffle(chunk_starts)
 
-            for ci in chunk_order:
-                start = ci * mb_size
+            for start in chunk_starts:
                 mb_idx = sorted_indices[start: start + mb_size]
 
                 mb_log_probs_old = torch.tensor(
@@ -769,13 +845,13 @@ def main() -> None:
                     early_stop = True
                     break
 
-        n_updates = ppo_epochs * n_chunks
+        n_updates = max(n_kl_samples, 1)  # actual number of minibatch steps taken
         mean_kl = total_kl / n_kl_samples if n_kl_samples > 0 else 0.0
         elapsed = time.perf_counter() - t_start
         print(
             f"[Update {update_count}] "
             f"steps={global_step}  "
-            f"episodes={episode_count}  "
+            f"episodes_in_batch={len(episode_records)}  "
             f"valid={n_valid}/{n_total}  "
             f"pg={total_pg_loss/n_updates:+.4f}  "
             f"vf={total_vf_loss/n_updates:.4f}  "
@@ -786,6 +862,11 @@ def main() -> None:
             f"elapsed={elapsed:.0f}s"
             f"{'  [KL stop]' if early_stop else ''}"
         )
+
+        # ---- Clear accumulation state for next cycle ----
+        buffer.clear()
+        episode_records.clear()
+        accumulated_valid = 0
 
         # ---- Periodic evaluation ----
         if eval_paths and optimal_makespans and global_step >= next_eval_step:
