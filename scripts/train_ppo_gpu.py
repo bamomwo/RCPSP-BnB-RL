@@ -397,7 +397,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "tree_gamma_bonus": None,
     "tree_keep_open": False,
     "min_batch_size": 4096,
-    "ent_coef": 0.01,
+    "ent_coef_start": 0.01,
+    "ent_coef_end": 0.001,
     "vf_coef": 0.5,
     "lr": 3e-4,
     "max_grad_norm": 0.5,
@@ -528,7 +529,10 @@ def main() -> None:
     alpha = float(config["alpha"])
     beta1 = float(config["beta1"])
     beta2 = float(config["beta2"])
-    ent_coef = float(config["ent_coef"])
+    # Entropy coefficient linear decay (with floor): coef goes from
+    # ent_coef_start down to ent_coef_end over training.
+    ent_coef_start = float(config["ent_coef_start"])
+    ent_coef_end = float(config["ent_coef_end"])
     vf_coef = float(config["vf_coef"])
     max_grad_norm = float(config["max_grad_norm"])
     target_kl = config.get("target_kl")
@@ -577,6 +581,7 @@ def main() -> None:
     print(f"\n{'='*80}")
     print(f"  PPO Training (GPU-batched update, min_batch_size={min_batch_size})")
     print(f"  total_steps={total_env_steps:,}  backup=tree(cost_gamma={tree_gamma_cost},bonus_gamma={tree_gamma_bonus})  train_instances={len(instance_paths)}  eval_instances={len(eval_paths)}")
+    print(f"  clip_eps={clip_eps}  ent_coef={ent_coef_start}->{ent_coef_end} (linear decay)")
     print(f"{'='*80}")
     print(f"[Episode 1] start  {current_instance_path.name}\n")
 
@@ -773,6 +778,11 @@ def main() -> None:
         T = n_valid
         mb_size = max(T // minibatches, 1)
 
+        # Linear entropy-coefficient decay (with floor) based on training
+        # progress. progress in [0, 1] -> coef from ent_coef_start to ent_coef_end.
+        progress = min(global_step / total_env_steps, 1.0)
+        ent_coef_now = ent_coef_start + (ent_coef_end - ent_coef_start) * progress
+
         total_pg_loss = total_vf_loss = total_ent = total_kl = 0.0
         n_kl_samples = 0
         update_count += 1
@@ -825,7 +835,7 @@ def main() -> None:
                 # Entropy bonus
                 entropy_loss = -mb_entropies_t.mean()
 
-                loss = pg_loss + vf_coef * vf_loss + ent_coef * entropy_loss
+                loss = pg_loss + vf_coef * vf_loss + ent_coef_now * entropy_loss
 
                 optimizer.zero_grad()
                 loss.backward()
@@ -858,6 +868,7 @@ def main() -> None:
             f"ev={explained_var:+.3f}  "
             f"ret_std={ret_std:.4f}  "
             f"ent={total_ent/n_updates:.4f}  "
+            f"ent_coef={ent_coef_now:.4f}  "
             f"kl={mean_kl:.4f}  "
             f"elapsed={elapsed:.0f}s"
             f"{'  [KL stop]' if early_stop else ''}"

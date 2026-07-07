@@ -1,8 +1,8 @@
 {
   "max_nodes": null,
   "branching_order": "policy",
-  "time_limit_s": 60,
-  "policy_path": "models/stability_check_56/policy_ppo_best.pt",
+  "time_limit_s": 120,
+  "policy_path": "models/train_1_2/checkpoints/policy_ppo_step2003697.pt",
   "policy_device": "cpu",
   "policy_max_resources": 4,
   "search_strategy": "ubs",
