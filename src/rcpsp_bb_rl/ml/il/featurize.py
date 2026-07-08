@@ -437,6 +437,18 @@ CRITIC_FEATURE_NAMES = [
     "depth_frac",            # depth / num_activities — how deep X sits (near-leaf => tiny subtree)
     "frac_unscheduled",      # |unscheduled| / num_activities — remaining decisions below X
     "ready_frac",            # |ready| / num_activities — branching breadth at X
+    # --- Instance-static difficulty fingerprint (constant per episode) ---
+    # These break the shallow/pre-incumbent blindness: at depth 0 the dynamic
+    # features above are near-identical across instances, so the critic cannot
+    # tell an easy root from a hard one. These 8 scalars give it that signal.
+    "order_strength",         # transitive precedence pairs / all pairs — high => small tree
+    "normalized_cpl",         # critical-path length / sum_durations — tight => less branching
+    "resource_factor",        # mean fraction of resources each activity uses
+    "mean_resource_pressure", # mean over r of total demand / (cap * horizon)
+    "max_resource_pressure",  # bottleneck resource pressure
+    "conflict_density",       # conflicting activity pairs / all pairs
+    "ub_lb_gap",              # (heuristic_UB - root_LB) / root_LB — near 0 => nearly closed
+    "remaining_slack_ratio",  # mean scheduling slack (latest_start - head) / horizon
 ]
 
 
@@ -451,6 +463,7 @@ def critic_features(
     n_ready: int,
     num_activities: int,
     stagnation_depth: int = 0,
+    static_feats: Optional[List[float]] = None,
 ) -> List[float]:
     """
     Build the critic-only feature vector for the node X the agent is about to
@@ -459,6 +472,11 @@ def critic_features(
 
     Before any incumbent exists, gap-style features are 0 and incumbent_exists
     is 0 so the critic can tell the two pruning regimes apart.
+
+    If static_feats is provided (the 8 instance-static difficulty features
+    from instance_static_features()), they are appended at the end. This gives
+    the value head an instance fingerprint that resolves the shallow-depth
+    blindness where dynamic features are near-identical across instances.
     """
     has_inc = incumbent is not None and incumbent > 0
     inc_f = float(incumbent) if has_inc else 0.0
@@ -477,7 +495,7 @@ def critic_features(
         dual_gap = 0.0
         incumbent_ratio = 0.0
 
-    return [
+    feats = [
         # Pruning power
         local_gap,
         1.0 if has_inc else 0.0,
@@ -490,9 +508,130 @@ def critic_features(
         min(1.0, max(0.0, float(n_ready) / N)),
     ]
 
+    # Append instance-static difficulty features if provided.
+    if static_feats is not None:
+        feats.extend(static_feats)
+
+    return feats
+
 
 def critic_feature_dim() -> int:
     return len(CRITIC_FEATURE_NAMES)
+
+
+# Number of instance-static features appended to the critic vector.
+N_STATIC_CRITIC_FEATURES = 8
+
+
+def instance_static_features(instance: RCPSPInstance) -> List[float]:
+    """
+    Compute the 8 instance-static difficulty features (constant per episode).
+
+    Appended to the per-node critic vector so the value head can tell an easy
+    root from a hard one at shallow depth — where the dynamic features are
+    near-identical across instances and the critic is otherwise blind.
+
+    Order matches the last 8 entries of CRITIC_FEATURE_NAMES:
+      order_strength, normalized_cpl, resource_factor, mean_resource_pressure,
+      max_resource_pressure, conflict_density, ub_lb_gap, remaining_slack_ratio
+    """
+    from rcpsp_bb_rl.bnb.lower_bounds import _compute_reachability, lb_cp
+    from rcpsp_bb_rl.bnb.scheduling import heuristic_upper_bound
+
+    acts = instance.activities
+    ids = list(acts.keys())
+    N = len(ids)
+    num_res = instance.num_resources
+    caps = instance.resource_caps
+    S = float(sum(a.duration for a in acts.values())) or 1.0
+
+    preds = build_predecessors(instance)
+    successors = _build_successors_from_predecessors(preds, ids)
+    topo = _topological_order_from_predecessors(preds, ids)
+
+    # --- 1. order_strength: transitive precedence pairs / all ordered pairs ---
+    reachable = _compute_reachability(topo, successors)
+    n_transitive = sum(len(reachable.get(a, set())) for a in ids)
+    total_pairs = N * (N - 1) / 2.0 if N > 1 else 1.0
+    order_strength = min(1.0, n_transitive / total_pairs)
+
+    # --- 2. normalized_cpl: critical-path length / sum_durations ---
+    heads = _compute_heads(instance, {}, preds, topo)
+    tails = _compute_tails(instance, successors, topo)
+    cpl = max(
+        (heads[a] + acts[a].duration + tails[a] for a in ids),
+        default=0,
+    )
+    normalized_cpl = min(1.0, float(cpl) / S)
+
+    # --- 3. resource_factor: mean fraction of resources each activity uses ---
+    if num_res > 0 and N > 0:
+        resource_factor = sum(
+            sum(1 for r in range(num_res) if acts[a].resources[r] > 0) / num_res
+            for a in ids
+        ) / N
+    else:
+        resource_factor = 0.0
+
+    # --- 4,5. resource pressure: total demand / (cap * critical-path horizon) ---
+    horizon = float(cpl) if cpl > 0 else S
+    pressures: List[float] = []
+    for r in range(num_res):
+        cap = float(caps[r]) if caps[r] > 0 else 1.0
+        demand = float(sum(acts[a].duration * acts[a].resources[r] for a in ids))
+        pressures.append(demand / (cap * horizon))
+    mean_resource_pressure = min(1.0, sum(pressures) / num_res) if num_res > 0 else 0.0
+    max_resource_pressure = min(1.0, max(pressures)) if pressures else 0.0
+
+    # --- 6. conflict_density: activity pairs that cannot run in parallel ---
+    # A pair conflicts if, for some resource, their combined demand exceeds cap
+    # (and they are not precedence-ordered — those cannot overlap anyway).
+    conflicts = 0
+    for i in range(N):
+        a = ids[i]
+        for j in range(i + 1, N):
+            b = ids[j]
+            # Skip precedence-ordered pairs (they never contend for parallelism).
+            if b in reachable.get(a, set()) or a in reachable.get(b, set()):
+                continue
+            for r in range(num_res):
+                if acts[a].resources[r] + acts[b].resources[r] > caps[r]:
+                    conflicts += 1
+                    break
+    conflict_density = conflicts / total_pairs if total_pairs > 0 else 0.0
+
+    # --- 7. ub_lb_gap: (heuristic UB - root LB) / root LB ---
+    root_lb = int(lb_cp(instance, set(ids), {}))
+    ub = int(heuristic_upper_bound(instance))
+    if root_lb > 0:
+        ub_lb_gap = max(0.0, (ub - root_lb) / root_lb)
+    else:
+        ub_lb_gap = 0.0
+    ub_lb_gap = min(1.0, ub_lb_gap)
+
+    # --- 8. remaining_slack_ratio: mean (latest_start - head) / horizon ---
+    latest_starts = _compute_latest_starts(
+        instance=instance,
+        scheduled={},
+        successors=successors,
+        order=topo,
+        horizon=int(horizon),
+    )
+    slacks = [max(0, latest_starts[a] - heads[a]) for a in ids]
+    remaining_slack_ratio = (
+        min(1.0, (sum(slacks) / len(slacks)) / horizon) if slacks and horizon > 0 else 0.0
+    )
+
+    return [
+        order_strength,
+        normalized_cpl,
+        resource_factor,
+        mean_resource_pressure,
+        max_resource_pressure,
+        conflict_density,
+        ub_lb_gap,
+        remaining_slack_ratio,
+    ]
 
 
 # ---------------------------------------------------------------------------

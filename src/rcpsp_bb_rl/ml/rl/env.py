@@ -16,6 +16,7 @@ from rcpsp_bb_rl.ml.il.featurize import (
     candidate_features,
     critic_features,
     global_features,
+    instance_static_features,
 )
 
 
@@ -77,6 +78,7 @@ class BranchingEnv:
         self._episode_stats: EpisodeStats = EpisodeStats()
         self._n_activities: int = 0
         self._cp_lb: int = 0
+        self._static_feats: Optional[List[float]] = None
 
         # Step-level state written by the callback, read by step()
         self._pending_node: Optional[BBNode] = None
@@ -172,6 +174,7 @@ class BranchingEnv:
                 n_ready=len(node.ready),
                 num_activities=self._n_activities,
                 stagnation_depth=ctx_step.stagnation_depth,
+                static_feats=self._static_feats,
             )
         return critic_features(
             incumbent=incumbent,
@@ -183,6 +186,7 @@ class BranchingEnv:
             n_ready=len(node.ready),
             num_activities=self._n_activities,
             stagnation_depth=0,
+            static_feats=self._static_feats,
         )
 
     # ------------------------------------------------------------------
@@ -262,6 +266,9 @@ class BranchingEnv:
             {},
             lb_id=self.lb_spec,
         ))
+        # Instance-static difficulty features (constant for the whole episode).
+        # Computed once here and reused for every node's critic vector.
+        self._static_feats = instance_static_features(self.instance)
 
         self._solver_gen = self._run_solver(self.instance)
         msg = next(self._solver_gen)

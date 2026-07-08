@@ -157,6 +157,98 @@ def resource_feasible(
     return tmp.feasible_at(reqs, resource_caps, start, finish)
 
 
+def heuristic_upper_bound(instance: "RCPSPInstance") -> int:
+    """
+    Cheap serial schedule generation scheme (SGS) that produces a feasible
+    makespan — a valid upper bound on the optimal.
+
+    Priority rule: minimum Latest Finish Time (LFT), the classic and robust SGS
+    priority for RCPSP. We approximate LFT by a critical-path tail ordering
+    (activities with the longest chain to the end go first). Deterministic, runs
+    once at instance load in well under a millisecond for J30.
+
+    Returns the makespan of the constructed schedule. Falls back to the trivial
+    sum-of-durations bound if construction cannot place an activity (should not
+    happen for feasible instances, but keeps the function total).
+    """
+    from rcpsp_bb_rl.bnb.precedence import build_predecessors
+
+    activities = instance.activities
+    caps = instance.resource_caps
+    predecessors = build_predecessors(instance)
+
+    # --- Priority = longest chain to the sink (tail). Higher tail -> schedule first. ---
+    # Compute tails via reverse-topological longest path over successors.
+    successors: dict[int, list[int]] = {a: list(act.successors) for a, act in activities.items()}
+    # Topological order (Kahn) so tails can be computed in one reverse pass.
+    indeg = {a: len(predecessors.get(a, set())) for a in activities}
+    from collections import deque
+    queue = deque([a for a in activities if indeg[a] == 0])
+    topo: list[int] = []
+    indeg_work = dict(indeg)
+    while queue:
+        a = queue.popleft()
+        topo.append(a)
+        for s in successors[a]:
+            indeg_work[s] -= 1
+            if indeg_work[s] == 0:
+                queue.append(s)
+
+    tails: dict[int, int] = {a: 0 for a in activities}
+    for a in reversed(topo):
+        best = 0
+        for s in successors[a]:
+            best = max(best, tails[s] + activities[s].duration)
+        tails[a] = best
+
+    # Higher tail first (min LFT proxy); tie-break by activity id for determinism.
+    priority = sorted(activities.keys(), key=lambda a: (-tails[a], a))
+
+    horizon_hint = sum(act.duration for act in activities.values())
+    profile = ResourceProfile(len(caps), horizon_hint)
+
+    scheduled: dict[int, dict] = {}
+    remaining = set(activities.keys())
+
+    while remaining:
+        # Pick the highest-priority activity whose predecessors are all scheduled.
+        placed_any = False
+        for act_id in priority:
+            if act_id not in remaining:
+                continue
+            preds = predecessors.get(act_id, set())
+            if not preds.issubset(scheduled.keys()):
+                continue
+
+            earliest = 0
+            if preds:
+                earliest = max(entry_finish(scheduled[p]) for p in preds)
+
+            duration = int(activities[act_id].duration)
+            reqs = activities[act_id].resources
+            t = earliest
+            placed = False
+            while t + duration <= horizon_hint + 1:
+                if profile.feasible_at(reqs, caps, t, t + duration):
+                    finish = t + duration
+                    profile.add_activity(reqs, t, finish)
+                    scheduled[act_id] = {"start": t, "finish": finish, "duration": duration}
+                    remaining.discard(act_id)
+                    placed = True
+                    placed_any = True
+                    break
+                t += 1
+            if placed:
+                break  # restart scan so priority order is respected each placement
+
+        if not placed_any:
+            # Could not place any ready activity within the horizon — bail out
+            # with the trivial bound (sum of all durations is always feasible).
+            return horizon_hint
+
+    return max((entry_finish(e) for e in scheduled.values()), default=0)
+
+
 def earliest_feasible_start(
     instance: "RCPSPInstance",
     predecessors: Mapping[int, Set[int]],
