@@ -400,6 +400,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "ent_coef_start": 0.01,
     "ent_coef_end": 0.001,
     "vf_coef": 0.5,
+    "vf_loss_type": "huber",   # "mse" | "huber" — huber is robust to shallow-hard outliers
+    "huber_delta": 1.0,        # error threshold (in normalized-return units) for linear regime
     "lr": 3e-4,
     "max_grad_norm": 0.5,
     "target_kl": 0.02,
@@ -534,6 +536,10 @@ def main() -> None:
     ent_coef_start = float(config["ent_coef_start"])
     ent_coef_end = float(config["ent_coef_end"])
     vf_coef = float(config["vf_coef"])
+    vf_loss_type = str(config["vf_loss_type"]).strip().lower()
+    if vf_loss_type not in {"mse", "huber"}:
+        raise ValueError("vf_loss_type must be 'mse' or 'huber'.")
+    huber_delta = float(config["huber_delta"])
     max_grad_norm = float(config["max_grad_norm"])
     target_kl = config.get("target_kl")
     eval_every = int(config["eval_every_steps"])
@@ -582,6 +588,8 @@ def main() -> None:
     print(f"  PPO Training (GPU-batched update, min_batch_size={min_batch_size})")
     print(f"  total_steps={total_env_steps:,}  backup=tree(cost_gamma={tree_gamma_cost},bonus_gamma={tree_gamma_bonus})  train_instances={len(instance_paths)}  eval_instances={len(eval_paths)}")
     print(f"  clip_eps={clip_eps}  ent_coef={ent_coef_start}->{ent_coef_end} (linear decay)")
+    vf_desc = f"huber(delta={huber_delta})" if vf_loss_type == "huber" else "mse"
+    print(f"  vf_loss={vf_desc}  vf_coef={vf_coef}")
     print(f"{'='*80}")
     print(f"[Episode 1] start  {current_instance_path.name}\n")
 
@@ -829,8 +837,14 @@ def main() -> None:
                 pg_loss2 = -mb_advantages * torch.clamp(ratio, 1 - clip_eps, 1 + clip_eps)
                 pg_loss = torch.max(pg_loss1, pg_loss2).mean()
 
-                # Value loss
-                vf_loss = nn.functional.mse_loss(values_b, mb_returns)
+                # Value loss — Huber (robust to shallow-hard outliers) or MSE.
+                # Returns are normalized to ~unit std, so huber_delta is in
+                # standard-deviation units: errors within delta are quadratic
+                # (precise fit), beyond delta grow linearly (outlier-robust).
+                if vf_loss_type == "huber":
+                    vf_loss = nn.functional.huber_loss(values_b, mb_returns, delta=huber_delta)
+                else:
+                    vf_loss = nn.functional.mse_loss(values_b, mb_returns)
 
                 # Entropy bonus
                 entropy_loss = -mb_entropies_t.mean()
