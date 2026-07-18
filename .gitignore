@@ -30,7 +30,12 @@ ztest/
 
 models/1m_01
 models/5m_01
-
+models/train_deep_dive/
+models/train_deep_dive_longer_lrr/
+models/train_deep_dive_longer_lrr_rl_init/
+models/train_deep_dive_lr/
+models/train_deep_dive_lrr/
+models/train_huber_deep_dive/
 CLAUDE.md
 
 
