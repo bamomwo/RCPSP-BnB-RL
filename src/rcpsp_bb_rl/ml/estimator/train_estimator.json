@@ -1,0 +1,22 @@
+{
+  "data_csv": "data/estimator/data_all.csv",
+  "val_frac": 0.2,
+
+  "hidden1": 64,
+  "hidden2": 32,
+  "dropout": 0.2,
+  "negative_slope": 0.01,
+
+  "tau": 0.25,
+
+  "lr": 1e-3,
+  "weight_decay": 1e-4,
+  "batch_size": 128,
+  "epochs": 300,
+  "patience": 30,
+  "min_epochs": 20,
+
+  "save_path": "models/estimator/estimator.pt",
+  "seed": 42,
+  "device": "cpu"
+}

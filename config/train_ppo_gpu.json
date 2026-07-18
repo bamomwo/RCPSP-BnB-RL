@@ -28,11 +28,16 @@
   "lr": 1e-4,
   "max_grad_norm": 0.5,
   "target_kl": 0.05,
-  "time_limit_s": 480.0,
+  "time_limit_s": 120.0,
 
   "alpha": 0.001,
-  "beta1": 10.0,
-  "beta2": 5.0,
+  "beta1": 1.0,
+  "beta2": 1.0,
+
+  "estimator_path": "models/estimator/estimator_weighted.pt",
+  "c_target": 1.0,
+  "alpha_min": 1e-6,
+  "alpha_max": 0.5,
 
   "eval_every_steps": 200000,
   "eval_root": "data/eval/J30/J30_10",
