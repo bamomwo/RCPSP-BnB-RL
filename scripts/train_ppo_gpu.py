@@ -39,6 +39,7 @@ from rcpsp_bb_rl.data.dataset import list_instance_paths  # noqa: E402
 from rcpsp_bb_rl.data.parsing import load_instance  # noqa: E402
 from rcpsp_bb_rl.ml.models import BranchingTransformer, load_policy_checkpoint, save_policy_checkpoint  # noqa: E402
 from rcpsp_bb_rl.ml.il.featurize import global_feature_dim, candidate_feature_dim, critic_feature_dim  # noqa: E402
+from rcpsp_bb_rl.ml.estimator import load_estimator_checkpoint, predict_difficulty  # noqa: E402
 from rcpsp_bb_rl.ml.rl import BranchingEnv  # noqa: E402
 from rcpsp_bb_rl.ml.rl.tree_return import (  # noqa: E402
     compute_episode_advantages_decoupled,
@@ -407,9 +408,18 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "target_kl": 0.02,
     "time_limit_s": 60.0,
     # Reward
-    "alpha": 0.01,
+    "alpha": 0.01,          # static node-cost coef; used only when estimator_path is null
     "beta1": 1.0,
     "beta2": 1.0,
+    # Dynamic reward scaling: when estimator_path is set, the node-cost coef is
+    # computed per instance as alpha(I) = clip(c_target / N_hat(I), alpha_min,
+    # alpha_max), where N_hat is the search-effort estimator's prediction. This
+    # stabilises the cost channel's global scale across easy/hard instances and
+    # keeps the beta/alpha break-even ratios comparable. Null -> static alpha.
+    "estimator_path": None,
+    "c_target": 1.0,
+    "alpha_min": 1e-6,
+    "alpha_max": 0.5,
     # Eval
     "eval_every_steps": 20_000,
     "eval_root": None,
@@ -531,6 +541,24 @@ def main() -> None:
     alpha = float(config["alpha"])
     beta1 = float(config["beta1"])
     beta2 = float(config["beta2"])
+
+    # --- Dynamic node-cost scaling (estimator-driven alpha) ---
+    # When an estimator is provided, alpha is computed per instance so the cost
+    # channel's global scale is comparable across easy and hard instances. The
+    # loop owns this (the env stays a pure B&B driver): alpha is derived once per
+    # episode from the already-loaded instance object at the reward-build site.
+    estimator = None
+    estimator_scaler = None
+    c_target = float(config["c_target"])
+    alpha_min = float(config["alpha_min"])
+    alpha_max = float(config["alpha_max"])
+    estimator_path = config.get("estimator_path")
+    if estimator_path:
+        estimator, estimator_scaler, _est_tau = load_estimator_checkpoint(
+            estimator_path, device=device
+        )
+    # The per-episode alpha = clip(c_target / N_est, alpha_min, alpha_max) is
+    # computed inline at the reward-build site (one estimator pass per episode).
     # Entropy coefficient linear decay (with floor): coef goes from
     # ent_coef_start down to ent_coef_end over training.
     ent_coef_start = float(config["ent_coef_start"])
@@ -568,7 +596,9 @@ def main() -> None:
     random.shuffle(inst_order)
     inst_idx = 0
 
-    def next_instance() -> Path:
+    def next_instance() -> Tuple[Path, Any]:
+        """Return (path, loaded_instance). Loading here means one load per episode,
+        and the instance object is reused for both env.reset and alpha_for()."""
         nonlocal inst_idx, inst_order
         if inst_idx >= len(inst_order):
             inst_order = list(range(len(instance_paths)))
@@ -576,11 +606,11 @@ def main() -> None:
             inst_idx = 0
         path = instance_paths[inst_order[inst_idx]]
         inst_idx += 1
-        return path
+        return path, load_instance(path)
 
     # Start first episode
-    current_instance_path = next_instance()
-    obs = env.reset(instance=load_instance(current_instance_path))
+    current_instance_path, current_instance = next_instance()
+    obs = env.reset(instance=current_instance)
     episode_steps = 0
 
     t_start = time.perf_counter()
@@ -590,6 +620,12 @@ def main() -> None:
     print(f"  clip_eps={clip_eps}  ent_coef={ent_coef_start}->{ent_coef_end} (linear decay)")
     vf_desc = f"huber(delta={huber_delta})" if vf_loss_type == "huber" else "mse"
     print(f"  vf_loss={vf_desc}  vf_coef={vf_coef}")
+    if estimator is not None:
+        print(f"  reward_scale=DYNAMIC  alpha=clip(c_target/N_est, {alpha_min:g}, {alpha_max:g})  "
+              f"c_target={c_target}  beta1={beta1}  beta2={beta2}")
+        print(f"                        estimator={estimator_path}")
+    else:
+        print(f"  reward_scale=STATIC   alpha={alpha}  beta1={beta1}  beta2={beta2}")
     print(f"{'='*80}")
     print(f"[Episode 1] start  {current_instance_path.name}\n")
 
@@ -636,7 +672,18 @@ def main() -> None:
                 obs = step_out.observation
 
         # ---- Subtree-return backup ----
-        cost_reward_fn = make_cost_reward_fn(alpha=alpha)
+        # Node-cost coef for THIS episode: dynamically scaled from the instance's
+        # estimated difficulty when an estimator is set, else the static alpha.
+        # One estimator forward pass per episode; N_est kept for logging.
+        if estimator is not None:
+            episode_n_est = predict_difficulty(
+                estimator, estimator_scaler, current_instance, device=device
+            )
+            episode_alpha = float(np.clip(c_target / episode_n_est, alpha_min, alpha_max))
+        else:
+            episode_n_est = None
+            episode_alpha = alpha
+        cost_reward_fn = make_cost_reward_fn(alpha=episode_alpha)
         bonus_reward_fn = make_bonus_reward_fn(
             episode_tree,
             beta1=beta1,
@@ -669,7 +716,9 @@ def main() -> None:
             f"Nodes={stats.nodes_expanded}  "
             f"Best_Ms={stats.best_makespan}  "
             f"Inc_Improves={stats.incumbent_improvements}  "
-            f"rewards=(G_root:{ep_return:+.2f}, G_cost:{g_cost:+.2f}, "
+            + (f"N_est={episode_n_est:.0f}  alpha={episode_alpha:.2e}  "
+               if episode_n_est is not None else f"alpha={episode_alpha:.2e}  ")
+            + f"rewards=(G_root:{ep_return:+.2f}, G_cost:{g_cost:+.2f}, "
             f"G_first_incum:{g_first:+.2f}, G_incum_impro:{g_improve:+.2f})  "
             f"elapsed={elapsed:.0f}s"
         )
@@ -705,8 +754,8 @@ def main() -> None:
             print(f"[Accumulate] no closed subtrees — skipping episode "
                   f"(accumulated={accumulated_valid})\n")
             if global_step < total_env_steps:
-                current_instance_path = next_instance()
-                obs = env.reset(instance=load_instance(current_instance_path))
+                current_instance_path, current_instance = next_instance()
+                obs = env.reset(instance=current_instance)
                 print(f"[Episode {episode_count+1}] start  {current_instance_path.name}\n")
             episode_steps = 0
             continue
@@ -728,8 +777,8 @@ def main() -> None:
         if accumulated_valid < min_batch_size:
             print(f"[Accumulate] valid={n_valid_ep}  accumulated={accumulated_valid}/{min_batch_size} — collecting more\n")
             if global_step < total_env_steps:
-                current_instance_path = next_instance()
-                obs = env.reset(instance=load_instance(current_instance_path))
+                current_instance_path, current_instance = next_instance()
+                obs = env.reset(instance=current_instance)
                 print(f"[Episode {episode_count+1}] start  {current_instance_path.name}\n")
             episode_steps = 0
             continue
@@ -937,8 +986,8 @@ def main() -> None:
 
         # ---- Reset for the next episode ----
         if global_step < total_env_steps:
-            current_instance_path = next_instance()
-            obs = env.reset(instance=load_instance(current_instance_path))
+            current_instance_path, current_instance = next_instance()
+            obs = env.reset(instance=current_instance)
             print(f"[Episode {episode_count+1}] start  {current_instance_path.name}\n")
         episode_steps = 0
 
