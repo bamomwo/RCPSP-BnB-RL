@@ -429,6 +429,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     # Output
     "save_path": "models/policy_ppo.pt",
     "checkpoint_dir": "models/checkpoints",
+    "tensorboard": True,   # write scalar metrics to <save_path.parent>/tb for live monitoring
     "seed": 42,
     "device": "cpu",
 }
@@ -523,6 +524,18 @@ def main() -> None:
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
     best_model_path = save_path.parent / (save_path.stem + "_best.pt")
     eval_log_path = save_path.parent / (save_path.stem + "_eval_log.json")
+
+    # --- TensorBoard writer ---
+    # Scalar metrics are tee'd here (in addition to stdout) so a run can be
+    # monitored live. Logs land in <save_path.parent>/tb; point tensorboard at
+    # the parent dir to compare runs on shared axes. x-axis is global_step.
+    writer = None
+    if bool(config.get("tensorboard", True)):
+        from torch.utils.tensorboard import SummaryWriter  # local import: viewing needs `pip install tensorboard`
+        tb_dir = save_path.parent / "tb"
+        tb_dir.mkdir(parents=True, exist_ok=True)
+        writer = SummaryWriter(log_dir=str(tb_dir))
+        print(f"TensorBoard logging -> {tb_dir}")
 
     # --- Training hyperparams ---
     total_env_steps = int(config["total_env_steps"])
@@ -723,6 +736,20 @@ def main() -> None:
             f"elapsed={elapsed:.0f}s"
         )
         print()
+
+        if writer is not None:
+            writer.add_scalar("episode/return", ep_return, global_step)
+            writer.add_scalar("episode/g_cost", g_cost, global_step)
+            writer.add_scalar("episode/g_first_incumbent", g_first, global_step)
+            writer.add_scalar("episode/g_improvement", g_improve, global_step)
+            writer.add_scalar("episode/nodes_expanded", stats.nodes_expanded, global_step)
+            writer.add_scalar("episode/incumbent_improvements", stats.incumbent_improvements, global_step)
+            writer.add_scalar("episode/steps", episode_steps, global_step)
+            if stats.best_makespan is not None:
+                writer.add_scalar("episode/best_makespan", stats.best_makespan, global_step)
+            writer.add_scalar("episode/alpha", episode_alpha, global_step)
+            if episode_n_est is not None:
+                writer.add_scalar("episode/N_est", episode_n_est, global_step)
 
         # ---- Compute advantages for this episode and cache them ----
         ep_end_idx = len(buffer)
@@ -937,6 +964,17 @@ def main() -> None:
             f"{'  [KL stop]' if early_stop else ''}"
         )
 
+        if writer is not None:
+            writer.add_scalar("train/pg_loss", total_pg_loss / n_updates, global_step)
+            writer.add_scalar("train/vf_loss", total_vf_loss / n_updates, global_step)
+            writer.add_scalar("train/entropy", total_ent / n_updates, global_step)
+            writer.add_scalar("train/ent_coef", ent_coef_now, global_step)
+            writer.add_scalar("train/approx_kl", mean_kl, global_step)
+            if not (explained_var != explained_var):  # skip NaN
+                writer.add_scalar("train/explained_variance", explained_var, global_step)
+            writer.add_scalar("train/return_std", ret_std, global_step)
+            writer.add_scalar("train/valid_fraction", n_valid / max(n_total, 1), global_step)
+
         # ---- Clear accumulation state for next cycle ----
         buffer.clear()
         episode_records.clear()
@@ -973,6 +1011,11 @@ def main() -> None:
             log_entry = {"step": global_step, **metrics}
             eval_log.append(log_entry)
             eval_log_path.write_text(json.dumps(eval_log, indent=2))
+
+            if writer is not None:
+                writer.add_scalar("eval/solved_frac", metrics["solved_frac"], global_step)
+                writer.add_scalar("eval/mean_gap", metrics["mean_gap"], global_step)
+                writer.add_scalar("eval/mean_nodes", metrics["mean_nodes"], global_step)
 
             ckpt_path = checkpoint_dir / f"policy_ppo_step{global_step}.pt"
             save_policy_checkpoint(ac.model, str(ckpt_path), extra={"train_config": config, "eval_metrics": metrics, "value_norm": {"mean": ret_rms.mean, "std": ret_rms.std}})
@@ -1020,6 +1063,11 @@ def main() -> None:
         eval_log.append(log_entry)
         eval_log_path.write_text(json.dumps(eval_log, indent=2))
 
+        if writer is not None:
+            writer.add_scalar("eval/solved_frac", metrics["solved_frac"], global_step)
+            writer.add_scalar("eval/mean_gap", metrics["mean_gap"], global_step)
+            writer.add_scalar("eval/mean_nodes", metrics["mean_nodes"], global_step)
+
         if is_best:
             best_mean_gap = metrics["mean_gap"]
             save_policy_checkpoint(ac.model, str(best_model_path), extra={"train_config": config, "eval_metrics": metrics, "step": global_step, "value_norm": {"mean": ret_rms.mean, "std": ret_rms.std}})
@@ -1037,6 +1085,10 @@ def main() -> None:
         print(f"  best model   → {best_model_path}")
     print(f"  eval log     → {eval_log_path}")
     print(f"{'='*80}")
+
+    if writer is not None:
+        writer.flush()
+        writer.close()
 
 
 if __name__ == "__main__":
