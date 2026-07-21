@@ -36,6 +36,10 @@ models/train_deep_dive_longer_lrr_rl_init/
 models/train_deep_dive_lr/
 models/train_deep_dive_lrr/
 models/train_huber_deep_dive/
+
+
+models/train_dy_1
+models/train_dy_2
 CLAUDE.md
 
 

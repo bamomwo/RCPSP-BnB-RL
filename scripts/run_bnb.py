@@ -49,6 +49,7 @@ OPTIONAL_CONFIG_KEYS = {
     "lbs_initial_lower_bound",
     "output_path",
     "optimal_json",
+    "emit_csv",
 }
 
 ALLOWED_CONFIG_KEYS = REQUIRED_CONFIG_KEYS | OPTIONAL_CONFIG_KEYS
@@ -136,6 +137,15 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         default=False,
         help="Print the best schedule as an activity order list (single-instance runs only).",
+    )
+    parser.add_argument(
+        "--emit-csv",
+        default=None,
+        help=(
+            "Optional path to write a machine-readable labels CSV "
+            "(instance, nodes, solved, done_reason, makespan, lowerbound). "
+            "Used to build the search-effort estimator dataset."
+        ),
     )
     return parser.parse_args()
 
@@ -568,8 +578,10 @@ def main() -> None:
 
         # Total nodes explored across all solver passes in this strategy run.
         total_nodes = 0
+        done_reason = "unknown"
         if strategy_result.last_solver_result is not None:
             total_nodes = strategy_result.last_solver_result.nodes_expanded
+            done_reason = strategy_result.last_solver_result.done_reason
 
         rows.append(
             {
@@ -577,6 +589,7 @@ def main() -> None:
                 "makespan": None if mk is None else int(mk),
                 "lowerbound": lb,
                 "nodes": total_nodes,
+                "done_reason": done_reason,
                 "cpu_time_s": float(elapsed),
                 "solved": mk is not None,
                 "schedule": strategy_result.best_schedule,
@@ -755,6 +768,32 @@ def main() -> None:
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text("\n".join(rendered_lines) + "\n")
         print(f"Saved results to {out_path}")
+
+    emit_csv = (
+        str(args.emit_csv)
+        if args.emit_csv is not None
+        else (None if cfg.get("emit_csv") is None else str(cfg.get("emit_csv")))
+    )
+    if emit_csv is not None:
+        import csv
+
+        csv_path = Path(emit_csv)
+        csv_path.parent.mkdir(parents=True, exist_ok=True)
+        with csv_path.open("w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(
+                ["instance", "nodes", "solved", "done_reason", "makespan", "lowerbound"]
+            )
+            for row in rows:
+                writer.writerow([
+                    row["instance"],
+                    int(row["nodes"]),
+                    int(bool(row["done_reason"] == "search_exhausted")),
+                    row["done_reason"],
+                    fmt_int(row["makespan"]),  # type: ignore[arg-type]
+                    fmt_int(row["lowerbound"]),  # type: ignore[arg-type]
+                ])
+        print(f"Saved labels CSV to {csv_path}")
 
 
 if __name__ == "__main__":
