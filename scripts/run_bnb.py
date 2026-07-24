@@ -495,7 +495,14 @@ def main() -> None:
     device = None
     use_policy = branch_order == "policy"
     if use_policy:
+        import torch
+
         from rcpsp_bb_rl.ml.models import load_policy_checkpoint
+
+        # Tiny CPU model, one forward per node: latency-bound, so the default
+        # intra-op thread pool only adds dispatch overhead. Pin single-threaded.
+        if str(policy_device).strip().lower() == "cpu":
+            torch.set_num_threads(1)
 
         device = resolve_policy_device(policy_device)
         policy_model = load_policy_checkpoint(policy_path, device=device)

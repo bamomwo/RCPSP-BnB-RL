@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import torch
@@ -31,6 +32,65 @@ def _pad(values: Sequence[float], target_len: int) -> List[float]:
 
 
 # ---------------------------------------------------------------------------
+# Per-instance static bundle
+# ---------------------------------------------------------------------------
+
+@dataclass
+class InstanceStatics:
+    """
+    Instance-invariant quantities shared across every node of one episode.
+
+    These depend only on the RCPSP instance structure (precedence graph and
+    durations), never on the partial schedule, so they are computed once per
+    instance and reused for every NodeContext. Recomputing them per node was a
+    major source of per-node overhead in policy-guided search.
+    """
+    predecessors: Dict[int, set]
+    successors: Dict[int, List[int]]
+    topo_order: List[int]
+    tails: Dict[int, int]
+    succ_dur_sum: Dict[int, int]
+    num_preds: Dict[int, int]
+    sum_durations: float
+    num_acts: int
+    num_res: int
+    caps: List[int]
+
+
+def build_instance_statics(
+    instance: RCPSPInstance,
+    predecessors: Optional[Dict[int, set]] = None,
+) -> InstanceStatics:
+    """
+    Compute the instance-invariant structures once. If `predecessors` is already
+    available (e.g. from the solver), pass it in to avoid rebuilding it.
+    """
+    preds = predecessors if predecessors is not None else build_predecessors(instance)
+    all_ids = list(instance.activities.keys())
+    successors = _build_successors_from_predecessors(preds, all_ids)
+    topo_order = _topological_order_from_predecessors(preds, all_ids)
+    tails = _compute_tails(instance, successors, topo_order)
+    succ_dur_sum = {
+        a: sum(instance.activities[s].duration for s in instance.activities[a].successors)
+        for a in instance.activities
+    }
+    num_preds = {a: len(preds.get(a, set())) for a in instance.activities}
+
+    return InstanceStatics(
+        predecessors=preds,
+        successors=successors,
+        topo_order=topo_order,
+        tails=tails,
+        succ_dur_sum=succ_dur_sum,
+        num_preds=num_preds,
+        sum_durations=_sum_all_durations(instance),
+        num_acts=instance.num_activities,
+        num_res=instance.num_resources,
+        caps=instance.resource_caps,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Precomputed node context
 # ---------------------------------------------------------------------------
 
@@ -59,6 +119,7 @@ class NodeContext:
         lower_bound: int,
         incumbent: Optional[int],
         earliest_starts: Dict[int, Optional[int]],
+        statics: Optional[InstanceStatics] = None,
     ) -> None:
         self.instance = instance
         self.scheduled = scheduled
@@ -68,25 +129,28 @@ class NodeContext:
         self.incumbent = incumbent
         self.earliest_starts = earliest_starts
 
+        # Instance-invariant structures: reuse the shared bundle when provided,
+        # otherwise build them here (backward-compatible standalone path).
+        if statics is None:
+            statics = build_instance_statics(instance)
+
         # Derived instance-level constants
-        self.sum_durations: float = _sum_all_durations(instance)
-        self.num_acts: int = instance.num_activities
-        self.num_res: int = instance.num_resources
-        self.caps: List[int] = instance.resource_caps
+        self.sum_durations: float = statics.sum_durations
+        self.num_acts: int = statics.num_acts
+        self.num_res: int = statics.num_res
+        self.caps: List[int] = statics.caps
 
-        # Precedence structures
-        self.predecessors = build_predecessors(instance)
-        all_ids = list(instance.activities.keys())
-        self.successors = _build_successors_from_predecessors(self.predecessors, all_ids)
-        self.topo_order = _topological_order_from_predecessors(self.predecessors, all_ids)
+        # Precedence structures (static)
+        self.predecessors = statics.predecessors
+        self.successors = statics.successors
+        self.topo_order = statics.topo_order
 
-        # Heads (earliest starts under precedence) and tails (longest chain after)
+        # Heads (earliest starts under precedence) — DYNAMIC (depends on scheduled).
         self.heads: Dict[int, int] = _compute_heads(
             instance, scheduled, self.predecessors, self.topo_order
         )
-        self.tails: Dict[int, int] = _compute_tails(
-            instance, self.successors, self.topo_order
-        )
+        # Tails (longest chain after) — STATIC.
+        self.tails: Dict[int, int] = statics.tails
 
         # Latest starts under current lower bound as horizon
         horizon = incumbent if incumbent is not None else int(self.sum_durations)
@@ -121,17 +185,11 @@ class NodeContext:
             for r in range(self.num_res)
         ]
 
-        # Successor duration sums (direct successors only)
-        self.succ_dur_sum: Dict[int, int] = {
-            a: sum(instance.activities[s].duration for s in instance.activities[a].successors)
-            for a in instance.activities
-        }
+        # Successor duration sums (direct successors only) — STATIC.
+        self.succ_dur_sum: Dict[int, int] = statics.succ_dur_sum
 
-        # Predecessor counts
-        self.num_preds: Dict[int, int] = {
-            a: len(self.predecessors.get(a, set()))
-            for a in instance.activities
-        }
+        # Predecessor counts — STATIC.
+        self.num_preds: Dict[int, int] = statics.num_preds
 
         # Resource conflict map among ready activities
         self.conflict_counts, self.conflict_load = self._compute_ready_conflicts()

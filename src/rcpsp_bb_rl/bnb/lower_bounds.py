@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import weakref
 from collections import deque
 from collections.abc import Sequence
 from itertools import permutations
@@ -17,6 +18,40 @@ if TYPE_CHECKING:
 
 LowerBoundFn = Callable[[object, Iterable[int], Mapping[int, object]], int]
 _VERY_LARGE_LB = 10**15
+
+
+# -----------------------------------------------------------------------------
+# Per-instance precedence statics memo
+# -----------------------------------------------------------------------------
+#
+# Profiling showed lb_cp — called once per B&B child — rebuilding the
+# predecessor map and topological order on every call: tens of thousands of
+# identical recomputations per solve (~40% of solve time). Both structures
+# depend only on the instance's precedence graph, so they are memoised per
+# instance object here. Keyed by id() because RCPSPInstance is an eq=True
+# dataclass (unhashable); a weakref finalizer evicts the entry when the
+# instance is garbage-collected, so training runs that load thousands of
+# instances do not accumulate stale cache entries.
+
+_PRECEDENCE_STATICS: Dict[int, tuple] = {}
+
+
+def _precedence_statics(instance: RCPSPInstance) -> Tuple[Dict[int, Set[int]], List[int]]:
+    """
+    Return (predecessors, topological_order) for the instance, memoised.
+
+    The returned structures are shared across callers and MUST be treated as
+    read-only. Callers that need to add arcs copy first (all current ones do).
+    """
+    key = id(instance)
+    hit = _PRECEDENCE_STATICS.get(key)
+    if hit is not None:
+        return hit[0], hit[1]
+    preds = build_predecessors(instance)
+    order = topological_order(instance)
+    ref = weakref.ref(instance, lambda _r, _k=key: _PRECEDENCE_STATICS.pop(_k, None))
+    _PRECEDENCE_STATICS[key] = (preds, order, ref)
+    return preds, order
 
 
 # -----------------------------------------------------------------------------
@@ -163,27 +198,35 @@ def _resource_incompatible_triplet(
     return False
 
 
+_EMPTY_PREDS: frozenset = frozenset()
+
+
 def _precedence_lb(
     instance: RCPSPInstance,
     scheduled: Mapping[int, object],
     predecessors: Mapping[int, Set[int]],
     order: Sequence[int],
 ) -> int:
+    # Hot path: called once per LB evaluation (tens of thousands per solve),
+    # iterating every activity. Bind attribute lookups to locals and reuse a
+    # single shared empty set for precedence-free activities so the `.get`
+    # default never allocates. `order` is a topological order, so every pred's
+    # finish is already in earliest_finish when we read it.
     earliest_finish: Dict[int, int] = {}
+    activities = instance.activities
+    ef_get = earliest_finish.__getitem__
+    max_ = max
 
     for act_id in order:
-        pred_finish = max(
-            (earliest_finish[pred] for pred in predecessors.get(act_id, set())),
-            default=0,
-        )
+        preds = predecessors.get(act_id, _EMPTY_PREDS)
+        pred_finish = max_((ef_get(pred) for pred in preds), default=0) if preds else 0
 
         if act_id in scheduled:
             entry = scheduled[act_id]
-            start = max(pred_finish, _entry_start(entry))
-            finish = max(_entry_finish(entry), start + _entry_duration(entry))
+            start = max_(pred_finish, _entry_start(entry))
+            finish = max_(_entry_finish(entry), start + _entry_duration(entry))
         else:
-            duration = int(instance.activities[act_id].duration)
-            finish = pred_finish + duration
+            finish = pred_finish + activities[act_id].duration
 
         earliest_finish[act_id] = finish
 
@@ -609,8 +652,7 @@ def lb_cp(
     """
     _ = unscheduled  # kept for interface consistency across all lower bounds
 
-    predecessors = build_predecessors(instance)
-    order = topological_order(instance)
+    predecessors, order = _precedence_statics(instance)
     return _precedence_lb(instance, scheduled, predecessors, order)
 
 
@@ -703,8 +745,7 @@ def lb_ip0(
     """
     _ = unscheduled  # kept for interface consistency across all lower bounds
 
-    predecessors = build_predecessors(instance)
-    order = topological_order(instance)
+    predecessors, order = _precedence_statics(instance)
     successors = _build_successors_from_predecessors(predecessors, order)
     reachable_from = _compute_reachability(order, successors)
 
@@ -767,8 +808,7 @@ def lb_ip1(
     """
     _ = unscheduled  # kept for interface consistency across all lower bounds
 
-    predecessors = build_predecessors(instance)
-    order = topological_order(instance)
+    predecessors, order = _precedence_statics(instance)
 
     fixed_horizon = max((_entry_finish(entry) for entry in scheduled.values()), default=0)
     base_lb = _precedence_lb(instance, scheduled, predecessors, order)
@@ -822,8 +862,7 @@ def lb_pm1(
     _ = unscheduled  # kept for interface consistency across all lower bounds
 
     fixed_horizon = max((_entry_finish(entry) for entry in scheduled.values()), default=0)
-    predecessors = build_predecessors(instance)
-    order = topological_order(instance)
+    predecessors, order = _precedence_statics(instance)
     successors = _build_successors_from_predecessors(predecessors, order)
 
     heads = _compute_heads(instance, scheduled, predecessors, order)
@@ -885,9 +924,8 @@ def lb_pm2(
     _ = unscheduled  # kept for interface consistency across all lower bounds
 
     fixed_horizon = max((_entry_finish(entry) for entry in scheduled.values()), default=0)
-    predecessors = build_predecessors(instance)
+    predecessors, order = _precedence_statics(instance)
     successors = _build_successors_from_predecessors(predecessors, instance.activities.keys())
-    order = topological_order(instance)
 
     heads = _compute_heads(instance, scheduled, predecessors, order)
     tails = _compute_tails(instance, successors, order)
@@ -953,8 +991,7 @@ def lb_np0(
     unscheduled_set = {int(a) for a in unscheduled}
     fixed_horizon = max((_entry_finish(entry) for entry in scheduled.values()), default=0)
 
-    predecessors = build_predecessors(instance)
-    order = topological_order(instance)
+    predecessors, order = _precedence_statics(instance)
     successors = _build_successors_from_predecessors(predecessors, order)
 
     heads = _compute_heads(instance, scheduled, predecessors, order)
@@ -1032,8 +1069,7 @@ def lb_np1(
     unscheduled_set = {int(a) for a in unscheduled}
     fixed_horizon = max((_entry_finish(entry) for entry in scheduled.values()), default=0)
 
-    predecessors = build_predecessors(instance)
-    order = topological_order(instance)
+    predecessors, order = _precedence_statics(instance)
     successors = _build_successors_from_predecessors(predecessors, order)
 
     heads = _compute_heads(instance, scheduled, predecessors, order)
@@ -1119,8 +1155,7 @@ def lb_np2(
     unscheduled_set = {int(a) for a in unscheduled}
     fixed_horizon = max((_entry_finish(entry) for entry in scheduled.values()), default=0)
 
-    predecessors = build_predecessors(instance)
-    order = topological_order(instance)
+    predecessors, order = _precedence_statics(instance)
     successors = _build_successors_from_predecessors(predecessors, order)
 
     heads = _compute_heads(instance, scheduled, predecessors, order)
@@ -1214,7 +1249,7 @@ def lb_pr(
     activity_ids = list(instance.activities.keys())
 
     while True:
-        preds = build_predecessors(instance)
+        preds, _ = _precedence_statics(instance)
         preds_cur = _copy_predecessors(preds, activity_ids)
 
         changed = True
@@ -1322,8 +1357,7 @@ def lb_ct(
     )
 
     while True:
-        predecessors = build_predecessors(instance)
-        order = topological_order(instance)
+        predecessors, order = _precedence_statics(instance)
         successors = _build_successors_from_predecessors(predecessors, order)
 
         es = _compute_heads(instance, scheduled, predecessors, order)
@@ -1400,8 +1434,7 @@ def lb_tp(
     )
 
     while True:
-        predecessors = build_predecessors(instance)
-        order = topological_order(instance)
+        predecessors, order = _precedence_statics(instance)
         successors = _build_successors_from_predecessors(predecessors, order)
 
         es = _compute_heads(instance, scheduled, predecessors, order)
@@ -1486,8 +1519,7 @@ def lb_cs(
     if not unscheduled_set:
         return fixed_horizon
 
-    predecessors = build_predecessors(instance)
-    order = topological_order(instance)
+    predecessors, order = _precedence_statics(instance)
 
     # Forward pass with scheduled activities treated as fixed (same convention as lb_cp).
     es: Dict[int, int] = {}

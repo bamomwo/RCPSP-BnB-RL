@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional
 
+import numpy as np
 import torch
 
 from rcpsp_bb_rl.bnb.dominance import normalize_dominance_spec
@@ -12,7 +13,9 @@ from rcpsp_bb_rl.bnb.scheduling import build_profile, earliest_feasible_start
 from rcpsp_bb_rl.bnb.solver import BBNode, BnBSolver, ScheduleEntry, SolverResult, StepContext, current_makespan
 from rcpsp_bb_rl.data.parsing import RCPSPInstance, load_instance
 from rcpsp_bb_rl.ml.il.featurize import (
+    InstanceStatics,
     NodeContext,
+    build_instance_statics,
     candidate_features,
     critic_features,
     global_features,
@@ -79,6 +82,7 @@ class BranchingEnv:
         self._n_activities: int = 0
         self._cp_lb: int = 0
         self._static_feats: Optional[List[float]] = None
+        self._statics: Optional[InstanceStatics] = None
 
         # Step-level state written by the callback, read by step()
         self._pending_node: Optional[BBNode] = None
@@ -106,23 +110,29 @@ class BranchingEnv:
         incumbent: Optional[int],
         ctx_step: Optional[StepContext] = None,
     ) -> Dict[str, torch.Tensor]:
-        horizon = sum(a.duration for a in self.instance.activities.values())
-        profile = build_profile(
-            self.instance.activities,
-            self.instance.resource_caps,
-            node.scheduled,
-            horizon=horizon,
-        )
-        from rcpsp_bb_rl.bnb.precedence import build_predecessors
-        predecessors = build_predecessors(self.instance)
         ready_sorted = sorted(node.ready)
-        earliest_starts: Dict[int, Optional[int]] = {
-            rid: earliest_feasible_start(
-                self.instance, predecessors, node.scheduled,
-                rid, incumbent=incumbent, profile=profile,
+        # Reuse the solver's shared earliest-start map when present; only build
+        # a profile + recompute if the node did not carry one.
+        if node.est_map is not None:
+            earliest_starts: Dict[int, Optional[int]] = {
+                rid: node.est_map.get(rid) for rid in ready_sorted
+            }
+        else:
+            horizon = sum(a.duration for a in self.instance.activities.values())
+            profile = build_profile(
+                self.instance.activities,
+                self.instance.resource_caps,
+                node.scheduled,
+                horizon=horizon,
             )
-            for rid in ready_sorted
-        }
+            predecessors = self._statics.predecessors
+            earliest_starts = {
+                rid: earliest_feasible_start(
+                    self.instance, predecessors, node.scheduled,
+                    rid, incumbent=incumbent, profile=profile,
+                )
+                for rid in ready_sorted
+            }
         ctx = NodeContext(
             instance=self.instance,
             scheduled=node.scheduled,
@@ -131,22 +141,32 @@ class BranchingEnv:
             lower_bound=node.lower_bound,
             incumbent=incumbent,
             earliest_starts=earliest_starts,
+            statics=self._statics,
         )
-        glob = torch.tensor(
-            global_features(ctx, self.max_resources, depth=node.depth),
-            dtype=torch.float32,
+        # Build tensors via numpy: torch.tensor() on nested Python lists walks
+        # every element to infer shape/dtype (slow); np.asarray + from_numpy is
+        # the fast path to the identical tensor. Values are unchanged.
+        glob = torch.from_numpy(
+            np.asarray(
+                global_features(ctx, self.max_resources, depth=node.depth),
+                dtype=np.float32,
+            )
         )
-        cand = torch.tensor(
-            [candidate_features(ctx, rid, self.max_resources) for rid in ready_sorted],
-            dtype=torch.float32,
+        cand = torch.from_numpy(
+            np.asarray(
+                [candidate_features(ctx, rid, self.max_resources) for rid in ready_sorted],
+                dtype=np.float32,
+            )
         )
-        mask = torch.tensor(
-            [earliest_starts.get(rid) is not None for rid in ready_sorted],
-            dtype=torch.bool,
+        mask = torch.from_numpy(
+            np.fromiter(
+                (earliest_starts.get(rid) is not None for rid in ready_sorted),
+                dtype=bool,
+                count=len(ready_sorted),
+            )
         )
-        critic = torch.tensor(
-            self._critic_features(node, incumbent, ctx_step),
-            dtype=torch.float32,
+        critic = torch.from_numpy(
+            np.asarray(self._critic_features(node, incumbent, ctx_step), dtype=np.float32)
         )
         return {
             "global_feats": glob,
@@ -269,6 +289,8 @@ class BranchingEnv:
         # Instance-static difficulty features (constant for the whole episode).
         # Computed once here and reused for every node's critic vector.
         self._static_feats = instance_static_features(self.instance)
+        # Instance-invariant structures shared by every NodeContext this episode.
+        self._statics = build_instance_statics(self.instance)
 
         self._solver_gen = self._run_solver(self.instance)
         msg = next(self._solver_gen)

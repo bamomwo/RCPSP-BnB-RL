@@ -146,7 +146,9 @@ class BranchingTransformer(nn.Module):
 
         # Build key_padding_mask: mask infeasible candidates so they don't
         # pollute attention of feasible ones.  CLS token is always unmasked.
-        key_padding_mask = None
+        # Explicit Optional annotation: TorchScript forbids a local changing
+        # type (None -> Tensor), so declare it Optional up front.
+        key_padding_mask: Optional[torch.Tensor] = None
         if action_mask is not None:
             # key_padding_mask: True = ignore this position
             # CLS (position 0) is always attended; infeasible candidates are masked.
@@ -212,11 +214,10 @@ class BranchingTransformer(nn.Module):
 
         # Build key_padding_mask [B, R_max+1]: True = IGNORE in attention.
         # CLS (position 0) is always attended; padded candidate positions are ignored.
+        key_padding_mask: Optional[torch.Tensor] = None
         if pad_mask is not None:
             cls_col = torch.zeros(B, 1, dtype=torch.bool, device=seq.device)
             key_padding_mask = torch.cat([cls_col, ~pad_mask], dim=1)  # [B, R_max+1]
-        else:
-            key_padding_mask = None
 
         # Transformer encoding
         x = seq

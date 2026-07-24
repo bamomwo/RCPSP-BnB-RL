@@ -107,6 +107,11 @@ class BBNode:
     #                    backtracking (each node carries its own branch's count).
     path_best_lb: int = 0
     stagnation_depth: int = 0
+    # Feasibility cache computed once when this node is expanded: maps each
+    # ready act_id -> its earliest feasible start (None if infeasible). Populated
+    # by the solver just before branching so the ordering callback (policy) and
+    # the solver's own child loop share one computation instead of duplicating it.
+    est_map: Optional[Dict[int, Optional[int]]] = None
 
 
 @dataclass
@@ -424,6 +429,32 @@ class BnBSolver:
                         nodes_pruned_after_incumbent += 1
                     continue
 
+                # Build the resource profile and earliest-feasible-start map ONCE,
+                # before ordering. The ordering callback (e.g. the branching
+                # policy) needs earliest-starts to featurise candidates, and the
+                # child loop below needs them to place activities. Computing them
+                # here and attaching to the node lets both share one computation
+                # instead of each recomputing profile + earliest_feasible_start.
+                horizon_hint = sum(act.duration for act in self.instance.activities.values())
+                node_horizon = incumbent_bound if incumbent_bound is not None else horizon_hint
+                node_profile = build_profile(
+                    self.instance.activities,
+                    self.instance.resource_caps,
+                    node.scheduled,
+                    horizon=node_horizon,
+                )
+                node.est_map = {
+                    rid: earliest_feasible_start(
+                        self.instance,
+                        self.predecessors,
+                        node.scheduled,
+                        rid,
+                        incumbent_bound,
+                        profile=node_profile,
+                    )
+                    for rid in node.ready
+                }
+
                 acts = self.branching_scheme.choose_activities(
                     node=node,
                     incumbent=incumbent_bound,
@@ -435,15 +466,16 @@ class BnBSolver:
             if seen_incumbent:
                 nodes_expanded_after_incumbent += 1
 
-            # Build the resource profile once for this node; reused across all children.
-            horizon_hint = sum(act.duration for act in self.instance.activities.values())
-            node_horizon = incumbent_bound if incumbent_bound is not None else horizon_hint
-            node_profile = build_profile(
-                self.instance.activities,
-                self.instance.resource_caps,
-                node.scheduled,
-                horizon=node_horizon,
-            )
+            if is_parallel:
+                # Parallel path builds its own profile (serial builds it above).
+                horizon_hint = sum(act.duration for act in self.instance.activities.values())
+                node_horizon = incumbent_bound if incumbent_bound is not None else horizon_hint
+                node_profile = build_profile(
+                    self.instance.activities,
+                    self.instance.resource_caps,
+                    node.scheduled,
+                    horizon=node_horizon,
+                )
 
             # Reverse push for DFS/LIFO.
             for act_id in reversed(acts):
@@ -466,14 +498,20 @@ class BnBSolver:
                     ):
                         continue
                 else:
-                    est_start = earliest_feasible_start(
-                        self.instance,
-                        self.predecessors,
-                        node.scheduled,
-                        act_id,
-                        incumbent_bound,
-                        profile=node_profile,
-                    )
+                    # Reuse the earliest-start computed once above (shared with
+                    # the ordering callback). Fall back to a direct computation
+                    # only if this act was not in node.ready (defensive).
+                    if node.est_map is not None and act_id in node.est_map:
+                        est_start = node.est_map[act_id]
+                    else:
+                        est_start = earliest_feasible_start(
+                            self.instance,
+                            self.predecessors,
+                            node.scheduled,
+                            act_id,
+                            incumbent_bound,
+                            profile=node_profile,
+                        )
                     if est_start is None:
                         continue
 
@@ -560,6 +598,11 @@ class BnBSolver:
                 self.nodes.append(child_node)
                 self.edges.append((node_id, child_id))
                 stack.append(child_id)
+
+            # The feasibility cache has served both consumers (ordering callback
+            # and the child loop above); free it so long runs don't retain one
+            # dict per expanded node in self.nodes.
+            node.est_map = None
 
         solver_done_reason = "time_limit" if (stack and time_exceeded()) else "search_exhausted"
         final_proof_burden = _compute_proof_burden()

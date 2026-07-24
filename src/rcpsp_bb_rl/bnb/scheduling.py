@@ -6,25 +6,37 @@ if TYPE_CHECKING:
     from rcpsp_bb_rl.data.parsing import Activity, RCPSPInstance
 
 
+# These three run in the innermost B&B loops (millions of calls per solve),
+# almost always on a ScheduleEntry dataclass whose fields are already ints.
+# `try: entry.start` is the fast path — a single attribute read, no hasattr
+# probe and no redundant int() cast — and falls back to the Mapping form only
+# when the attribute is genuinely absent. Behaviour is identical to the prior
+# hasattr/getattr/int chain for every entry type we produce.
 def entry_start(entry: object) -> int:
-    if hasattr(entry, "start"):
-        return int(getattr(entry, "start"))
+    try:
+        return entry.start  # type: ignore[attr-defined]
+    except AttributeError:
+        pass
     if isinstance(entry, Mapping):
         return int(entry.get("start", 0))
     raise TypeError("Scheduled entry must provide a start time.")
 
 
 def entry_duration(entry: object) -> int:
-    if hasattr(entry, "duration"):
-        return int(getattr(entry, "duration"))
+    try:
+        return entry.duration  # type: ignore[attr-defined]
+    except AttributeError:
+        pass
     if isinstance(entry, Mapping):
         return int(entry.get("duration", 0))
     raise TypeError("Scheduled entry must provide a duration.")
 
 
 def entry_finish(entry: object) -> int:
-    if hasattr(entry, "finish"):
-        return int(getattr(entry, "finish"))
+    try:
+        return entry.finish  # type: ignore[attr-defined]
+    except AttributeError:
+        pass
     if isinstance(entry, Mapping):
         if "finish" in entry:
             return int(entry["finish"])
