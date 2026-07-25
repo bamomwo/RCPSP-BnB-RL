@@ -1,0 +1,84 @@
+Logging training output to: models/train_kl_stops/policy_ppo_train_log.txt
+Device: cuda
+Training instances: 3810
+Eval instances: 10
+Loading BC checkpoint: models/policy_bc.pt
+[load_policy_checkpoint] reinitialised 1 param(s) with changed shape (value-head resize): ['value_head.0.weight']
+Model params: 75,906
+TensorBoard logging -> models/train_kl_stops/tb
+KL minibatch diagnostics -> models/train_kl_stops/policy_ppo_kl_minibatches.csv
+
+================================================================================
+  PPO Training (GPU-batched update, min_batch_size=16384)
+  total_steps=10,000,000  backup=tree(cost_gamma=0.85,bonus_gamma=1.0)  train_instances=3810  eval_instances=10
+  clip_eps=0.2  ent_coef=0.002->0.0005 (linear decay)
+  vf_loss=huber(delta=3.0)  vf_coef=0.5
+  reward_scale=DYNAMIC  alpha=clip(c_target/N_est, 1e-06, 0.5)  c_target=1.0  beta1=1.0  beta2=1.0
+                        estimator=models/estimator/estimator.pt
+================================================================================
+[Episode 1] start  RU_inst180001.rcp
+
+[Episode 1] Done  Instance=RU_inst180001.rcp  Reason=time_limit  Steps=53479  Nodes=53479  Best_Ms=61  Inc_Improves=3  N_est=36978  alpha=2.70e-05  rewards=(G_root:-1.43, G_cost:-1.92, G_first_incum:+0.44, G_incum_impro:+0.05)  elapsed=481s
+
+[Update 1] steps=53479  episodes_in_batch=1  valid=53461/53479  pg=+0.0085  vf=0.0582  ev=+0.001  ret_std=1.0000  ent=0.6299  ent_coef=0.0020  kl=0.0217  max_kl=0.0647  steps=3/36  elapsed=526s  [KL stop @ epoch 1/4 mb 3/9 trigger_kl=0.0647]
+[Episode 2] start  TF_inst714001.rcp
+
+[Episode 2] Done  Instance=TF_inst714001.rcp  Reason=time_limit  Steps=68116  Nodes=68116  Best_Ms=178  Inc_Improves=0  N_est=67056  alpha=1.49e-05  rewards=(G_root:-1.35, G_cost:-1.58, G_first_incum:+0.24, G_incum_impro:+0.00)  elapsed=1008s
+
+[Update 2] steps=121595  episodes_in_batch=1  valid=68085/68116  pg=+0.4213  vf=4.0163  ev=+0.008  ret_std=0.4791  ent=0.0992  ent_coef=0.0020  kl=0.0029  max_kl=0.0250  steps=36/36  elapsed=1564s
+[Episode 3] start  TF_inst145001.rcp
+
+[Episode 3] Done  Instance=TF_inst145001.rcp  Reason=search_exhausted  Steps=66  Nodes=66  Best_Ms=137  Inc_Improves=2  N_est=35  alpha=2.87e-02  rewards=(G_root:-1.96, G_cost:-2.96, G_first_incum:+0.92, G_incum_impro:+0.08)  elapsed=1566s
+
+[Accumulate] valid=66  accumulated=66/16384 — collecting more
+
+[Episode 4] start  SP_inst451001.rcp
+
+[Episode 4] Done  Instance=SP_inst451001.rcp  Reason=time_limit  Steps=84636  Nodes=84636  Best_Ms=130  Inc_Improves=0  N_est=72678  alpha=1.38e-05  rewards=(G_root:-1.60, G_cost:-1.82, G_first_incum:+0.22, G_incum_impro:+0.00)  elapsed=2047s
+
+[Update 3] steps=206297  episodes_in_batch=2  valid=84671/84702  pg=+0.0029  vf=0.0916  ev=-0.000  ret_std=1.3974  ent=0.1710  ent_coef=0.0020  kl=0.0100  max_kl=0.0944  steps=18/36  elapsed=2341s  [KL stop @ epoch 2/4 mb 9/9 trigger_kl=0.0944]
+
+------------------------------------------------------------
+[Checkpoint] steps=206297  solved=40.0%  gap=3.69%  nodes=16575  [best]
+[Checkpoint] saved  → models/train_kl_stops/checkpoints/policy_ppo_step206297.pt
+[Checkpoint] best   → models/train_kl_stops/policy_ppo_best.pt  (gap=3.69%)
+------------------------------------------------------------
+
+[Episode 5] start  VAR_inst257001.rcp
+
+[Episode 5] Done  Instance=VAR_inst257001.rcp  Reason=search_exhausted  Steps=5659  Nodes=5659  Best_Ms=157  Inc_Improves=3  N_est=3374  alpha=2.96e-04  rewards=(G_root:-1.45, G_cost:-2.36, G_first_incum:+0.86, G_incum_impro:+0.06)  elapsed=2866s
+
+[Accumulate] valid=5659  accumulated=5659/16384 — collecting more
+
+[Episode 6] start  LA_inst478001.rcp
+
+[Episode 6] Done  Instance=LA_inst478001.rcp  Reason=search_exhausted  Steps=3003  Nodes=3003  Best_Ms=107  Inc_Improves=3  N_est=182  alpha=5.51e-03  rewards=(G_root:-17.39, G_cost:-18.29, G_first_incum:+0.87, G_incum_impro:+0.03)  elapsed=2883s
+
+[Accumulate] valid=3003  accumulated=8662/16384 — collecting more
+
+[Episode 7] start  RC_inst476001.rcp
+
+[Episode 7] Done  Instance=RC_inst476001.rcp  Reason=search_exhausted  Steps=26627  Nodes=26627  Best_Ms=166  Inc_Improves=0  N_est=14912  alpha=6.71e-05  rewards=(G_root:-1.46, G_cost:-2.31, G_first_incum:+0.86, G_incum_impro:+0.00)  elapsed=3033s
+
+[Update 4] steps=241586  episodes_in_batch=3  valid=35289/35289  pg=+0.1588  vf=1.0198  ev=-0.000  ret_std=2.3347  ent=0.3878  ent_coef=0.0020  kl=0.0073  max_kl=0.0932  steps=13/36  elapsed=3127s  [KL stop @ epoch 2/4 mb 4/9 trigger_kl=0.0932]
+[Episode 8] start  AD_inst338001.rcp
+
+[Episode 8] Done  Instance=AD_inst338001.rcp  Reason=time_limit  Steps=82692  Nodes=82692  Best_Ms=154  Inc_Improves=1  N_est=77518  alpha=1.29e-05  rewards=(G_root:-0.90, G_cost:-1.52, G_first_incum:+0.57, G_incum_impro:+0.05)  elapsed=3608s
+
+[Update 5] steps=324278  episodes_in_batch=1  valid=82664/82692  pg=-0.0013  vf=0.0231  ev=-0.006  ret_std=0.4747  ent=0.1049  ent_coef=0.0020  kl=0.0049  max_kl=0.0581  steps=19/32  elapsed=4024s  [KL stop @ epoch 3/4 mb 3/8 trigger_kl=0.0581]
+[Episode 9] start  TF_inst411001.rcp
+
+[Episode 9] Done  Instance=TF_inst411001.rcp  Reason=time_limit  Steps=49247  Nodes=49247  Best_Ms=88  Inc_Improves=0  N_est=124  alpha=8.05e-03  rewards=(G_root:-572.22, G_cost:-573.15, G_first_incum:+0.93, G_incum_impro:+0.00)  elapsed=4506s
+
+[Update 6] steps=373525  episodes_in_batch=1  valid=49219/49247  pg=+2.3042  vf=20.8558  ev=+0.001  ret_std=2.7361  ent=1.1958  ent_coef=0.0019  kl=0.0110  max_kl=0.0487  steps=36/36  elapsed=4856s
+[Episode 10] start  RC_inst407001.rcp
+
+[Episode 10] Done  Instance=RC_inst407001.rcp  Reason=search_exhausted  Steps=5344  Nodes=5344  Best_Ms=158  Inc_Improves=1  N_est=4733  alpha=2.11e-04  rewards=(G_root:-0.50, G_cost:-1.41, G_first_incum:+0.86, G_incum_impro:+0.05)  elapsed=4886s
+
+[Accumulate] valid=5344  accumulated=5344/16384 — collecting more
+
+[Episode 11] start  TF_inst504001.rcp
+
+[Episode 11] Done  Instance=TF_inst504001.rcp  Reason=time_limit  Steps=70915  Nodes=70915  Best_Ms=152  Inc_Improves=1  N_est=62264  alpha=1.61e-05  rewards=(G_root:-1.33, G_cost:-1.62, G_first_incum:+0.27, G_incum_impro:+0.02)  elapsed=5367s
+
+[Update 7] steps=449784  episodes_in_batch=2  valid=76230/76259  pg=+0.0682  vf=0.0057  ev=-0.069  ret_std=0.0815  ent=0.2251  ent_coef=0.0019  kl=0.0089  max_kl=0.1246  steps=35/36  elapsed=5855s  [KL stop @ epoch 4/4 mb 8/9 trigger_kl=0.1246]

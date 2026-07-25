@@ -891,8 +891,13 @@ def main() -> None:
         sorted_indices = indices[sorted_order]
 
         ac.train()
-        T = n_valid
-        mb_size = max(T // minibatches, 1)
+        # Split the R-sorted transitions into EXACTLY `minibatches` contiguous
+        # chunks whose sizes differ by at most 1. Unlike `T // minibatches` +
+        # range-stepping (which leaves a remainder tail — an orphan minibatch of
+        # 1-10 transitions whose KL is pure noise and spuriously trips the
+        # early-stop), array_split guarantees no tiny tail chunk. Contiguous
+        # slices preserve the R-bucketing that minimizes padding waste.
+        mb_chunks = np.array_split(sorted_indices, minibatches)
 
         # Linear entropy-coefficient decay (with floor) based on training
         # progress. progress in [0, 1] -> coef from ent_coef_start to ent_coef_end.
@@ -905,10 +910,9 @@ def main() -> None:
         early_stop = False
 
         # ---- KL-stop diagnostics (logging only, no effect on the update) ----
-        # Integer division leaves a remainder tail, so each epoch runs
-        # ceil(T / mb_size) chunks, not the nominal `minibatches`. Compute the
-        # REAL planned count so completed/planned is honest.
-        chunks_per_epoch = len(range(0, T, mb_size))
+        # array_split yields exactly `minibatches` chunks (no remainder tail),
+        # so planned == minibatches * epochs cleanly.
+        chunks_per_epoch = len(mb_chunks)
         planned_steps = chunks_per_epoch * ppo_epochs
         max_kl = 0.0            # largest per-minibatch KL this update
         trigger_kl = None       # KL of the minibatch that crossed target_kl
@@ -918,13 +922,13 @@ def main() -> None:
         for epoch_i in range(ppo_epochs):
             if early_stop:
                 break
-            # Shuffle within buckets: generate start indices that cover ALL
-            # transitions (including the remainder tail), then shuffle.
-            chunk_starts = list(range(0, T, mb_size))
-            np.random.shuffle(chunk_starts)
+            # Shuffle the chunk ORDER each epoch (not the chunk contents, so the
+            # R-bucketing within each chunk is preserved).
+            chunk_order = list(range(len(mb_chunks)))
+            np.random.shuffle(chunk_order)
 
-            for mb_i, start in enumerate(chunk_starts):
-                mb_idx = sorted_indices[start: start + mb_size]
+            for mb_i, ci in enumerate(chunk_order):
+                mb_idx = mb_chunks[ci]
 
                 mb_log_probs_old = torch.tensor(
                     [buffer.log_probs[i] for i in mb_idx], dtype=torch.float32, device=device

@@ -45,3 +45,5 @@ CLAUDE.md
 
 models/policy_ppo_step6029334.pt 
 scripts/verify_policy_speedup.py
+
+xkl_stops/
