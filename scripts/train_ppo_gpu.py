@@ -16,7 +16,6 @@ Key differences from train_ppo.py:
 from __future__ import annotations
 
 import argparse
-import csv
 import json
 import random
 import sys
@@ -538,37 +537,6 @@ def main() -> None:
         writer = SummaryWriter(log_dir=str(tb_dir))
         print(f"TensorBoard logging -> {tb_dir}")
 
-    # --- Per-minibatch KL diagnostics (CSV) ---
-    # One row per minibatch step across the whole run, so the KL-stop pattern can
-    # be analysed offline (e.g. group by candidate-count range, compare trigger
-    # vs non-trigger buckets). Kept out of stdout to avoid drowning the console.
-    # x-axis for pattern-finding is the monotonic `mb_step` column.
-    kl_diag_path = save_path.parent / (save_path.stem + "_kl_minibatches.csv")
-    kl_diag_file = open(kl_diag_path, "w", newline="")
-    kl_diag_writer = csv.writer(kl_diag_file)
-    kl_diag_writer.writerow([
-        "mb_step",          # global monotonic minibatch counter (x-axis)
-        "update",           # PPO update index this minibatch belongs to
-        "global_step",      # env steps at this update (for aligning with TB)
-        "epoch",            # 1-based PPO epoch within the update
-        "minibatch",        # 1-based minibatch within the epoch
-        "batch_size",       # number of transitions in this minibatch
-        "cand_min",         # candidate-set size (R) stats over the minibatch
-        "cand_mean",
-        "cand_median",
-        "cand_max",
-        "entropy_mean",     # mean policy entropy (nats)
-        "entropy_norm_mean",  # mean entropy / log(R): 0=deterministic, 1=uniform
-        "pct_deterministic",  # fraction of states with max softmax prob >= 0.95
-        "approx_kl",        # this minibatch's approximate KL
-        "is_trigger",       # 1 if this minibatch tripped the KL early-stop
-    ])
-    kl_diag_mb_step = 0  # monotonic counter across the whole run
-    print(f"KL minibatch diagnostics -> {kl_diag_path}")
-
-    # Threshold above which a state's policy counts as "nearly deterministic".
-    det_prob_threshold = float(config.get("kl_diag_det_threshold", 0.95))
-
     # --- Training hyperparams ---
     total_env_steps = int(config["total_env_steps"])
     ppo_epochs = int(config["ppo_epochs"])
@@ -990,47 +958,8 @@ def main() -> None:
                 if approx_kl > max_kl:
                     max_kl = approx_kl
 
-                # Does THIS minibatch trip the early-stop? Decide first so the
-                # diagnostics row can flag the trigger before we break out.
+                # Does THIS minibatch trip the early-stop?
                 is_trigger = target_kl is not None and approx_kl > float(target_kl)
-
-                # ---- Per-minibatch diagnostics row (logging only) ----
-                # Candidate-set size (R) profile of this bucket + policy
-                # concentration, so stops can be attributed to an R range offline.
-                with torch.no_grad():
-                    seq_arr = np.asarray(seq_lens, dtype=np.float64)
-                    # Fraction of states whose policy is nearly deterministic:
-                    # max softmax prob over each state's valid candidates >= thresh.
-                    det_count = 0
-                    ent_norm_sum = 0.0
-                    for row_i, R_i in enumerate(seq_lens):
-                        logits_i = logits_b[row_i, :R_i]
-                        probs_i = torch.softmax(logits_i, dim=0)
-                        if float(probs_i.max().item()) >= det_prob_threshold:
-                            det_count += 1
-                        # Normalized entropy: raw / log(R). R==1 -> define as 0
-                        # (a singleton state is trivially deterministic).
-                        if R_i > 1:
-                            ent_norm_sum += float(mb_entropies_t[row_i].item()) / float(np.log(R_i))
-                    n_states = len(seq_lens)
-                    kl_diag_writer.writerow([
-                        kl_diag_mb_step,
-                        update_count,
-                        global_step,
-                        epoch_i + 1,
-                        mb_i + 1,
-                        n_states,
-                        int(seq_arr.min()) if n_states else 0,
-                        f"{seq_arr.mean():.3f}" if n_states else "0",
-                        f"{np.median(seq_arr):.1f}" if n_states else "0",
-                        int(seq_arr.max()) if n_states else 0,
-                        f"{float(mb_entropies_t.mean().item()):.5f}",
-                        f"{(ent_norm_sum / n_states):.5f}" if n_states else "0",
-                        f"{(det_count / n_states):.4f}" if n_states else "0",
-                        f"{approx_kl:.6f}",
-                        1 if is_trigger else 0,
-                    ])
-                kl_diag_mb_step += 1
 
                 if is_trigger:
                     # Record WHERE and WHAT tripped the stop before breaking. The
@@ -1067,10 +996,6 @@ def main() -> None:
                 if early_stop else ""
             )
         )
-
-        # Flush the diagnostics CSV once per update so a Ctrl-C'd run still
-        # leaves complete, inspectable rows on disk.
-        kl_diag_file.flush()
 
         if writer is not None:
             writer.add_scalar("train/pg_loss", total_pg_loss / n_updates, global_step)
@@ -1214,8 +1139,6 @@ def main() -> None:
     if writer is not None:
         writer.flush()
         writer.close()
-
-    kl_diag_file.close()
 
 
 if __name__ == "__main__":
