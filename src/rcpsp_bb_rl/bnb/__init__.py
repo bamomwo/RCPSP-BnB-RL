@@ -4,7 +4,6 @@ from rcpsp_bb_rl.bnb.solver import (
     ScheduleEntry,
     SolverResult,
     current_makespan,
-    solve_parallel,
     solve_serial,
 )
 from rcpsp_bb_rl.bnb.scheduling import (
@@ -21,7 +20,6 @@ from rcpsp_bb_rl.bnb.precedence import (
 )
 from rcpsp_bb_rl.bnb.lower_bounds import lower_bound
 from rcpsp_bb_rl.bnb.branching import (
-    ParallelBranchingScheme,
     ReadyOrderFn,
     SerialBranchingScheme,
 )
@@ -60,7 +58,6 @@ __all__ = [
     "SolverResult",
     "ReadyOrderFn",
     "SerialBranchingScheme",
-    "ParallelBranchingScheme",
     "order_by_activity_id",
     "make_lower_bound_order_fn",
     "make_policy_order_fn",
@@ -75,7 +72,6 @@ __all__ = [
     "entry_finish",
     "resource_feasible",
     "solve_serial",
-    "solve_parallel",
     "lower_bound",
     "LOWER_BOUND_FNS",
     "get_lower_bound_fn",

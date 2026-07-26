@@ -10,25 +10,14 @@ if TYPE_CHECKING:
 
 DominanceRuleId = str
 SerialStateSignature = Tuple[frozenset[int], Tuple[Tuple[int, int, int], ...]]
-ParallelCutsetSignature = Tuple[int, frozenset[int], Tuple[Tuple[int, int, int], ...]]
 
 RULE_SET_BASED = "set_based"
 RULE_CONTRADICTION = "contradiction"
 RULE_EXTENDED_GLOBAL_SHIFT = "extended_global_shift"
-RULE_PAR_CUTSET = "par_cutset"
-RULE_PAR_LEFT_SHIFT = "par_left_shift"
-SERIAL_RULE_IDS = (
+ALL_RULE_IDS = (
     RULE_SET_BASED,
     RULE_CONTRADICTION,
     RULE_EXTENDED_GLOBAL_SHIFT,
-)
-PARALLEL_RULE_IDS = (
-    RULE_PAR_CUTSET,
-    RULE_PAR_LEFT_SHIFT,
-)
-ALL_RULE_IDS = (
-    *SERIAL_RULE_IDS,
-    *PARALLEL_RULE_IDS,
 )
 
 
@@ -54,11 +43,12 @@ def normalize_dominance_spec(spec: object = False) -> DominanceConfig:
 
     Accepted forms:
     - False / None / "off" / "none" / "0"
-    - True / "on" / "1" / "serial"
-    - "parallel"
-    - "all"
+    - True / "on" / "1" / "serial" / "all"
     - "set_based,contradiction"
     - ["set_based", "extended_global_shift"]
+
+    "serial" and "all" are retained as aliases for the full rule set: the solver
+    is serial-only, so "every rule" and "every serial rule" are the same thing.
     """
     if isinstance(spec, DominanceConfig):
         return spec
@@ -67,17 +57,13 @@ def normalize_dominance_spec(spec: object = False) -> DominanceConfig:
         return DominanceConfig(enabled=False, rules=())
 
     if isinstance(spec, bool):
-        return DominanceConfig(enabled=spec, rules=SERIAL_RULE_IDS if spec else ())
+        return DominanceConfig(enabled=spec, rules=ALL_RULE_IDS if spec else ())
 
     if isinstance(spec, str):
         raw = spec.strip().lower()
         if raw in {"", "off", "none", "false", "0", "no"}:
             return DominanceConfig(enabled=False, rules=())
-        if raw in {"on", "true", "1", "yes", "serial"}:
-            return DominanceConfig(enabled=True, rules=SERIAL_RULE_IDS)
-        if raw == "parallel":
-            return DominanceConfig(enabled=True, rules=PARALLEL_RULE_IDS)
-        if raw == "all":
+        if raw in {"on", "true", "1", "yes", "serial", "all"}:
             return DominanceConfig(enabled=True, rules=ALL_RULE_IDS)
         parts = tuple(part.strip().lower() for part in raw.split(",") if part.strip())
         if not parts:
@@ -89,11 +75,7 @@ def normalize_dominance_spec(spec: object = False) -> DominanceConfig:
         parts = tuple(str(item).strip().lower() for item in spec if str(item).strip())
         if not parts:
             return DominanceConfig(enabled=False, rules=())
-        if len(parts) == 1 and parts[0] == "serial":
-            return DominanceConfig(enabled=True, rules=SERIAL_RULE_IDS)
-        if len(parts) == 1 and parts[0] == "parallel":
-            return DominanceConfig(enabled=True, rules=PARALLEL_RULE_IDS)
-        if len(parts) == 1 and parts[0] == "all":
+        if len(parts) == 1 and parts[0] in {"serial", "all"}:
             return DominanceConfig(enabled=True, rules=ALL_RULE_IDS)
         _validate_rules(parts)
         return DominanceConfig(enabled=True, rules=parts)
@@ -105,12 +87,8 @@ def format_dominance_spec(spec: object = False) -> str:
     cfg = normalize_dominance_spec(spec)
     if not cfg.enabled:
         return "off"
-    if cfg.rules == SERIAL_RULE_IDS:
-        return "serial"
-    if cfg.rules == PARALLEL_RULE_IDS:
-        return "parallel"
     if cfg.rules == ALL_RULE_IDS:
-        return "all"
+        return "serial"
     return ",".join(cfg.rules)
 
 
@@ -140,21 +118,6 @@ def _schedule_signature(
     return frozenset(int(a) for a in unscheduled), entries
 
 
-def _parallel_cutset_signature(
-    unscheduled: Set[int],
-    scheduled: Mapping[int, object],
-    current_time: int,
-) -> ParallelCutsetSignature:
-    t = int(current_time)
-    entries = tuple(
-        sorted(
-            (int(act_id), int(entry_start(entry)), int(entry_finish(entry)))
-            for act_id, entry in scheduled.items()
-        )
-    )
-    return int(t), frozenset(int(a) for a in unscheduled), entries
-
-
 class DominanceEngine:
     """
     Modular dominance-rule dispatcher for B&B child pruning.
@@ -177,14 +140,12 @@ class DominanceEngine:
         self.config = config
         self.stats = DominanceStats()
         self._best_lb_by_signature: MutableMapping[SerialStateSignature, int] = {}
-        self._seen_cutset_signatures: Set[ParallelCutsetSignature] = set()
 
     def register_state(
         self,
         unscheduled: Set[int],
         scheduled: Mapping[int, object],
         lower_bound: int,
-        current_time: int = 0,
     ) -> None:
         if not self.config.enabled:
             return
@@ -195,14 +156,6 @@ class DominanceEngine:
             if prev is None or int(lower_bound) < prev:
                 self._best_lb_by_signature[signature] = int(lower_bound)
 
-        if RULE_PAR_CUTSET in self.config.rules:
-            signature = _parallel_cutset_signature(
-                unscheduled,
-                scheduled,
-                int(current_time),
-            )
-            self._seen_cutset_signatures.add(signature)
-
     def prune_child(
         self,
         *,
@@ -212,8 +165,6 @@ class DominanceEngine:
         child_lb: int,
         act_id: int,
         child_start: int,
-        parent_time: int = 0,
-        child_time: int = 0,
     ) -> Optional[DominanceRuleId]:
         if not self.config.enabled:
             return None
@@ -231,29 +182,11 @@ class DominanceEngine:
                 if self._extended_global_shift_dominated(parent_scheduled, act_id, child_start):
                     self.stats.record_prune(RULE_EXTENDED_GLOBAL_SHIFT)
                     return RULE_EXTENDED_GLOBAL_SHIFT
-            elif rule_id == RULE_PAR_CUTSET:
-                if self._par_cutset_dominated(
-                    child_unscheduled,
-                    child_scheduled,
-                    child_time,
-                ):
-                    self.stats.record_prune(RULE_PAR_CUTSET)
-                    return RULE_PAR_CUTSET
-            elif rule_id == RULE_PAR_LEFT_SHIFT:
-                if self._par_left_shift_dominated(
-                    parent_scheduled,
-                    act_id,
-                    child_start,
-                    parent_time,
-                ):
-                    self.stats.record_prune(RULE_PAR_LEFT_SHIFT)
-                    return RULE_PAR_LEFT_SHIFT
 
         self.register_state(
             child_unscheduled,
             child_scheduled,
             child_lb,
-            current_time=child_time,
         )
         return None
 
@@ -303,47 +236,6 @@ class DominanceEngine:
         act_id: int,
         child_start: int,
     ) -> bool:
-        horizon_hint = sum(act.duration for act in self.instance.activities.values())
-        parent_profile = build_profile(
-            self.instance.activities,
-            self.instance.resource_caps,
-            parent_scheduled,
-            horizon=horizon_hint,
-        )
-        est = earliest_feasible_start(
-            instance=self.instance,
-            predecessors=self.predecessors,
-            scheduled=parent_scheduled,
-            act_id=act_id,
-            incumbent=None,
-            profile=parent_profile,
-        )
-        if est is None:
-            return True
-        return int(child_start) > int(est)
-
-    def _par_cutset_dominated(
-        self,
-        child_unscheduled: Set[int],
-        child_scheduled: Mapping[int, object],
-        child_time: int,
-    ) -> bool:
-        signature = _parallel_cutset_signature(
-            child_unscheduled,
-            child_scheduled,
-            int(child_time),
-        )
-        return signature in self._seen_cutset_signatures
-
-    def _par_left_shift_dominated(
-        self,
-        parent_scheduled: Mapping[int, object],
-        act_id: int,
-        child_start: int,
-        parent_time: int,
-    ) -> bool:
-        if int(child_start) < int(parent_time):
-            return True
         horizon_hint = sum(act.duration for act in self.instance.activities.values())
         parent_profile = build_profile(
             self.instance.activities,

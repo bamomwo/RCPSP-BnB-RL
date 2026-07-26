@@ -5,14 +5,13 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple
 
 from rcpsp_bb_rl.bnb.branching import (
-    ParallelBranchingScheme,
     ReadyOrderFn,
     SerialBranchingScheme,
 )
 from rcpsp_bb_rl.bnb.dominance import build_dominance_engine, normalize_dominance_spec
 from rcpsp_bb_rl.bnb.lower_bounds import DEFAULT_LOWER_BOUND_ID, lower_bound
 from rcpsp_bb_rl.bnb.precedence import build_predecessors, compute_ready_set
-from rcpsp_bb_rl.bnb.scheduling import build_profile, earliest_feasible_start, resource_feasible
+from rcpsp_bb_rl.bnb.scheduling import build_profile, earliest_feasible_start
 
 if TYPE_CHECKING:
     from rcpsp_bb_rl.data.parsing import RCPSPInstance
@@ -97,7 +96,6 @@ class BBNode:
     parent_id: Optional[int]
     action: Optional[str]
     depth: int
-    current_time: int = 0
     status: str = "pending"  # pending | expanded | pruned | solution
     # Path-local stagnation tracking (for the stagnation-aware reward).
     # path_best_lb     : the maximum lower bound seen on the root->this-node path.
@@ -209,7 +207,6 @@ class BnBSolver:
             parent_id=None,
             action=None,
             depth=0,
-            current_time=0,
             path_best_lb=root_lb,
             stagnation_depth=0,
         )
@@ -218,7 +215,6 @@ class BnBSolver:
             root.unscheduled,
             root.scheduled,
             root.lower_bound,
-            current_time=root.current_time,
         )
 
         stack: List[int] = [root_id]
@@ -362,158 +358,69 @@ class BnBSolver:
                         seen_incumbent = True
                 continue
 
-            is_parallel = isinstance(self.branching_scheme, ParallelBranchingScheme)
-            acts: List[int] = []
-            if is_parallel:
-                while True:
-                    decision = self.branching_scheme.decide(
-                        node=node,
-                        instance=self.instance,
-                        predecessors=self.predecessors,
-                        incumbent=incumbent_bound,
-                        order_ready_fn=_wrapped_order_fn,
-                    )
-                    if decision.start_activities:
-                        completed_now = {
-                            act_id
-                            for act_id, entry in node.scheduled.items()
-                            if entry.finish <= node.current_time
-                        }
-                        node.ready = compute_ready_set(
-                            node.unscheduled,
-                            completed_now,
-                            self.predecessors,
-                        )
-                        acts = list(decision.start_activities)
-                        break
+            if not node.ready:
+                node.status = "pruned"
+                nodes_pruned += 1
+                _step_lb_pruned += 1
+                if seen_incumbent:
+                    nodes_pruned_after_incumbent += 1
+                continue
 
-                    if decision.next_time is None:
-                        node.status = "pruned"
-                        nodes_pruned += 1
-                        _step_lb_pruned += 1
-                        if seen_incumbent:
-                            nodes_pruned_after_incumbent += 1
-                        break
-
-                    node.current_time = int(decision.next_time)
-                    completed_now = {
-                        act_id
-                        for act_id, entry in node.scheduled.items()
-                        if entry.finish <= node.current_time
-                    }
-                    node.ready = compute_ready_set(
-                        node.unscheduled,
-                        completed_now,
-                        self.predecessors,
-                    )
-
-                    if incumbent_bound is not None and node.current_time >= incumbent_bound:
-                        node.status = "pruned"
-                        nodes_pruned += 1
-                        _step_lb_pruned += 1
-                        if seen_incumbent:
-                            nodes_pruned_after_incumbent += 1
-                        break
-
-                    if time_exceeded():
-                        break
-
-                if node.status == "pruned" or not acts:
-                    continue
-            else:
-                if not node.ready:
-                    node.status = "pruned"
-                    nodes_pruned += 1
-                    _step_lb_pruned += 1
-                    if seen_incumbent:
-                        nodes_pruned_after_incumbent += 1
-                    continue
-
-                # Build the resource profile and earliest-feasible-start map ONCE,
-                # before ordering. The ordering callback (e.g. the branching
-                # policy) needs earliest-starts to featurise candidates, and the
-                # child loop below needs them to place activities. Computing them
-                # here and attaching to the node lets both share one computation
-                # instead of each recomputing profile + earliest_feasible_start.
-                horizon_hint = sum(act.duration for act in self.instance.activities.values())
-                node_horizon = incumbent_bound if incumbent_bound is not None else horizon_hint
-                node_profile = build_profile(
-                    self.instance.activities,
-                    self.instance.resource_caps,
+            # Build the resource profile and earliest-feasible-start map ONCE,
+            # before ordering. The ordering callback (e.g. the branching
+            # policy) needs earliest-starts to featurise candidates, and the
+            # child loop below needs them to place activities. Computing them
+            # here and attaching to the node lets both share one computation
+            # instead of each recomputing profile + earliest_feasible_start.
+            horizon_hint = sum(act.duration for act in self.instance.activities.values())
+            node_horizon = incumbent_bound if incumbent_bound is not None else horizon_hint
+            node_profile = build_profile(
+                self.instance.activities,
+                self.instance.resource_caps,
+                node.scheduled,
+                horizon=node_horizon,
+            )
+            node.est_map = {
+                rid: earliest_feasible_start(
+                    self.instance,
+                    self.predecessors,
                     node.scheduled,
-                    horizon=node_horizon,
+                    rid,
+                    incumbent_bound,
+                    profile=node_profile,
                 )
-                node.est_map = {
-                    rid: earliest_feasible_start(
-                        self.instance,
-                        self.predecessors,
-                        node.scheduled,
-                        rid,
-                        incumbent_bound,
-                        profile=node_profile,
-                    )
-                    for rid in node.ready
-                }
+                for rid in node.ready
+            }
 
-                acts = self.branching_scheme.choose_activities(
-                    node=node,
-                    incumbent=incumbent_bound,
-                    order_ready_fn=_wrapped_order_fn,
-                )
+            acts = self.branching_scheme.choose_activities(
+                node=node,
+                incumbent=incumbent_bound,
+                order_ready_fn=_wrapped_order_fn,
+            )
 
             node.status = "expanded"
             nodes_expanded += 1
             if seen_incumbent:
                 nodes_expanded_after_incumbent += 1
 
-            if is_parallel:
-                # Parallel path builds its own profile (serial builds it above).
-                horizon_hint = sum(act.duration for act in self.instance.activities.values())
-                node_horizon = incumbent_bound if incumbent_bound is not None else horizon_hint
-                node_profile = build_profile(
-                    self.instance.activities,
-                    self.instance.resource_caps,
-                    node.scheduled,
-                    horizon=node_horizon,
-                )
-
             # Reverse push for DFS/LIFO.
             for act_id in reversed(acts):
-                if is_parallel:
-                    est_start = int(node.current_time)
-                    completed_now = {
-                        aid
-                        for aid, entry in node.scheduled.items()
-                        if entry.finish <= est_start
-                    }
-                    if not self.predecessors.get(act_id, set()).issubset(completed_now):
-                        continue
-                    if not resource_feasible(
-                        self.instance.activities,
-                        self.instance.resource_caps,
+                # Reuse the earliest-start computed once above (shared with
+                # the ordering callback). Fall back to a direct computation
+                # only if this act was not in node.ready (defensive).
+                if node.est_map is not None and act_id in node.est_map:
+                    est_start = node.est_map[act_id]
+                else:
+                    est_start = earliest_feasible_start(
+                        self.instance,
+                        self.predecessors,
                         node.scheduled,
                         act_id,
-                        est_start,
+                        incumbent_bound,
                         profile=node_profile,
-                    ):
-                        continue
-                else:
-                    # Reuse the earliest-start computed once above (shared with
-                    # the ordering callback). Fall back to a direct computation
-                    # only if this act was not in node.ready (defensive).
-                    if node.est_map is not None and act_id in node.est_map:
-                        est_start = node.est_map[act_id]
-                    else:
-                        est_start = earliest_feasible_start(
-                            self.instance,
-                            self.predecessors,
-                            node.scheduled,
-                            act_id,
-                            incumbent_bound,
-                            profile=node_profile,
-                        )
-                    if est_start is None:
-                        continue
+                    )
+                if est_start is None:
+                    continue
 
                 duration = self.instance.activities[act_id].duration
                 finish = est_start + duration
@@ -528,24 +435,11 @@ class BnBSolver:
                 child_unscheduled = set(node.unscheduled)
                 child_unscheduled.discard(act_id)
 
-                child_time = int(node.current_time) if is_parallel else 0
-                if is_parallel:
-                    completed_child = {
-                        aid
-                        for aid, entry in child_scheduled.items()
-                        if entry.finish <= child_time
-                    }
-                    child_ready = compute_ready_set(
-                        child_unscheduled,
-                        completed_child,
-                        self.predecessors,
-                    )
-                else:
-                    child_ready = compute_ready_set(
-                        child_unscheduled,
-                        set(child_scheduled.keys()),
-                        self.predecessors,
-                    )
+                child_ready = compute_ready_set(
+                    child_unscheduled,
+                    set(child_scheduled.keys()),
+                    self.predecessors,
+                )
 
                 child_lb = lower_bound(
                     self.instance,
@@ -561,8 +455,6 @@ class BnBSolver:
                     child_lb=child_lb,
                     act_id=act_id,
                     child_start=est_start,
-                    parent_time=int(node.current_time),
-                    child_time=child_time,
                 )
                 if pruned_rule is not None:
                     if debug_info is not None:
@@ -590,7 +482,6 @@ class BnBSolver:
                     parent_id=node_id,
                     action=f"act {act_id}@{est_start}",
                     depth=node.depth + 1,
-                    current_time=child_time,
                     path_best_lb=child_path_best_lb,
                     stagnation_depth=child_stagnation_depth,
                 )
@@ -646,34 +537,6 @@ def solve_serial(
     solver = BnBSolver(
         instance=instance,
         branching_scheme=SerialBranchingScheme(),
-    )
-    return solver.solve(
-        max_nodes=max_nodes,
-        order_ready_fn=order_ready_fn,
-        time_limit_s=time_limit_s,
-        lb_spec=lb_spec,
-        dominance=dominance,
-        target_makespan=target_makespan,
-        stop_on_first_solution=stop_on_first_solution,
-        debug=debug,
-    )
-
-
-def solve_parallel(
-    instance: RCPSPInstance,
-    max_nodes: Optional[int] = None,
-    order_ready_fn: Optional[ReadyOrderFn] = None,
-    time_limit_s: Optional[float] = None,
-    max_children: Optional[int] = None,
-    lb_spec: object = DEFAULT_LOWER_BOUND_ID,
-    dominance: object = False,
-    target_makespan: Optional[int] = None,
-    stop_on_first_solution: bool = False,
-    debug: bool = False,
-) -> SolverResult:
-    solver = BnBSolver(
-        instance=instance,
-        branching_scheme=ParallelBranchingScheme(max_children=max_children),
     )
     return solver.solve(
         max_nodes=max_nodes,

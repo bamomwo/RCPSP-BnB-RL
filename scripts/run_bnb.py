@@ -13,7 +13,7 @@ if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
 from rcpsp_bb_rl.bnb.branching_order import make_order_fn  # noqa: E402
-from rcpsp_bb_rl.bnb.branching import ParallelBranchingScheme, SerialBranchingScheme  # noqa: E402
+from rcpsp_bb_rl.bnb.branching import SerialBranchingScheme  # noqa: E402
 from rcpsp_bb_rl.bnb.lower_bounds import (  # noqa: E402
     DEFAULT_LOWER_BOUND_ID,
     format_lower_bound_spec,
@@ -35,8 +35,6 @@ SUPPORTED_BRANCHING_ORDERS = {"activity_id", "lower_bound", "policy"}
 OPTIONAL_CONFIG_KEYS = {
     "max_nodes",
     "time_limit_s",
-    "branching_scheme",
-    "parallel_max_children",
     "lower_bound",
     "branching_order",
     "policy_path",
@@ -73,18 +71,6 @@ def parse_args() -> argparse.Namespace:
         help="Max nodes override. Omit to run until full search completion.",
     )
     parser.add_argument("--time-limit-s", type=float, default=None, help="Time limit override.")
-    parser.add_argument(
-        "--branching",
-        dest="branching_scheme",
-        default=None,
-        help="Branching scheme override. Supported: serial|parallel.",
-    )
-    parser.add_argument(
-        "--parallel-max-children",
-        type=int,
-        default=None,
-        help="Optional child cap per parallel branching step.",
-    )
     parser.add_argument("--limit", type=int, default=None, help="Instance limit override for --root runs.")
     parser.add_argument(
         "--lower-bound",
@@ -95,8 +81,8 @@ def parse_args() -> argparse.Namespace:
         "--dominance",
         default=None,
         help=(
-            "Dominance override. Accepted: off|serial|parallel|all|"
-            "set_based,contradiction,extended_global_shift,par_cutset,par_left_shift"
+            "Dominance override. Accepted: off|serial|all|"
+            "set_based,contradiction,extended_global_shift"
         ),
     )
     parser.add_argument(
@@ -243,8 +229,6 @@ def validate_and_resolve(
     Optional[int],
     Optional[float],
     str,
-    Optional[int],
-    str,
     Optional[str],
     str,
     int,
@@ -268,26 +252,6 @@ def validate_and_resolve(
     time_limit_s = None if raw_time_limit is None else float(raw_time_limit)
     if time_limit_s is not None and time_limit_s <= 0:
         raise ValueError("time_limit_s must be > 0 when provided.")
-
-    raw_branching_scheme = (
-        args.branching_scheme
-        if args.branching_scheme is not None
-        else cfg.get("branching_scheme", "serial")
-    )
-    branching_scheme = str(raw_branching_scheme).strip().lower()
-    if branching_scheme not in {"serial", "parallel"}:
-        raise ValueError("branching_scheme must be one of: serial, parallel.")
-
-    raw_parallel_max_children = (
-        args.parallel_max_children
-        if args.parallel_max_children is not None
-        else cfg.get("parallel_max_children")
-    )
-    parallel_max_children = (
-        None if raw_parallel_max_children is None else int(raw_parallel_max_children)
-    )
-    if parallel_max_children is not None and parallel_max_children <= 0:
-        raise ValueError("parallel_max_children must be > 0 when provided.")
 
     branch_order_raw = str(cfg.get("branching_order", "activity_id")).strip().lower()
     branch_order = "activity_id" if branch_order_raw == "classical" else branch_order_raw
@@ -375,8 +339,6 @@ def validate_and_resolve(
     return (
         max_nodes,
         time_limit_s,
-        branching_scheme,
-        parallel_max_children,
         branch_order,
         (None if policy_path is None else str(policy_path)),
         policy_device,
@@ -471,8 +433,6 @@ def main() -> None:
     (
         max_nodes,
         time_limit_s,
-        branching_scheme,
-        parallel_max_children,
         branch_order,
         policy_path,
         policy_device,
@@ -540,11 +500,7 @@ def main() -> None:
             target_makespan: Optional[int] = None,
             stop_on_first_solution: bool = False,
         ) -> SolverResult:
-            if branching_scheme == "parallel":
-                scheme = ParallelBranchingScheme(max_children=parallel_max_children)
-            else:
-                scheme = SerialBranchingScheme()
-            pass_solver = BnBSolver(instance, branching_scheme=scheme)
+            pass_solver = BnBSolver(instance, branching_scheme=SerialBranchingScheme())
             return pass_solver.solve(
                 max_nodes=max_nodes,
                 order_ready_fn=order_ready_fn,
@@ -750,7 +706,6 @@ def main() -> None:
     emit("")
     emit("Configuration")
     emit(f"  branching order    : {branch_order}")
-    emit(f"  branching scheme   : {branching_scheme}")
     emit(f"  search strategy    : {search_strategy}")
     emit(f"  lower bound        : {format_lower_bound_spec(lb_spec)}")
     emit(f"  dominance          : {format_dominance_spec(dominance_spec)}")
