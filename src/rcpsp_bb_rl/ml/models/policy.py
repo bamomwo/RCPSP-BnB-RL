@@ -212,12 +212,26 @@ class BranchingTransformer(nn.Module):
         # Build sequence: [CLS, cand_1, ..., cand_R_max] per item
         seq = torch.cat([cls_tokens.unsqueeze(1), cand_emb], dim=1)  # [B, R_max+1, d_model]
 
-        # Build key_padding_mask [B, R_max+1]: True = IGNORE in attention.
-        # CLS (position 0) is always attended; padded candidate positions are ignored.
-        key_padding_mask: Optional[torch.Tensor] = None
+        # Build key_padding_mask [B, R_max+1]: True = IGNORE this position as a
+        # key/value in attention.
+        #
+        # A candidate may participate only when it is BOTH:
+        #   1. a real, non-padding position, and
+        #   2. a feasible action.
+        # Masking on action_mask (not pad_mask) matches forward()'s semantics
+        # exactly: infeasible candidates must not pollute the attention of
+        # feasible ones, nor the CLS/value token. Using pad_mask alone let
+        # infeasible-but-real candidates attend during the PPO update while
+        # forward() (rollout/eval) masked them — a train/serve skew that also
+        # made the importance ratio != 1 at update step 0.
+        attendable_mask = action_mask
         if pad_mask is not None:
-            cls_col = torch.zeros(B, 1, dtype=torch.bool, device=seq.device)
-            key_padding_mask = torch.cat([cls_col, ~pad_mask], dim=1)  # [B, R_max+1]
+            attendable_mask = attendable_mask & pad_mask
+
+        # CLS (position 0) is always attended, so no query row is ever fully
+        # masked (safe even when every candidate is infeasible).
+        cls_col = torch.zeros(B, 1, dtype=torch.bool, device=seq.device)
+        key_padding_mask = torch.cat([cls_col, ~attendable_mask], dim=1)  # [B, R_max+1]
 
         # Transformer encoding
         x = seq
@@ -231,8 +245,12 @@ class BranchingTransformer(nn.Module):
         # Score each candidate
         logits = self.score_head(cand_out).squeeze(-1)  # [B, R_max]
 
-        # Mask infeasible and padded positions
-        logits = logits.masked_fill(~action_mask, -1e9)
+        # Mask infeasible and padded positions. Reuse attendable_mask (the same
+        # source of truth as the attention mask) rather than action_mask alone:
+        # this guarantees padding stays unselectable even if a future caller
+        # accidentally marks a padded slot feasible, and keeps the output mask
+        # from drifting out of sync with the attention mask.
+        logits = logits.masked_fill(~attendable_mask, -1e9)
 
         # State value from CLS token + critic features
         if self.critic_feature_dim > 0:
