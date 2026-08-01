@@ -14,7 +14,7 @@
 
   "total_env_steps": 10000000,
   "ppo_epochs": 4,
-  "minibatches": 8,
+  "target_mb_size": 2048,
   "clip_eps": 0.2,
   "tree_gamma_cost": 0.85,
   "tree_gamma_bonus": 1.0,

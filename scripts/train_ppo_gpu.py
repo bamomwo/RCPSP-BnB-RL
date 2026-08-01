@@ -391,7 +391,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     # PPO
     "total_env_steps": 1_000_000,
     "ppo_epochs": 4,
-    "minibatches": 4,
+    "target_mb_size": 4096,
     "clip_eps": 0.2,
     "tree_gamma": 1.0,
     "tree_gamma_cost": None,
@@ -540,7 +540,7 @@ def main() -> None:
     # --- Training hyperparams ---
     total_env_steps = int(config["total_env_steps"])
     ppo_epochs = int(config["ppo_epochs"])
-    minibatches = int(config["minibatches"])
+    target_mb_size = int(config["target_mb_size"])
     clip_eps = float(config["clip_eps"])
     tree_gamma = float(config["tree_gamma"])
     tree_gamma_cost = float(
@@ -859,13 +859,19 @@ def main() -> None:
         sorted_indices = indices[sorted_order]
 
         ac.train()
-        # Split the R-sorted transitions into EXACTLY `minibatches` contiguous
-        # chunks whose sizes differ by at most 1. Unlike `T // minibatches` +
-        # range-stepping (which leaves a remainder tail — an orphan minibatch of
-        # 1-10 transitions whose KL is pure noise and spuriously trips the
-        # early-stop), array_split guarantees no tiny tail chunk. Contiguous
+        # Fix minibatch SIZE, not count: derive the chunk count per update so
+        # each minibatch holds ~target_mb_size transitions regardless of the
+        # (fluctuating) rollout size. Fixing the count instead let the size swing
+        # ~5x with buffer size, so gradient-noise and KL-estimate variance swung
+        # with it; pinning the size holds both roughly constant across updates.
+        # round() (not //) centers the realized size on the target rather than
+        # biasing it larger. array_split then guarantees exactly n_chunks
+        # contiguous chunks whose sizes differ by at most 1 — no remainder tail,
+        # no orphan minibatch of 1-10 transitions whose KL is pure noise (the
+        # old `T // minibatches` + range-stepping failure mode). Contiguous
         # slices preserve the R-bucketing that minimizes padding waste.
-        mb_chunks = np.array_split(sorted_indices, minibatches)
+        n_chunks = max(1, round(len(sorted_indices) / target_mb_size))
+        mb_chunks = np.array_split(sorted_indices, n_chunks)
 
         # Linear entropy-coefficient decay (with floor) based on training
         # progress. progress in [0, 1] -> coef from ent_coef_start to ent_coef_end.
@@ -878,8 +884,8 @@ def main() -> None:
         early_stop = False
 
         # ---- KL-stop diagnostics (logging only, no effect on the update) ----
-        # array_split yields exactly `minibatches` chunks (no remainder tail),
-        # so planned == minibatches * epochs cleanly.
+        # n_chunks floats with buffer size (~target_mb_size per chunk), so
+        # planned == n_chunks * epochs and varies from update to update.
         chunks_per_epoch = len(mb_chunks)
         planned_steps = chunks_per_epoch * ppo_epochs
         max_kl = 0.0            # largest per-minibatch KL this update
