@@ -23,7 +23,7 @@ Usage
 -----
     python3 scripts/debug_critic.py \
         --checkpoint models/train_1/policy_ppo_best.pt \
-        --instance data/eval/J30/j30_480/<name>.RCP \
+        --instance data/eval/J30/J30_480/<name>.RCP \
         --time-limit-s 60
 
 Optional:
