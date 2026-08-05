@@ -69,6 +69,7 @@ class EpisodeRecord:
     # Cached advantages to avoid recomputing subtree returns at update time
     returns: Optional[List[float]] = field(default=None)
     valid_flags: Optional[List[bool]] = field(default=None)
+    instance_name: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -216,6 +217,8 @@ class RolloutBuffer:
         self.terminateds: List[bool] = []
         self.node_ids: List[Optional[int]] = []
         self.parent_ids: List[Optional[int]] = []
+        self.depths: List[int] = []
+        self.cand_counts: List[int] = []
 
     def add(
         self,
@@ -227,6 +230,8 @@ class RolloutBuffer:
         terminated: bool,
         node_id: Optional[int] = None,
         parent_id: Optional[int] = None,
+        depth: int = 0,
+        cand_count: int = 0,
     ) -> None:
         self.obs.append(obs)
         self.actions.append(action)
@@ -236,12 +241,204 @@ class RolloutBuffer:
         self.terminateds.append(terminated)
         self.node_ids.append(node_id)
         self.parent_ids.append(parent_id)
+        self.depths.append(depth)
+        self.cand_counts.append(cand_count)
 
     def __len__(self) -> int:
         return len(self.values)
 
     def clear(self) -> None:
         self.__init__()
+
+
+@dataclass
+class StagedEpisode:
+    """
+    One episode's transitions, held outside the rollout buffer until the
+    stratified subsample has chosen which of them to commit.
+
+    Staging matters for correctness: the subtree-return backup must see EVERY
+    transition of the episode (a node's return is defined by its whole subtree),
+    so returns are computed here on the full episode and only then filtered.
+    Sampling never changes what a kept transition's return is — it only chooses
+    which states' gradients enter the batch average.
+
+    Staging also bounds memory: a 120s time-limit episode produces tens of
+    thousands of observation dicts, and holding 8 such episodes in the buffer
+    at full length would dominate RAM. Only the capped subset is retained.
+    """
+    obs: List[Dict[str, torch.Tensor]] = field(default_factory=list)
+    actions: List[int] = field(default_factory=list)
+    log_probs: List[float] = field(default_factory=list)
+    values: List[float] = field(default_factory=list)
+    dones: List[bool] = field(default_factory=list)
+    terminateds: List[bool] = field(default_factory=list)
+    node_ids: List[Optional[int]] = field(default_factory=list)
+    parent_ids: List[Optional[int]] = field(default_factory=list)
+    depths: List[int] = field(default_factory=list)
+    cand_counts: List[int] = field(default_factory=list)
+    # Transition indices at which the incumbent strictly improved (including the
+    # first incumbent). Used for guaranteed inclusion — these carry the entire
+    # bonus-channel signal and are far too rare to survive random subsampling.
+    incumbent_steps: List[int] = field(default_factory=list)
+    first_incumbent_step: Optional[int] = None
+
+    def __len__(self) -> int:
+        return len(self.values)
+
+
+@dataclass
+class SubsampleReport:
+    """Per-episode accounting for the stratified subsample (logging only)."""
+    n_valid: int
+    n_singleton_dropped: int
+    n_included: int
+    n_kept: int
+    cell_counts: Dict[Tuple[int, int], int] = field(default_factory=dict)
+
+    def cells_str(self) -> str:
+        if not self.cell_counts:
+            return "-"
+        return " ".join(
+            f"t{t}d{d}:{n}" for (t, d), n in sorted(self.cell_counts.items()) if n
+        )
+
+
+def subsample_episode(
+    episode: StagedEpisode,
+    valid_flags: List[bool],
+    *,
+    cap: Optional[int],
+    n_activities: int,
+    time_bands: int,
+    depth_bands: int,
+    incumbent_window: int,
+    rng: random.Random,
+) -> Tuple[List[int], SubsampleReport]:
+    """
+    Choose which of an episode's transitions enter the PPO batch.
+
+    Returns (kept_indices_sorted, report). With cap=None every valid transition
+    is kept (legacy behaviour).
+
+    Selection order:
+
+      1. Drop transitions whose candidate set has a single element. A Categorical
+         over one action has log_prob 0 and entropy 0 for ANY parameters, so
+         grad log pi is identically zero: these contribute nothing to the policy
+         gradient and only dilute the budget.
+      2. Guaranteed inclusion, off-budget: the pre-first-incumbent prefix (the
+         opening dive — at most ~n_activities transitions, and the regime a
+         short-horizon eval scores most heavily) plus a window either side of
+         every incumbent improvement (where the bonus-channel advantage lives).
+      3. Stratify the remainder over episode-progress x relative-depth cells and
+         spend the leftover budget evenly across them, keeping all of an
+         underfull cell and redistributing its surplus.
+
+    Both stratification axes are expressed as FRACTIONS (position within the
+    episode, depth / n_activities), so the sampler transfers unchanged to
+    instance families with different activity counts.
+    """
+    valid_idx = [i for i, ok in enumerate(valid_flags) if ok]
+    report = SubsampleReport(
+        n_valid=len(valid_idx), n_singleton_dropped=0, n_included=0, n_kept=0
+    )
+    if not valid_idx:
+        return [], report
+
+    # --- 1. Drop zero-gradient singleton-choice states -------------------
+    candidates = [i for i in valid_idx if episode.cand_counts[i] > 1]
+    report.n_singleton_dropped = len(valid_idx) - len(candidates)
+    if not candidates:
+        # Degenerate episode (every decision forced). Nothing to learn from.
+        return [], report
+
+    if cap is None or len(candidates) <= cap:
+        report.n_kept = len(candidates)
+        return candidates, report
+
+    candidate_set = set(candidates)
+
+    # --- 2. Guaranteed inclusion (off-budget) ----------------------------
+    included: set = set()
+    if episode.first_incumbent_step is not None:
+        for i in range(0, min(episode.first_incumbent_step + 1, len(episode))):
+            if i in candidate_set:
+                included.add(i)
+    for step in episode.incumbent_steps:
+        lo = max(0, step - incumbent_window)
+        hi = min(len(episode), step + incumbent_window + 1)
+        for i in range(lo, hi):
+            if i in candidate_set:
+                included.add(i)
+
+    # Inclusion alone can exceed the cap on episodes with many improvements.
+    # Trim to the cap rather than letting one episode dominate the batch, but
+    # keep the sample spread over the episode instead of truncating its tail.
+    if len(included) >= cap:
+        kept = sorted(rng.sample(sorted(included), cap))
+        report.n_included = len(kept)
+        report.n_kept = len(kept)
+        return kept, report
+
+    report.n_included = len(included)
+    budget = cap - len(included)
+    remaining = [i for i in candidates if i not in included]
+    if not remaining:
+        kept = sorted(included)
+        report.n_kept = len(kept)
+        return kept, report
+
+    # --- 3. Stratify the remainder ---------------------------------------
+    n_steps = max(1, len(episode))
+    denom_depth = float(max(1, n_activities))
+    n_time = max(1, int(time_bands))
+    n_depth = max(1, int(depth_bands))
+
+    cells: Dict[Tuple[int, int], List[int]] = {}
+    for i in remaining:
+        t_band = min(n_time - 1, int(i / n_steps * n_time))
+        d_frac = episode.depths[i] / denom_depth
+        d_band = min(n_depth - 1, int(max(0.0, d_frac) * n_depth))
+        cells.setdefault((t_band, d_band), []).append(i)
+
+    # Water-filling: cells smaller than their share are taken whole and their
+    # unused budget is redistributed over the cells that still have surplus.
+    # Without this, a budget/12 quota would leave shallow-early cells (which
+    # hold only a handful of transitions) unable to absorb their share while
+    # deep-late cells stay truncated.
+    pending = dict(cells)
+    chosen: List[int] = []
+    while pending and budget > 0:
+        share = budget // len(pending)
+        if share == 0:
+            # Fewer budget slots than cells: give the remainder to a random
+            # subset of cells so no band is systematically starved.
+            for key in rng.sample(sorted(pending), budget):
+                chosen.append(rng.choice(pending[key]))
+            budget = 0
+            break
+        exhausted = [key for key, items in pending.items() if len(items) <= share]
+        if not exhausted:
+            for key, items in pending.items():
+                chosen.extend(rng.sample(items, share))
+                budget -= share
+            break
+        for key in exhausted:
+            items = pending.pop(key)
+            chosen.extend(items)
+            budget -= len(items)
+
+    kept = sorted(included | set(chosen))
+    report.n_kept = len(kept)
+    for i in kept:
+        t_band = min(n_time - 1, int(i / n_steps * n_time))
+        d_band = min(
+            n_depth - 1, int(max(0.0, episode.depths[i] / denom_depth) * n_depth)
+        )
+        key = (t_band, d_band)
+        report.cell_counts[key] = report.cell_counts.get(key, 0) + 1
+    return kept, report
 
 
 class RunningMeanStd:
@@ -398,6 +595,21 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "tree_gamma_bonus": None,
     "tree_keep_open": False,
     "min_batch_size": 4096,
+    # Effective-sample-size controls. A PPO batch must contain data from at
+    # least min_episodes DISTINCT instances before an update fires, and no
+    # single episode may contribute more than episode_transition_cap
+    # transitions. Without the cap one long time-limit episode overflows
+    # min_batch_size on its own, so every update was a gradient average over a
+    # single instance (task-level sample size 1) — the dominant source of
+    # update-to-update variance. The cap is spent by a stratified sampler
+    # (see subsample_episode) rather than uniformly, because the raw episode is
+    # >99% deep, post-incumbent transitions and the rare shallow/early states
+    # are the ones the short-horizon eval actually scores.
+    "min_episodes": 8,
+    "episode_transition_cap": 4096,   # None -> keep every valid transition
+    "stratify_time_bands": 3,         # episode-progress bands (early/mid/late)
+    "stratify_depth_bands": 4,        # relative-depth bands (depth / n_activities)
+    "incumbent_window": 25,           # transitions kept either side of an incumbent event
     "ent_coef_start": 0.01,
     "ent_coef_end": 0.001,
     "vf_coef": 0.5,
@@ -551,6 +763,15 @@ def main() -> None:
     )
     tree_keep_open = bool(config["tree_keep_open"])
     min_batch_size = int(config["min_batch_size"])
+    min_episodes = int(config["min_episodes"])
+    episode_transition_cap = (
+        None if config["episode_transition_cap"] is None
+        else int(config["episode_transition_cap"])
+    )
+    stratify_time_bands = int(config["stratify_time_bands"])
+    stratify_depth_bands = int(config["stratify_depth_bands"])
+    incumbent_window = int(config["incumbent_window"])
+    subsample_rng = random.Random(int(config["seed"]) + 1)
     alpha = float(config["alpha"])
     beta1 = float(config["beta1"])
     beta2 = float(config["beta2"])
@@ -628,9 +849,11 @@ def main() -> None:
 
     t_start = time.perf_counter()
     print(f"\n{'='*80}")
-    print(f"  PPO Training (GPU-batched update, min_batch_size={min_batch_size})")
+    print(f"  PPO Training (GPU-batched update, min_batch_size={min_batch_size}, min_episodes={min_episodes})")
     print(f"  total_steps={total_env_steps:,}  backup=tree(cost_gamma={tree_gamma_cost},bonus_gamma={tree_gamma_bonus})  train_instances={len(instance_paths)}  eval_instances={len(eval_paths)}")
     print(f"  clip_eps={clip_eps}  ent_coef={ent_coef_start}->{ent_coef_end} (linear decay)")
+    cap_desc = "off" if episode_transition_cap is None else str(episode_transition_cap)
+    print(f"  episode_cap={cap_desc}  stratify={stratify_time_bands}x{stratify_depth_bands} (time x rel-depth)  incumbent_window={incumbent_window}")
     vf_desc = f"huber(delta={huber_delta})" if vf_loss_type == "huber" else "mse"
     print(f"  vf_loss={vf_desc}  vf_coef={vf_coef}")
     if estimator is not None:
@@ -650,10 +873,14 @@ def main() -> None:
 
     while global_step < total_env_steps:
 
-        # ---- Collect ONE complete episode ----
+        # ---- Collect ONE complete episode (into a staging area) ----
+        # Transitions are staged rather than written to the rollout buffer:
+        # the subtree backup below needs the FULL episode, but only the
+        # stratified subsample is committed to the buffer afterwards.
         ac.eval()
-        ep_start_idx = len(buffer)
+        staged = StagedEpisode()
         episode_tree = None
+        prev_best_ms: Optional[int] = None
 
         while True:
             with torch.no_grad():
@@ -662,16 +889,27 @@ def main() -> None:
             action = int(action_t.item())
             step_out = env.step(action)
 
-            buffer.add(
-                obs=obs,
-                action=action,
-                log_prob=log_prob_t.item(),
-                value=value_t.item(),
-                done=step_out.done,
-                terminated=bool(step_out.info.get("terminated", False)),
-                node_id=step_out.info.get("node_id"),
-                parent_id=step_out.info.get("parent_id"),
-            )
+            staged.obs.append(obs)
+            staged.actions.append(action)
+            staged.log_probs.append(log_prob_t.item())
+            staged.values.append(value_t.item())
+            staged.dones.append(step_out.done)
+            staged.terminateds.append(bool(step_out.info.get("terminated", False)))
+            staged.node_ids.append(step_out.info.get("node_id"))
+            staged.parent_ids.append(step_out.info.get("parent_id"))
+            staged.depths.append(int(step_out.info.get("depth", 0)))
+            staged.cand_counts.append(int(obs["candidate_feats"].shape[0]))
+
+            # Incumbent tracking for guaranteed inclusion in the subsample:
+            # record the transition index whenever best_makespan first appears
+            # or strictly improves.
+            step_best = step_out.info.get("best_makespan")
+            if step_best is not None and (prev_best_ms is None or step_best < prev_best_ms):
+                t_idx = len(staged) - 1
+                staged.incumbent_steps.append(t_idx)
+                if staged.first_incumbent_step is None:
+                    staged.first_incumbent_step = t_idx
+                prev_best_ms = step_best
 
             global_step += 1
             episode_steps += 1
@@ -751,34 +989,36 @@ def main() -> None:
             if episode_n_est is not None:
                 writer.add_scalar("episode/N_est", episode_n_est, global_step)
 
-        # ---- Compute advantages for this episode and cache them ----
-        ep_end_idx = len(buffer)
-        ep_node_ids = buffer.node_ids[ep_start_idx:ep_end_idx]
-        ep_values = buffer.values[ep_start_idx:ep_end_idx]
-
+        # ---- Compute advantages on the FULL episode ----
+        # The subtree backup is run before subsampling: a node's return is
+        # defined by its entire subtree, so filtering first would corrupt it.
         ta = compute_episode_advantages_decoupled(
             tree=episode_tree,
-            node_ids=ep_node_ids,
-            values=ep_values,
+            node_ids=staged.node_ids,
+            values=staged.values,
             cost_reward_fn=cost_reward_fn,
             bonus_reward_fn=bonus_reward_fn,
             gamma_cost=tree_gamma_cost,
             gamma_bonus=tree_gamma_bonus,
             keep_open=tree_keep_open,
         )
-        n_valid_ep = sum(ta.valid)
+
+        # ---- Stratified subsample, then commit to the buffer ----
+        kept_idx, sub_report = subsample_episode(
+            staged,
+            ta.valid,
+            cap=episode_transition_cap,
+            n_activities=len(current_instance.activities),
+            time_bands=stratify_time_bands,
+            depth_bands=stratify_depth_bands,
+            incumbent_window=incumbent_window,
+            rng=subsample_rng,
+        )
+        n_valid_ep = len(kept_idx)
 
         if n_valid_ep == 0:
-            # No usable transitions from this episode — remove from buffer
-            del buffer.obs[ep_start_idx:]
-            del buffer.actions[ep_start_idx:]
-            del buffer.log_probs[ep_start_idx:]
-            del buffer.values[ep_start_idx:]
-            del buffer.dones[ep_start_idx:]
-            del buffer.terminateds[ep_start_idx:]
-            del buffer.node_ids[ep_start_idx:]
-            del buffer.parent_ids[ep_start_idx:]
-            print(f"[Accumulate] no closed subtrees — skipping episode "
+            print(f"[Accumulate] no usable transitions (valid={sub_report.n_valid}, "
+                  f"forced={sub_report.n_singleton_dropped}) — skipping episode "
                   f"(accumulated={accumulated_valid})\n")
             if global_step < total_env_steps:
                 current_instance_path, current_instance = next_instance()
@@ -787,7 +1027,30 @@ def main() -> None:
             episode_steps = 0
             continue
 
-        # Cache the per-episode tree advantages (avoids recomputing at update time)
+        ep_start_idx = len(buffer)
+        for i in kept_idx:
+            buffer.add(
+                obs=staged.obs[i],
+                action=staged.actions[i],
+                log_prob=staged.log_probs[i],
+                value=staged.values[i],
+                done=staged.dones[i],
+                terminated=staged.terminateds[i],
+                node_id=staged.node_ids[i],
+                parent_id=staged.parent_ids[i],
+                depth=staged.depths[i],
+                cand_count=staged.cand_counts[i],
+            )
+        ep_end_idx = len(buffer)
+
+        print(
+            f"[Subsample] valid={sub_report.n_valid}  forced_dropped={sub_report.n_singleton_dropped}  "
+            f"included={sub_report.n_included}  kept={sub_report.n_kept}  "
+            f"cells=[{sub_report.cells_str()}]"
+        )
+
+        # Cache the per-episode tree advantages for the kept transitions only
+        # (avoids recomputing subtree returns at update time).
         episode_records.append(EpisodeRecord(
             tree=episode_tree,
             cost_reward_fn=cost_reward_fn,
@@ -795,14 +1058,31 @@ def main() -> None:
             start_idx=ep_start_idx,
             end_idx=ep_end_idx,
             n_valid=n_valid_ep,
-            returns=ta.returns,
-            valid_flags=ta.valid,
+            returns=[ta.returns[i] for i in kept_idx],
+            valid_flags=[True] * n_valid_ep,
+            instance_name=current_instance_path.name,
         ))
         accumulated_valid += n_valid_ep
+        staged = StagedEpisode()  # release the full episode
 
-        # ---- Check if we have enough transitions for a PPO update ----
-        if accumulated_valid < min_batch_size:
-            print(f"[Accumulate] valid={n_valid_ep}  accumulated={accumulated_valid}/{min_batch_size} — collecting more\n")
+        if writer is not None:
+            writer.add_scalar("subsample/valid", sub_report.n_valid, global_step)
+            writer.add_scalar("subsample/kept", sub_report.n_kept, global_step)
+            writer.add_scalar("subsample/included", sub_report.n_included, global_step)
+            writer.add_scalar(
+                "subsample/forced_dropped", sub_report.n_singleton_dropped, global_step
+            )
+
+        # ---- Check if we have enough data for a PPO update ----
+        # BOTH conditions must hold. The transition count alone let a single
+        # long episode fire an update on its own, making every gradient an
+        # average over one instance; requiring min_episodes distinct episodes
+        # is what raises the effective (task-level) sample size. Postponing the
+        # update keeps the batch strictly on-policy — no update has happened, so
+        # every accumulated episode was collected under the same parameters.
+        if accumulated_valid < min_batch_size or len(episode_records) < min_episodes:
+            print(f"[Accumulate] valid={n_valid_ep}  accumulated={accumulated_valid}/{min_batch_size}  "
+                  f"episodes={len(episode_records)}/{min_episodes} — collecting more\n")
             if global_step < total_env_steps:
                 current_instance_path, current_instance = next_instance()
                 obs = env.reset(instance=current_instance)
@@ -980,11 +1260,13 @@ def main() -> None:
         n_updates = max(n_kl_samples, 1)  # actual number of minibatch steps taken
         completed_steps = n_kl_samples    # minibatch steps actually run this update
         mean_kl = total_kl / n_kl_samples if n_kl_samples > 0 else 0.0
+        n_distinct_instances = len({rec.instance_name for rec in episode_records})
         elapsed = time.perf_counter() - t_start
         print(
             f"[Update {update_count}] "
             f"steps={global_step}  "
             f"episodes_in_batch={len(episode_records)}  "
+            f"instances={n_distinct_instances}  "
             f"valid={n_valid}/{n_total}  "
             f"pg={total_pg_loss/n_updates:+.4f}  "
             f"vf={total_vf_loss/n_updates:.4f}  "
@@ -1030,6 +1312,11 @@ def main() -> None:
                 writer.add_scalar("train/explained_variance", explained_var, global_step)
             writer.add_scalar("train/return_std", ret_std, global_step)
             writer.add_scalar("train/valid_fraction", n_valid / max(n_total, 1), global_step)
+            # Effective-sample-size diagnostics: batch_instances is the quantity
+            # the min_episodes gate exists to raise (it was ~1 before).
+            writer.add_scalar("train/batch_episodes", len(episode_records), global_step)
+            writer.add_scalar("train/batch_instances", n_distinct_instances, global_step)
+            writer.add_scalar("train/batch_size", n_valid, global_step)
 
         # ---- Clear accumulation state for next cycle ----
         buffer.clear()
