@@ -47,7 +47,7 @@ from rcpsp_bb_rl.ml.estimator import (  # noqa: E402
 
 DEFAULT_CONFIG: Dict[str, Any] = {
     # Data
-    "data_csv": "data/estimator/data_all.csv",
+    "data_csv": "data/estimator/data-120/data.csv",
     "val_frac": 0.2,
     # Model
     "hidden1": 64,

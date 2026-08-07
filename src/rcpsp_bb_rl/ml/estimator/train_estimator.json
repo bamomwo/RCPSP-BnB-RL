@@ -1,5 +1,5 @@
 {
-  "data_csv": "data/estimator/data_all.csv",
+  "data_csv": "data/estimator/data-120/data.csv",
   "val_frac": 0.2,
 
   "hidden1": 64,
