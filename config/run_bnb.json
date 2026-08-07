@@ -8,7 +8,7 @@
   "search_strategy": "ubs",
   "lbs_initial_lower_bound": null,
   "dominance": "set_based",
-  "instance_patterns_config": "config/instance_patterns.json",
+  "patterns": ["*.rcp"],
   "progress_every": 1,
   "limit": null
 }

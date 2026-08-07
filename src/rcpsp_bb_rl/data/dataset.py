@@ -5,7 +5,7 @@ from typing import Iterable, Iterator, List, Sequence
 from rcpsp_bb_rl.data.parsing import RCPSPInstance, load_instance
 
 
-def list_instance_paths(root: Path | str, patterns: Sequence[str] = ("*.RCP",)) -> List[Path]:
+def list_instance_paths(root: Path | str, patterns: Sequence[str] = ("*.rcp",)) -> List[Path]:
     """Return all instance files under root matching given glob patterns."""
     root = Path(root)
     paths: List[Path] = []
@@ -26,7 +26,7 @@ def list_instance_paths(root: Path | str, patterns: Sequence[str] = ("*.RCP",)) 
 class RCPSPDataset:
     """Lightweight dataset wrapper to iterate or sample RCPSP instances."""
 
-    def __init__(self, root: Path | str, patterns: Sequence[str] = ("*.RCP",), seed: int | None = None) -> None:
+    def __init__(self, root: Path | str, patterns: Sequence[str] = ("*.rcp",), seed: int | None = None) -> None:
         self.root = Path(root)
         self.patterns = patterns
         self.paths = list_instance_paths(self.root, patterns)

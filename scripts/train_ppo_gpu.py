@@ -218,7 +218,7 @@ class RolloutBuffer:
         self.node_ids: List[Optional[int]] = []
         self.parent_ids: List[Optional[int]] = []
         self.depths: List[int] = []
-        self.cand_counts: List[int] = []
+        self.feasible_counts: List[int] = []
 
     def add(
         self,
@@ -231,7 +231,7 @@ class RolloutBuffer:
         node_id: Optional[int] = None,
         parent_id: Optional[int] = None,
         depth: int = 0,
-        cand_count: int = 0,
+        feasible_count: int = 0,
     ) -> None:
         self.obs.append(obs)
         self.actions.append(action)
@@ -242,7 +242,7 @@ class RolloutBuffer:
         self.node_ids.append(node_id)
         self.parent_ids.append(parent_id)
         self.depths.append(depth)
-        self.cand_counts.append(cand_count)
+        self.feasible_counts.append(feasible_count)
 
     def __len__(self) -> int:
         return len(self.values)
@@ -276,7 +276,10 @@ class StagedEpisode:
     node_ids: List[Optional[int]] = field(default_factory=list)
     parent_ids: List[Optional[int]] = field(default_factory=list)
     depths: List[int] = field(default_factory=list)
-    cand_counts: List[int] = field(default_factory=list)
+    # Number of FEASIBLE candidates at each state (action_mask.sum()), not the
+    # raw candidate count. What matters for the policy gradient is how many
+    # actions were actually selectable — see subsample_episode.
+    feasible_counts: List[int] = field(default_factory=list)
     # Transition indices at which the incumbent strictly improved (including the
     # first incumbent). Used for guaranteed inclusion — these carry the entire
     # bonus-channel signal and are far too rare to survive random subsampling.
@@ -291,7 +294,7 @@ class StagedEpisode:
 class SubsampleReport:
     """Per-episode accounting for the stratified subsample (logging only)."""
     n_valid: int
-    n_singleton_dropped: int
+    n_forced_dropped: int   # states with <= 1 feasible candidate (no real choice)
     n_included: int
     n_kept: int
     cell_counts: Dict[Tuple[int, int], int] = field(default_factory=dict)
@@ -323,10 +326,21 @@ def subsample_episode(
 
     Selection order:
 
-      1. Drop transitions whose candidate set has a single element. A Categorical
-         over one action has log_prob 0 and entropy 0 for ANY parameters, so
-         grad log pi is identically zero: these contribute nothing to the policy
-         gradient and only dilute the budget.
+      1. Drop states that offer no real choice, judged by the number of FEASIBLE
+         candidates (action_mask.sum()) rather than the raw candidate count.
+         Infeasible candidates are masked to -1e9 before the softmax, which
+         underflows to probability exactly 0, so:
+           - exactly one feasible candidate => p = 1, log_prob = 0, entropy = 0
+             and grad log pi is identically zero. A 1-of-5 state is the same
+             non-decision as a 1-of-1 state, just disguised.
+           - zero feasible candidates => every logit is masked to the SAME
+             value, so the softmax is uniform and the gradient is nonzero even
+             though the solver skips every child and the ordering is irrelevant.
+             These are worse than useless: pure noise with real magnitude.
+         Both cases are removed by requiring feasible_count > 1. Dropping them
+         from the value loss too is safe here because advantages come from the
+         tree backup, so V(X) is only ever consumed as the baseline for the
+         decision at X — and there is no decision at X.
       2. Guaranteed inclusion, off-budget: the pre-first-incumbent prefix (the
          opening dive — at most ~n_activities transitions, and the regime a
          short-horizon eval scores most heavily) plus a window either side of
@@ -341,14 +355,14 @@ def subsample_episode(
     """
     valid_idx = [i for i, ok in enumerate(valid_flags) if ok]
     report = SubsampleReport(
-        n_valid=len(valid_idx), n_singleton_dropped=0, n_included=0, n_kept=0
+        n_valid=len(valid_idx), n_forced_dropped=0, n_included=0, n_kept=0
     )
     if not valid_idx:
         return [], report
 
-    # --- 1. Drop zero-gradient singleton-choice states -------------------
-    candidates = [i for i in valid_idx if episode.cand_counts[i] > 1]
-    report.n_singleton_dropped = len(valid_idx) - len(candidates)
+    # --- 1. Drop zero-gradient forced states (feasible candidates <= 1) ---
+    candidates = [i for i in valid_idx if episode.feasible_counts[i] > 1]
+    report.n_forced_dropped = len(valid_idx) - len(candidates)
     if not candidates:
         # Degenerate episode (every decision forced). Nothing to learn from.
         return [], report
@@ -574,7 +588,7 @@ def set_seed(seed: int) -> None:
 DEFAULT_CONFIG: Dict[str, Any] = {
     # Data
     "root": "data/train",
-    "pattern": "*.RCP",
+    "pattern": "*.rcp",
     "max_instances": None,
     "max_resources": 4,
     "dominance": "set_based",
@@ -635,7 +649,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     # Eval
     "eval_every_steps": 20_000,
     "eval_root": None,
-    "eval_pattern": "*.RCP",
+    "eval_pattern": "*.rcp",
     "eval_time_limit_s": 60.0,
     "eval_optimal_json": None,
     # Output
@@ -898,7 +912,10 @@ def main() -> None:
             staged.node_ids.append(step_out.info.get("node_id"))
             staged.parent_ids.append(step_out.info.get("parent_id"))
             staged.depths.append(int(step_out.info.get("depth", 0)))
-            staged.cand_counts.append(int(obs["candidate_feats"].shape[0]))
+            # Feasible-candidate count, NOT the raw candidate count: masked
+            # (infeasible) candidates get probability exactly 0, so only the
+            # feasible count determines whether this state has a real choice.
+            staged.feasible_counts.append(int(obs["action_mask"].sum().item()))
 
             # Incumbent tracking for guaranteed inclusion in the subsample:
             # record the transition index whenever best_makespan first appears
@@ -1018,7 +1035,7 @@ def main() -> None:
 
         if n_valid_ep == 0:
             print(f"[Accumulate] no usable transitions (valid={sub_report.n_valid}, "
-                  f"forced={sub_report.n_singleton_dropped}) — skipping episode "
+                  f"forced={sub_report.n_forced_dropped}) — skipping episode "
                   f"(accumulated={accumulated_valid})\n")
             if global_step < total_env_steps:
                 current_instance_path, current_instance = next_instance()
@@ -1039,12 +1056,12 @@ def main() -> None:
                 node_id=staged.node_ids[i],
                 parent_id=staged.parent_ids[i],
                 depth=staged.depths[i],
-                cand_count=staged.cand_counts[i],
+                feasible_count=staged.feasible_counts[i],
             )
         ep_end_idx = len(buffer)
 
         print(
-            f"[Subsample] valid={sub_report.n_valid}  forced_dropped={sub_report.n_singleton_dropped}  "
+            f"[Subsample] valid={sub_report.n_valid}  forced_dropped={sub_report.n_forced_dropped}  "
             f"included={sub_report.n_included}  kept={sub_report.n_kept}  "
             f"cells=[{sub_report.cells_str()}]"
         )
@@ -1070,7 +1087,7 @@ def main() -> None:
             writer.add_scalar("subsample/kept", sub_report.n_kept, global_step)
             writer.add_scalar("subsample/included", sub_report.n_included, global_step)
             writer.add_scalar(
-                "subsample/forced_dropped", sub_report.n_singleton_dropped, global_step
+                "subsample/forced_dropped", sub_report.n_forced_dropped, global_step
             )
 
         # ---- Check if we have enough data for a PPO update ----

@@ -26,9 +26,10 @@ from rcpsp_bb_rl.bnb.search_strategy import build_search_strategy  # noqa: E402
 from rcpsp_bb_rl.data.dataset import list_instance_paths  # noqa: E402
 from rcpsp_bb_rl.data.parsing import load_instance  # noqa: E402
 
-REQUIRED_CONFIG_KEYS = {
-    "instance_patterns_config",
-}
+REQUIRED_CONFIG_KEYS: set = set()
+
+# Glob(s) used to discover instances under --root when the config omits "patterns".
+DEFAULT_INSTANCE_PATTERNS = ("*.rcp",)
 
 SUPPORTED_BRANCHING_ORDERS = {"activity_id", "lower_bound", "policy"}
 
@@ -48,6 +49,7 @@ OPTIONAL_CONFIG_KEYS = {
     "output_path",
     "optimal_json",
     "emit_csv",
+    "patterns",
 }
 
 ALLOWED_CONFIG_KEYS = REQUIRED_CONFIG_KEYS | OPTIONAL_CONFIG_KEYS
@@ -159,18 +161,27 @@ def load_run_config(path: Path) -> Dict[str, Any]:
     return cfg
 
 
-def load_patterns(path: Path) -> List[str]:
-    payload = load_json(path)
-    unknown = set(payload) - {"patterns"}
-    if unknown:
-        names = ", ".join(sorted(unknown))
-        raise ValueError(f"Unknown key(s) in patterns config {path}: {names}")
-    patterns = payload.get("patterns")
+def load_patterns(cfg: Dict[str, Any], config_path: Path) -> List[str]:
+    """Resolve the instance glob patterns for a --root run.
+
+    Reads the optional "patterns" key from the run config, falling back to
+    DEFAULT_INSTANCE_PATTERNS. All instance files use the .rcp extension, so the
+    default covers every dataset under data/; override only for non-standard
+    inputs or to select a subset.
+    """
+    if "patterns" not in cfg:
+        return list(DEFAULT_INSTANCE_PATTERNS)
+
+    patterns = cfg["patterns"]
+    if isinstance(patterns, str):
+        patterns = [patterns]
     if not isinstance(patterns, list) or not patterns:
-        raise ValueError(f"'patterns' in {path} must be a non-empty list of glob strings.")
+        raise ValueError(
+            f"'patterns' in {config_path} must be a glob string or a non-empty list of them."
+        )
     clean = [str(p).strip() for p in patterns if str(p).strip()]
     if not clean:
-        raise ValueError(f"'patterns' in {path} cannot be empty after stripping.")
+        raise ValueError(f"'patterns' in {config_path} cannot be empty after stripping.")
     return clean
 
 
@@ -178,8 +189,7 @@ def resolve_paths(args: argparse.Namespace, cfg: Dict[str, Any]) -> List[Path]:
     if args.instance:
         return [Path(args.instance)]
 
-    patterns_cfg = Path(str(cfg["instance_patterns_config"]))
-    patterns = load_patterns(patterns_cfg)
+    patterns = load_patterns(cfg, Path(str(args.config)))
     paths = list_instance_paths(args.root, patterns=tuple(patterns))
     limit = args.limit if args.limit is not None else cfg.get("limit")
     if limit is not None and int(limit) <= 0:
@@ -188,7 +198,7 @@ def resolve_paths(args: argparse.Namespace, cfg: Dict[str, Any]) -> List[Path]:
         paths = paths[: int(limit)]
     if not paths:
         raise FileNotFoundError(
-            f"No instances found under {args.root} with patterns from {patterns_cfg}: {patterns}"
+            f"No instances found under {args.root} with patterns {patterns}"
         )
     return paths
 

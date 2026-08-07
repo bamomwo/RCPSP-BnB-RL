@@ -79,7 +79,7 @@ def parse_args() -> argparse.Namespace:
 
     parser.add_argument(
         "--pattern",
-        default="*.RCP",
+        default="*.rcp",
         help="Glob pattern when using --root.",
     )
     parser.add_argument(

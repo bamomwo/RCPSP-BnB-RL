@@ -49,7 +49,7 @@ def parse_args() -> argparse.Namespace:
         "--patterns",
         nargs="+",
         default=list(DEFAULT_PATTERNS),
-        help="Glob patterns for instance files (default: *.RCP *.rcp).",
+        help="Glob patterns for instance files (default: *.rcp).",
     )
 
     p_join = sub.add_parser("join", help="Join features.csv + labels.csv into data.csv.")

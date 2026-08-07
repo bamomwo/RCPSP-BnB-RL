@@ -46,7 +46,7 @@
 
   "eval_every_steps": 200000,
   "eval_root": "data/eval/J30/J30_10",
-  "eval_pattern": "*.RCP",
+  "eval_pattern": "*.rcp",
   "eval_time_limit_s": 60.0,
   "eval_optimal_json": "data/baseline/j30_opt.json",
 

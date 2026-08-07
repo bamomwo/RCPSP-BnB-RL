@@ -30,7 +30,7 @@ from rcpsp_bb_rl.data.dataset import list_instance_paths
 from rcpsp_bb_rl.data.parsing import load_instance
 from rcpsp_bb_rl.ml.estimator.features import FEATURE_NAMES, extract_feature_dict
 
-DEFAULT_PATTERNS: Sequence[str] = ("*.RCP", "*.rcp")
+DEFAULT_PATTERNS: Sequence[str] = ("*.rcp",)
 
 # Columns present in data.csv that are NOT model inputs. `instance` is metadata,
 # `nodes` is the pre-log node count, `y` is the target, and `solved` is withheld

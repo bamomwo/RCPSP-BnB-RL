@@ -13,6 +13,12 @@ __pycache__/
 
 /data/1ktrain
 /data/eval/j30h
+
+# J30 evaluation subsets: every .rcp in these is a byte-identical duplicate of a
+# file in /data/eval/J30/J30_480, which stays tracked.
+/data/eval/J30/J30_10/
+/data/eval/J30/J30_87/
+/data/eval/J30/J30_100/
 scripts/validate_fix_rcpsp.py
 scripts/report_bnb_bounds.py
 scripts/explore_bnb.py 

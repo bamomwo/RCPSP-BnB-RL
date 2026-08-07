@@ -30,7 +30,7 @@ DEFAULT_CONFIG: Dict = {
     # Data
     "trajectories_dir": "data/trajectories",
     "instances_dir": "data/j30h",
-    "instances_pattern": "*.RCP",
+    "instances_pattern": "*.rcp",
     "pattern": "*.jsonl",
     "val_frac": 0.1,
     "max_resources": 4,
@@ -62,7 +62,7 @@ InstancePair = Tuple[Path, Path]
 def collect_instance_pairs(
     trajectories_dir: Path,
     instances_dir: Path,
-    instances_pattern: str = "*.RCP",
+    instances_pattern: str = "*.rcp",
     pattern: str = "*.jsonl",
 ) -> List[InstancePair]:
     """
