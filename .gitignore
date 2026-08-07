@@ -1,50 +1,20 @@
 .DS_Store
+.claude
+
 *.pyc
 __pycache__/
-*.
-.claude
-.gitignore
-/reports/figures/*
-/reports/eval_plots/eval_trends_100k_Netres_vnr.png
-/reports/eval_plots/eval_trends_Netres_vnr_100k_rmod.png
-/reports/eval_stats/wins_vs_native_NetRes_VNR_100k_step_rmod.json
-/reports/eval_stats/wins_vs_native_50k_step.json
-/reports/eval_stats/wins_vs_native_NetRes_VNR_100k_step.json 
 
 /data/1ktrain
-/data/eval/j30h
-
-# J30 evaluation subsets: every .rcp in these is a byte-identical duplicate of a
-# file in /data/eval/J30/J30_480, which stays tracked.
 /data/eval/J30/J30_10/
 /data/eval/J30/J30_87/
 /data/eval/J30/J30_100/
-scripts/validate_fix_rcpsp.py
-scripts/report_bnb_bounds.py
-scripts/explore_bnb.py 
-scripts/reward_scale_check.py 
-scripts/smoke_test_reward.py 
-scripts/visualize_bnb.py 
-scripts/debug_episode.py 
 
-
-
-
-znotes/
-zvisualization/ 
-ztest/
-
-# models/ is an allowlist: only best/, estimator/ and policy_bc.pt are tracked.
 models/*
 !models/best/
 !models/estimator/
 !models/policy_bc.pt
 
 results/
-
-CLAUDE.md
-
+znotes/
 
 scripts/verify_policy_speedup.py
-
-zkl_stops/
