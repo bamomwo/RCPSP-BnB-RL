@@ -1,13 +1,19 @@
 {
-  "data_csv": "data/estimator/data-120/data.csv",
+  "data_csv": "data/estimator/data-480/data_all.csv",
   "val_frac": 0.2,
+  "stratify_split": true,
 
-  "hidden1": 64,
-  "hidden2": 32,
+  "hidden1": 256,
+  "hidden2": 128,
   "dropout": 0.2,
   "negative_slope": 0.01,
 
-  "tau": 0.25,
+  "band_lo": 0.7,
+  "band_hi": 1.5,
+  "w_under": 1.0,
+  "w_over": 1.0,
+  "c_target": 1.0,
+  "weight_by_target": false,
 
   "lr": 1e-3,
   "weight_decay": 1e-4,

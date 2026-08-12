@@ -28,7 +28,7 @@ import numpy as np
 
 from rcpsp_bb_rl.data.dataset import list_instance_paths
 from rcpsp_bb_rl.data.parsing import load_instance
-from rcpsp_bb_rl.ml.estimator.features import FEATURE_NAMES, extract_feature_dict
+from rcpsp_bb_rl.ml.estimator.data.features import FEATURE_NAMES, extract_feature_dict
 
 DEFAULT_PATTERNS: Sequence[str] = ("*.rcp",)
 
@@ -168,12 +168,76 @@ class EstimatorSplit:
     instances_val: List[str]
     nodes_train: np.ndarray  # [n_train] raw node counts (for node-space metrics)
     nodes_val: np.ndarray    # [n_val]
+    # Regime flag: 1 = search exhausted inside the horizon, 0 = cut off by it.
+    # NOT a model input (see NON_FEATURE_COLUMNS) — carried only so validation can
+    # be stratified by regime, since the two regimes differ by ~690x in median
+    # node count and a pooled metric hides failure on the hard one.
+    solved_train: np.ndarray  # [n_train] float 0/1
+    solved_val: np.ndarray    # [n_val]
+
+
+def _stratified_split(
+    y: np.ndarray,
+    solved: np.ndarray,
+    val_frac: float,
+    seed: int,
+    n_bins: int = 10,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Split indices into (train, val), stratified by (regime, target decile).
+
+    A plain permutation is roughly proportional in the bulk of the distribution
+    but noisy in the sparse high-difficulty deciles — exactly the rows whose
+    validation numbers need to be trustworthy, since that is where PPO spends its
+    time. Stratifying by regime AND target decile keeps every stratum represented
+    in both splits at close to its population rate.
+
+    Deciles are taken over y within each regime rather than globally: the two
+    regimes barely overlap in node count, so global bins would collapse one
+    regime into a handful of edge bins.
+    """
+    rng = np.random.default_rng(seed)
+    train_parts: List[np.ndarray] = []
+    val_parts: List[np.ndarray] = []
+
+    for regime in (0.0, 1.0):
+        regime_idx = np.flatnonzero(solved == regime)
+        if regime_idx.size == 0:
+            continue
+
+        y_r = y[regime_idx]
+        # Rank-based binning: robust to the heavy skew of y, and degrades safely
+        # when a regime has fewer rows than bins.
+        order = np.argsort(y_r, kind="stable")
+        ranks = np.empty(y_r.size, dtype=np.int64)
+        ranks[order] = np.arange(y_r.size)
+        bins = (ranks * n_bins) // max(y_r.size, 1)
+
+        for b in range(n_bins):
+            cell = regime_idx[bins == b]
+            if cell.size == 0:
+                continue
+            cell = cell[rng.permutation(cell.size)]
+            # Round rather than floor so small cells still contribute to val, but
+            # never take the whole cell — every stratum must stay in train too.
+            n_val = int(round(cell.size * val_frac))
+            n_val = min(max(n_val, 1), cell.size - 1) if cell.size > 1 else 0
+            val_parts.append(cell[:n_val])
+            train_parts.append(cell[n_val:])
+
+    train_idx = np.concatenate(train_parts) if train_parts else np.array([], dtype=np.int64)
+    val_idx = np.concatenate(val_parts) if val_parts else np.array([], dtype=np.int64)
+    # Shuffle so downstream consumers that slice without permuting see mixed strata.
+    train_idx = train_idx[rng.permutation(train_idx.size)]
+    val_idx = val_idx[rng.permutation(val_idx.size)]
+    return train_idx, val_idx
 
 
 def load_estimator_dataset(
     data_csv: Path | str,
     val_frac: float = 0.2,
     seed: int = 42,
+    stratify: bool = True,
 ) -> EstimatorSplit:
     """
     Load the joined data.csv, select the 18 feature columns as X and `y` as the
@@ -183,6 +247,10 @@ def load_estimator_dataset(
     `solved` in particular is withheld so the model gets no hint about the target.
     Features are returned RAW (unscaled) — the caller fits the Standardizer on the
     train split only, so no statistics leak from val into training.
+
+    With stratify=True (default) the split is balanced across (regime, target
+    decile) cells; see _stratified_split. Pass stratify=False for the plain random
+    permutation, e.g. to reproduce an earlier run.
     """
     rows = _read_csv_rows(data_csv)
     if not rows:
@@ -207,16 +275,25 @@ def load_estimator_dataset(
     y = np.array([float(r[TARGET_COLUMN]) for r in rows], dtype=np.float64)
     nodes = np.array([float(r["nodes"]) for r in rows], dtype=np.float64)
     instances = [r["instance"] for r in rows]
+    # Absent `solved` is treated as "not exhausted": the conservative reading, and
+    # it keeps stratification working on older CSVs instead of failing the load.
+    solved = np.array(
+        [1.0 if _parse_bool(r.get("solved", "0")) else 0.0 for r in rows],
+        dtype=np.float64,
+    )
 
     n = len(rows)
     if not (0.0 < val_frac < 1.0):
         raise ValueError(f"val_frac must be in (0, 1); got {val_frac}")
 
-    rng = np.random.default_rng(seed)
-    perm = rng.permutation(n)
-    n_val = max(1, int(round(n * val_frac)))
-    val_idx = perm[:n_val]
-    train_idx = perm[n_val:]
+    if stratify:
+        train_idx, val_idx = _stratified_split(y, solved, val_frac, seed)
+    else:
+        rng = np.random.default_rng(seed)
+        perm = rng.permutation(n)
+        n_val = max(1, int(round(n * val_frac)))
+        val_idx = perm[:n_val]
+        train_idx = perm[n_val:]
 
     return EstimatorSplit(
         x_train=x[train_idx],
@@ -228,4 +305,6 @@ def load_estimator_dataset(
         instances_val=[instances[i] for i in val_idx],
         nodes_train=nodes[train_idx],
         nodes_val=nodes[val_idx],
+        solved_train=solved[train_idx],
+        solved_val=solved[val_idx],
     )

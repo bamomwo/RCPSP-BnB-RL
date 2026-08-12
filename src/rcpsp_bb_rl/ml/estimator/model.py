@@ -9,15 +9,33 @@ so that easy instances (small trees) get a larger per-node penalty and hard
 instances (large trees) get a smaller one — keeping the return magnitude
 comparable across instances and stabilising the critic.
 
-Loss: pinball (quantile) loss at a low quantile tau. This deliberately biases
-predictions LOW (under-predicting N), because over-predicting N makes
-alpha = C_target / N_hat too small, which kills the efficiency signal on that
-instance — the more dangerous failure. tau ~ 0.25 penalises over-prediction ~3x
-harder than under-prediction, a moderate lean rather than an extreme one.
+Objective: the estimator does not need a precise N_hat, only one accurate enough
+that alpha lands in a usable range. The requirement is a MULTIPLICATIVE BAND
+
+    L <= N_hat / N <= U
+
+which, because the target is already in log space, is a plain interval on the
+residual d = y_hat - y ~= log(N_hat / N):  log L <= d <= log U.
+
+The band is not an arbitrary tolerance. Realized node cost over an episode is
+alpha * N = C_target / (N_hat / N), so ratio in [L, U] is exactly the statement
+that the node-cost channel lands within [C_target/U, C_target/L]. Picking
+L = 0.5, U = 2.0 says "within 2x either side of C_target".
+
+Loss: asymmetric squared-hinge band loss (see band_loss). Both directions of
+violation are real but unequal failures:
+  - N_hat too HIGH  -> alpha too small -> the efficiency signal dies on that
+    instance.
+  - N_hat too LOW   -> alpha too large -> the node-cost term drowns the
+    incumbent/bound signals, which is the return blow-up dynamic scaling exists
+    to prevent.
+w_under > w_over encodes that asymmetry in interpretable units, replacing the
+quantile-tau trick this module previously used (which leaned the wrong way).
 
 Everything needed for faithful inference — weights, the input standardiser
-statistics, tau, and the feature order — is persisted in a single checkpoint so
-PPO can reload the estimator and reproduce training-time normalisation exactly.
+statistics, the band configuration, and the feature order — is persisted in a
+single checkpoint so PPO can reload the estimator and reproduce training-time
+normalisation exactly.
 """
 
 from __future__ import annotations
@@ -30,7 +48,7 @@ import torch
 import torch.nn as nn
 
 from rcpsp_bb_rl.data.parsing import RCPSPInstance
-from rcpsp_bb_rl.ml.estimator.features import FEATURE_NAMES, NUM_FEATURES, extract_features
+from rcpsp_bb_rl.ml.estimator.data.features import FEATURE_NAMES, NUM_FEATURES, extract_features
 
 
 # ---------------------------------------------------------------------------
@@ -76,31 +94,45 @@ class Standardizer:
 # Loss
 # ---------------------------------------------------------------------------
 
-def pinball_loss(
+def band_loss(
     pred: torch.Tensor,
     target: torch.Tensor,
-    tau: float,
+    log_lo: float,
+    log_hi: float,
+    w_under: float = 2.0,
+    w_over: float = 1.0,
     weight: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
     """
-    Pinball (quantile) loss at quantile tau.
+    Asymmetric squared-hinge loss on the log-residual d = pred - target.
 
-    With residual r = target - pred:
-      - under-prediction (r > 0, pred too low)  is weighted by tau
-      - over-prediction  (r < 0, pred too high) is weighted by (1 - tau)
+    Zero penalty while d is inside [log_lo, log_hi] (i.e. N_hat/N inside the
+    acceptable band); quadratically growing penalty outside it:
 
-    So tau < 0.5 penalises over-prediction MORE than under-prediction. At
-    tau = 0.25 the ratio is (1 - tau)/tau = 3x.
+        over  = relu(d - log_hi)   -> N_hat too high, weighted by w_over
+        under = relu(log_lo - d)   -> N_hat too low,  weighted by w_under
+        loss  = mean(w_over * over^2 + w_under * under^2)
 
-    tau controls the DIRECTION of the bias (over vs under). The optional per-sample
-    `weight` controls WHICH samples the fit prioritises: the dataset is dominated by
-    trivially-easy instances, so an unweighted mean lets them swamp the sparse
-    hard-instance tail. Weighting by target magnitude makes hard instances pull
-    proportionally harder, sharpening the high end without disturbing the tau bias.
-    Returns the (weighted) mean over the batch.
+    Design notes:
+      - HINGE, so a sample already inside the band contributes no gradient. All
+        capacity goes to violators instead of buying precision the reward cannot
+        use.
+      - SQUARED rather than linear outside the band, so a 10x violation pulls
+        harder than a 1.05x one (an L1 hinge pulls both equally), and the loss
+        stays C^1 at the boundary. Early in training almost every sample is
+        outside the band, so this does not starve gradient.
+      - w_under > w_over because under-prediction inflates alpha and drowns the
+        other reward channels — the more damaging of the two failures.
+
+    The optional per-sample `weight` re-emphasises rows (e.g. by target
+    magnitude). It is usually unnecessary here: the hinge is already
+    self-focusing, since easy instances that land in-band drop out of the loss on
+    their own. Returns the (weighted) mean over the batch.
     """
-    r = target - pred
-    per_sample = torch.maximum(tau * r, (tau - 1.0) * r)
+    d = pred - target
+    over = torch.clamp(d - log_hi, min=0.0)
+    under = torch.clamp(log_lo - d, min=0.0)
+    per_sample = w_over * over.pow(2) + w_under * under.pow(2)
     if weight is not None:
         return torch.sum(weight * per_sample) / torch.sum(weight)
     return torch.mean(per_sample)
@@ -163,13 +195,17 @@ class SearchEffortMLP(nn.Module):
 def save_estimator_checkpoint(
     model: SearchEffortMLP,
     scaler: Standardizer,
-    tau: float,
+    loss_config: dict,
     path: str,
     feature_names: Optional[List[str]] = None,
     extra: Optional[dict] = None,
 ) -> None:
     """
-    Persist weights + scaler stats + tau + feature order in one file.
+    Persist weights + scaler stats + loss config + feature order in one file.
+
+    loss_config records the band the model was fitted against (band_lo, band_hi,
+    w_under, w_over) so a checkpoint can be interpreted later without its config
+    file — the numbers that define what "accurate enough" meant for this run.
 
     feature_names records the exact input contract so inference can detect a
     features.py drift (append/reorder) rather than silently misalign columns.
@@ -184,7 +220,7 @@ def save_estimator_checkpoint(
             "negative_slope": model.negative_slope,
         },
         "scaler": scaler.to_dict(),
-        "tau": float(tau),
+        "loss_config": dict(loss_config),
         "feature_names": list(feature_names) if feature_names is not None else list(FEATURE_NAMES),
     }
     if extra:
@@ -195,8 +231,16 @@ def save_estimator_checkpoint(
 def load_estimator_checkpoint(
     path: str,
     device: torch.device | str = "cpu",
-) -> tuple[SearchEffortMLP, Standardizer, float]:
-    """Load (model, scaler, tau) from a checkpoint written by save_estimator_checkpoint."""
+) -> tuple[SearchEffortMLP, Standardizer, dict]:
+    """
+    Load (model, scaler, loss_config) from a checkpoint written by
+    save_estimator_checkpoint.
+
+    loss_config is metadata only — inference needs just the weights and scaler —
+    but it is returned so callers can log or assert on the band the estimator was
+    fitted against. Older checkpoints carrying a bare `tau` are reported as
+    {"legacy_tau": ...} rather than silently presented as a band.
+    """
     ckpt = torch.load(path, map_location=device)
     if "model_state" not in ckpt or "scaler" not in ckpt:
         raise ValueError(f"Checkpoint at {path} is not a valid estimator checkpoint.")
@@ -223,8 +267,13 @@ def load_estimator_checkpoint(
         )
 
     scaler = Standardizer.from_dict(ckpt["scaler"])
-    tau = float(ckpt.get("tau", 0.25))
-    return model, scaler, tau
+    if "loss_config" in ckpt:
+        loss_config = dict(ckpt["loss_config"])
+    elif "tau" in ckpt:
+        loss_config = {"legacy_tau": float(ckpt["tau"])}
+    else:
+        loss_config = {}
+    return model, scaler, loss_config
 
 
 # ---------------------------------------------------------------------------
