@@ -585,6 +585,29 @@ def set_seed(seed: int) -> None:
     torch.cuda.manual_seed_all(seed)
 
 
+def load_oracle_node_counts(path: Path) -> Dict[Tuple[int, str], int]:
+    """Load episode-and-instance keyed node counts for the oracle-alpha ablation."""
+    lookup: Dict[Tuple[int, str], int] = {}
+    with path.open() as handle:
+        for line_number, line in enumerate(handle, start=1):
+            if not line.strip():
+                continue
+            try:
+                record = json.loads(line)
+                key = (int(record["episode"]), str(record["instance"]))
+                nodes = int(record["nodes"])
+            except (TypeError, ValueError, KeyError, json.JSONDecodeError) as exc:
+                raise ValueError(f"Invalid oracle record at {path}:{line_number}") from exc
+            if nodes <= 0:
+                raise ValueError(f"Invalid oracle node count at {path}:{line_number}: {nodes}")
+            if key in lookup:
+                raise ValueError(f"Duplicate oracle record for {key} in {path}")
+            lookup[key] = nodes
+    if not lookup:
+        raise ValueError(f"No oracle records found in {path}")
+    return lookup
+
+
 DEFAULT_CONFIG: Dict[str, Any] = {
     # Data
     "root": "data/train",
@@ -643,6 +666,9 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     # stabilises the cost channel's global scale across easy/hard instances and
     # keeps the beta/alpha break-even ratios comparable. Null -> static alpha.
     "estimator_path": None,
+    # Optional episode-and-instance keyed node-count lookup for the oracle-alpha
+    # ablation. Missing records fall back to estimator_path.
+    "oracle_node_counts_path": None,
     "c_target": 1.0,
     "alpha_min": 1e-6,
     "alpha_max": 0.5,
@@ -790,11 +816,7 @@ def main() -> None:
     beta1 = float(config["beta1"])
     beta2 = float(config["beta2"])
 
-    # --- Dynamic node-cost scaling (estimator-driven alpha) ---
-    # When an estimator is provided, alpha is computed per instance so the cost
-    # channel's global scale is comparable across easy and hard instances. The
-    # loop owns this (the env stays a pure B&B driver): alpha is derived once per
-    # episode from the already-loaded instance object at the reward-build site.
+    # --- Dynamic node-cost scaling ---
     estimator = None
     estimator_scaler = None
     c_target = float(config["c_target"])
@@ -805,8 +827,16 @@ def main() -> None:
         estimator, estimator_scaler, _est_tau = load_estimator_checkpoint(
             estimator_path, device=device
         )
-    # The per-episode alpha = clip(c_target / N_est, alpha_min, alpha_max) is
-    # computed inline at the reward-build site (one estimator pass per episode).
+    oracle_path_raw = config.get("oracle_node_counts_path")
+    oracle_path = None if oracle_path_raw is None else Path(oracle_path_raw)
+    oracle_node_counts: Dict[Tuple[int, str], int] = {}
+    if oracle_path is not None:
+        if estimator is None:
+            raise ValueError(
+                "oracle_node_counts_path requires estimator_path for missing-record fallback."
+            )
+        oracle_node_counts = load_oracle_node_counts(oracle_path)
+        print(f"Loaded oracle node counts: {len(oracle_node_counts)} records from {oracle_path}")
     # Entropy coefficient linear decay (with floor): coef goes from
     # ent_coef_start down to ent_coef_end over training.
     ent_coef_start = float(config["ent_coef_start"])
@@ -870,7 +900,11 @@ def main() -> None:
     print(f"  episode_cap={cap_desc}  stratify={stratify_time_bands}x{stratify_depth_bands} (time x rel-depth)  incumbent_window={incumbent_window}")
     vf_desc = f"huber(delta={huber_delta})" if vf_loss_type == "huber" else "mse"
     print(f"  vf_loss={vf_desc}  vf_coef={vf_coef}")
-    if estimator is not None:
+    if oracle_path is not None:
+        print(f"  reward_scale=ORACLE   alpha=clip(c_target/N_ref, {alpha_min:g}, {alpha_max:g})  "
+              f"c_target={c_target}  beta1={beta1}  beta2={beta2}")
+        print(f"                        oracle={oracle_path}  fallback_estimator={estimator_path}")
+    elif estimator is not None:
         print(f"  reward_scale=DYNAMIC  alpha=clip(c_target/N_est, {alpha_min:g}, {alpha_max:g})  "
               f"c_target={c_target}  beta1={beta1}  beta2={beta2}")
         print(f"                        estimator={estimator_path}")
@@ -940,16 +974,25 @@ def main() -> None:
                 obs = step_out.observation
 
         # ---- Subtree-return backup ----
-        # Node-cost coef for THIS episode: dynamically scaled from the instance's
-        # estimated difficulty when an estimator is set, else the static alpha.
-        # One estimator forward pass per episode; N_est kept for logging.
-        if estimator is not None:
+        # Node-cost coefficient for this episode. Oracle records are keyed by
+        # (episode number, instance name); missing records intentionally fall
+        # back to the estimator so an ablation run can continue.
+        oracle_nodes = oracle_node_counts.get((episode_count, current_instance_path.name))
+        if oracle_nodes is not None:
+            episode_n_est = float(oracle_nodes)
+            episode_scale_source = "oracle"
+        elif estimator is not None:
             episode_n_est = predict_difficulty(
                 estimator, estimator_scaler, current_instance, device=device
             )
-            episode_alpha = float(np.clip(c_target / episode_n_est, alpha_min, alpha_max))
+            episode_scale_source = "estimator_fallback" if oracle_path is not None else "estimator"
         else:
             episode_n_est = None
+            episode_scale_source = "static"
+
+        if episode_n_est is not None:
+            episode_alpha = float(np.clip(c_target / episode_n_est, alpha_min, alpha_max))
+        else:
             episode_alpha = alpha
         cost_reward_fn = make_cost_reward_fn(alpha=episode_alpha)
         bonus_reward_fn = make_bonus_reward_fn(
@@ -984,8 +1027,10 @@ def main() -> None:
             f"Nodes={stats.nodes_expanded}  "
             f"Best_Ms={stats.best_makespan}  "
             f"Inc_Improves={stats.incumbent_improvements}  "
-            + (f"N_est={episode_n_est:.0f}  alpha={episode_alpha:.2e}  "
-               if episode_n_est is not None else f"alpha={episode_alpha:.2e}  ")
+            + (f"N_ref={episode_n_est:.0f}  source=oracle  alpha={episode_alpha:.2e}  "
+               if episode_scale_source == "oracle" else
+               f"N_est={episode_n_est:.0f}  source={episode_scale_source}  alpha={episode_alpha:.2e}  "
+               if episode_n_est is not None else f"source=static  alpha={episode_alpha:.2e}  ")
             + f"rewards=(G_root:{ep_return:+.2f}, G_cost:{g_cost:+.2f}, "
             f"G_first_incum:{g_first:+.2f}, G_incum_impro:{g_improve:+.2f})  "
             f"elapsed={elapsed:.0f}s"
@@ -1004,7 +1049,16 @@ def main() -> None:
                 writer.add_scalar("episode/best_makespan", stats.best_makespan, global_step)
             writer.add_scalar("episode/alpha", episode_alpha, global_step)
             if episode_n_est is not None:
-                writer.add_scalar("episode/N_est", episode_n_est, global_step)
+                writer.add_scalar(
+                    "episode/N_ref" if episode_scale_source == "oracle" else "episode/N_est",
+                    episode_n_est,
+                    global_step,
+                )
+            if oracle_path is not None:
+                writer.add_scalar(
+                    "episode/oracle_hit", 1.0 if episode_scale_source == "oracle" else 0.0,
+                    global_step,
+                )
 
         # ---- Compute advantages on the FULL episode ----
         # The subtree backup is run before subsampling: a node's return is
