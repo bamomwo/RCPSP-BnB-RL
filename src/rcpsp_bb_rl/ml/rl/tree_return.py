@@ -6,8 +6,9 @@ Backup rule: G(X) = r(X) + gamma * sum_children G(c)
 Each decision at node X is credited with its own subtree's return — no sibling
 leak. The critic baseline V(X) handles inherited-luck (inherited incumbent).
 
-Two-channel (decoupled) backup: cost channel (-alpha per node, discountable) and
-incumbent-bonus channel (undiscounted). Total return = sum of both channels.
+Two-channel (decoupled) backup: cost channel (-alpha per expanded node,
+discountable) and incumbent-bonus channel (undiscounted). Total return = sum of
+both channels.
 
 Truncation: nodes whose subtree contains "pending" descendants are flagged as
 open (closed=False). The training loop decides what to do with them.
@@ -23,9 +24,16 @@ RewardFn = Callable[[Mapping[str, object]], float]
 
 
 def make_cost_reward_fn(*, alpha: float) -> RewardFn:
-    """Cost channel: -alpha per node. Summed over subtree = -alpha * |subtree|."""
+    """Cost channel: -alpha per expanded node, zero for every other status.
+
+    An expanded node is a branching decision that creates further search work.
+    Pruned, solution, and pending nodes are deliberately free: they may incur a
+    small bookkeeping cost, but are not charged by the search-expansion
+    objective. This keeps the reward's effort definition aligned with
+    ``BnBSolver.nodes_expanded`` used by the estimator and oracle lookup.
+    """
     def reward_fn(node: Mapping[str, object]) -> float:
-        return -alpha
+        return -alpha if node.get("status") == "expanded" else 0.0
 
     return reward_fn
 
@@ -90,7 +98,7 @@ def make_node_reward_fn(
     beta2: float = 0.0,
     root_lb: Optional[float] = None,
 ) -> RewardFn:
-    """Combined single-channel reward: r(n) = -alpha + bonus(n). Use only with a single gamma."""
+    """Combined reward: expanded nodes get -alpha plus any incumbent bonus."""
     cost_fn = make_cost_reward_fn(alpha=alpha)
     bonus_fn = make_bonus_reward_fn(tree, beta1=beta1, beta2=beta2, root_lb=root_lb)
 
