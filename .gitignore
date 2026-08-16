@@ -17,4 +17,6 @@ models/*
 results/
 znotes/
 
+
+tests/
 scripts/verify_policy_speedup.py

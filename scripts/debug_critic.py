@@ -53,6 +53,7 @@ if str(SRC_PATH) not in sys.path:
 from rcpsp_bb_rl.data.parsing import load_instance  # noqa: E402
 from rcpsp_bb_rl.ml.models import load_policy_checkpoint  # noqa: E402
 from rcpsp_bb_rl.ml.rl import BranchingEnv  # noqa: E402
+from rcpsp_bb_rl.ml.action_order import selected_first_policy_order  # noqa: E402
 from rcpsp_bb_rl.ml.rl.tree_return import (  # noqa: E402
     compute_episode_advantages_decoupled,
     compute_subtree_returns,
@@ -147,11 +148,16 @@ def rollout(
             logits, value = model(cand, glob, mask, critic)
             dist = Categorical(logits=logits)
             action = dist.sample() if sample else torch.argmax(logits)
+            action_order = selected_first_policy_order(
+                logits.detach().cpu().tolist(), int(action.item())
+            )
 
         cand_counts.append(int(obs["candidate_feats"].shape[0]))
         values.append(float(value.item()))
 
-        step_out = env.step(int(action.item()))
+        step_out = env.step(
+            int(action.item()), action_order_indices=action_order
+        )
         node_ids.append(step_out.info.get("node_id"))
         depths.append(int(step_out.info.get("depth", -1)))
 

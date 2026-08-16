@@ -15,6 +15,7 @@ from rcpsp_bb_rl.ml.il.featurize import (
     candidate_features,
     global_features,
 )
+from rcpsp_bb_rl.ml.action_order import policy_ranked_indices
 from rcpsp_bb_rl.ml.models.policy import BranchingTransformer
 
 
@@ -171,11 +172,7 @@ def make_policy_order_fn(
         with torch.inference_mode():
             logits, _ = model(cand, glob, action_mask=mask)
 
-        scored = sorted(
-            zip(ready_sorted, logits.cpu().tolist()),
-            key=lambda x: x[1],
-            reverse=True,
-        )
-        return [aid for aid, _ in scored]
+        ranked_indices = policy_ranked_indices(logits.cpu().tolist())
+        return [ready_sorted[index] for index in ranked_indices]
 
     return order_ready

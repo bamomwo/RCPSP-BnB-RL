@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Sequence
 
 import numpy as np
 import torch
@@ -12,6 +12,7 @@ from rcpsp_bb_rl.bnb.lower_bounds import DEFAULT_LOWER_BOUND_ID, lower_bound
 from rcpsp_bb_rl.bnb.scheduling import build_profile, earliest_feasible_start
 from rcpsp_bb_rl.bnb.solver import BBNode, BnBSolver, ScheduleEntry, SolverResult, StepContext, current_makespan
 from rcpsp_bb_rl.data.parsing import RCPSPInstance, load_instance
+from rcpsp_bb_rl.ml.action_order import resolve_activity_order
 from rcpsp_bb_rl.ml.il.featurize import (
     InstanceStatics,
     NodeContext,
@@ -311,12 +312,18 @@ class BranchingEnv:
 
         return self._observe(node, incumbent, step_ctx)
 
-    def step(self, action_index: int) -> StepOutput:
+    def step(
+        self,
+        action_index: int,
+        action_order_indices: Optional[Sequence[int]] = None,
+    ) -> StepOutput:
         """
         Branch on the activity at position action_index in sorted(node.ready).
 
-        The chosen activity is placed first in the ordering passed to the
-        solver; the solver explores it first (DFS/LIFO push order).
+        When action_order_indices is supplied, it must be a complete permutation
+        of candidate indices with action_index first. Otherwise the remaining
+        activities retain the legacy activity-ID order. The solver explores the
+        resulting order directly (via reverse push onto its DFS/LIFO stack).
         """
         if self._done or self._solver_gen is None:
             raise RuntimeError("Call reset() before step().")
@@ -338,7 +345,11 @@ class BranchingEnv:
             return StepOutput({}, True, info)
 
         chosen = ready_sorted[action_index]
-        ordering = [chosen] + [a for a in ready_sorted if a != chosen]
+        ordering = resolve_activity_order(
+            ready_sorted,
+            selected_index=action_index,
+            action_order_indices=action_order_indices,
+        )
 
         pre_inc: Optional[int] = ctx.incumbent_after
         pre_burden: int = ctx.proof_burden

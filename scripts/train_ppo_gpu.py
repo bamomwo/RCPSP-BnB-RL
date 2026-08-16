@@ -41,6 +41,7 @@ from rcpsp_bb_rl.ml.models import BranchingTransformer, load_policy_checkpoint, 
 from rcpsp_bb_rl.ml.il.featurize import global_feature_dim, candidate_feature_dim, critic_feature_dim  # noqa: E402
 from rcpsp_bb_rl.ml.estimator import load_estimator_checkpoint, predict_difficulty  # noqa: E402
 from rcpsp_bb_rl.ml.rl import BranchingEnv  # noqa: E402
+from rcpsp_bb_rl.ml.action_order import selected_first_policy_order  # noqa: E402
 from rcpsp_bb_rl.ml.rl.tree_return import (  # noqa: E402
     compute_episode_advantages_decoupled,
     make_cost_reward_fn,
@@ -98,10 +99,14 @@ class ActorCritic(nn.Module):
         obs: Dict[str, torch.Tensor],
         device: torch.device,
         action: Optional[torch.Tensor] = None,
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, List[int]]:
         """
         Sample or evaluate an action (unbatched, used during collection).
-        Returns (action, log_prob, entropy, value).
+        Returns (action, log_prob, entropy, value, action_order_indices).
+
+        PPO treats only the sampled first candidate as its action. The remaining
+        candidates are ordered by the same forward pass's logits so rollout DFS
+        uses the policy-ranked tail deployed during evaluation.
         """
         cand = obs["candidate_feats"].to(device)
         glob = obs["global_feats"].to(device)
@@ -118,7 +123,10 @@ class ActorCritic(nn.Module):
 
         log_prob = dist.log_prob(action)
         entropy = dist.entropy()
-        return action, log_prob, entropy, value
+        action_order_indices = selected_first_policy_order(
+            logits.detach().cpu().tolist(), int(action.item())
+        )
+        return action, log_prob, entropy, value, action_order_indices
 
 
 # ---------------------------------------------------------------------------
@@ -896,6 +904,7 @@ def main() -> None:
     print(f"  PPO Training (GPU-batched update, min_batch_size={min_batch_size}, min_episodes={min_episodes})")
     print(f"  total_steps={total_env_steps:,}  backup=tree(cost_gamma={tree_gamma_cost},bonus_gamma={tree_gamma_bonus})  train_instances={len(instance_paths)}  eval_instances={len(eval_paths)}")
     print(f"  clip_eps={clip_eps}  ent_coef={ent_coef_start}->{ent_coef_end} (linear decay)")
+    print("  action_order=sampled_first+policy_ranked_tail  ppo_action=sampled_first")
     cap_desc = "off" if episode_transition_cap is None else str(episode_transition_cap)
     print(f"  episode_cap={cap_desc}  stratify={stratify_time_bands}x{stratify_depth_bands} (time x rel-depth)  incumbent_window={incumbent_window}")
     vf_desc = f"huber(delta={huber_delta})" if vf_loss_type == "huber" else "mse"
@@ -932,10 +941,12 @@ def main() -> None:
 
         while True:
             with torch.no_grad():
-                action_t, log_prob_t, _, value_t = ac.get_action_and_value(obs, device)
+                action_t, log_prob_t, _, value_t, action_order = ac.get_action_and_value(
+                    obs, device
+                )
 
             action = int(action_t.item())
-            step_out = env.step(action)
+            step_out = env.step(action, action_order_indices=action_order)
 
             staged.obs.append(obs)
             staged.actions.append(action)
