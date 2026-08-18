@@ -30,7 +30,7 @@ Optional:
     --alpha / --beta1 / --beta2         reward weights (default to training values)
     --gamma-cost / --gamma-bonus        subtree discount factors
     --dominance                         dominance spec (default set_based)
-    --sample                            sample actions instead of greedy
+    --sample                            sample full rankings instead of greedy
     --seed                              RNG seed when --sample is used
     --max-print                         nodes to show per depth bucket (top/mid/bottom)
 """
@@ -43,7 +43,6 @@ from typing import Dict, List, Optional
 
 import numpy as np
 import torch
-from torch.distributions import Categorical
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_PATH = PROJECT_ROOT / "src"
@@ -53,7 +52,7 @@ if str(SRC_PATH) not in sys.path:
 from rcpsp_bb_rl.data.parsing import load_instance  # noqa: E402
 from rcpsp_bb_rl.ml.models import load_policy_checkpoint  # noqa: E402
 from rcpsp_bb_rl.ml.rl import BranchingEnv  # noqa: E402
-from rcpsp_bb_rl.ml.action_order import selected_first_policy_order  # noqa: E402
+from rcpsp_bb_rl.ml.rl.ranking_policy import make_ranking_action  # noqa: E402
 from rcpsp_bb_rl.ml.rl.tree_return import (  # noqa: E402
     compute_episode_advantages_decoupled,
     compute_subtree_returns,
@@ -85,7 +84,11 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--gamma-bonus", type=float, default=1.0, help="Bonus-channel discount.")
     p.add_argument("--keep-open", action="store_true", help="Treat open subtrees as valid.")
     # Action selection
-    p.add_argument("--sample", action="store_true", help="Sample actions (default: greedy argmax).")
+    p.add_argument(
+        "--sample",
+        action="store_true",
+        help="Sample full rankings (default: greedy score order).",
+    )
     p.add_argument("--seed", type=int, default=0, help="RNG seed when --sample is set.")
     # Reporting
     p.add_argument("--max-print", type=int, default=15, help="Nodes to show per depth bucket.")
@@ -146,17 +149,14 @@ def rollout(
 
         with torch.no_grad():
             logits, value = model(cand, glob, mask, critic)
-            dist = Categorical(logits=logits)
-            action = dist.sample() if sample else torch.argmax(logits)
-            action_order = selected_first_policy_order(
-                logits.detach().cpu().tolist(), int(action.item())
-            )
+            ranking_action = make_ranking_action(logits, mask, sample=sample)
+            action_order = ranking_action.solver_order_indices
 
         cand_counts.append(int(obs["candidate_feats"].shape[0]))
         values.append(float(value.item()))
 
         step_out = env.step(
-            int(action.item()), action_order_indices=action_order
+            action_order[0], action_order_indices=action_order
         )
         node_ids.append(step_out.info.get("node_id"))
         depths.append(int(step_out.info.get("depth", -1)))
