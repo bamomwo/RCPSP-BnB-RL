@@ -358,10 +358,16 @@ def load_policy_checkpoint(
     device: torch.device | str = "cpu",
     dropout: float = 0.0,
     critic_feature_dim: int | None = None,
-) -> BranchingTransformer:
+    return_value_norm: bool = False,
+) -> BranchingTransformer | Tuple[BranchingTransformer, Optional[dict]]:
     """
     Load a BranchingTransformer from a checkpoint. If critic_feature_dim is given,
     override the value-head width (for warm-starting RL from a BC checkpoint).
+
+    When ``return_value_norm`` is true, also return the optional PPO
+    value-normalizer state saved in the checkpoint. This lets PPO resume its
+    critic in the same normalized-return coordinate system without changing the
+    default model-only API used by inference and BC warm starts.
     """
     checkpoint = torch.load(path, map_location=device)
     if "model_state" not in checkpoint:
@@ -408,4 +414,9 @@ def load_policy_checkpoint(
             f"with changed shape (value-head resize): {dropped}"
         )
     model.eval()
+    if return_value_norm:
+        value_norm = checkpoint.get("value_norm")
+        if value_norm is not None and not isinstance(value_norm, dict):
+            raise ValueError(f"Checkpoint at {path} has an invalid 'value_norm' payload")
+        return model, value_norm
     return model

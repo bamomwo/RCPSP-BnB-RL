@@ -22,7 +22,7 @@ import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 import torch
@@ -459,6 +459,95 @@ class RunningMeanStd:
     def std(self) -> float:
         return float(self.var) ** 0.5
 
+    def state_dict(self) -> Dict[str, float]:
+        """Return all state needed to continue the running estimator exactly."""
+        return {"mean": self.mean, "var": self.var, "count": self.count}
+
+    def load_state_dict(self, state: Mapping[str, Any]) -> bool:
+        """Restore a checkpointed value normalizer.
+
+        Returns whether the checkpoint contained its historical sample count.
+        Older checkpoints stored only mean/std, so they can restore the
+        critic's output coordinates but cannot continue the running estimator
+        with its original weighting.
+        """
+        try:
+            mean = float(state["mean"])
+            if "var" in state:
+                var = float(state["var"])
+            else:
+                std = float(state["std"])
+                var = std * std
+            has_count = "count" in state
+            count = float(state["count"]) if has_count else self.count
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError("Invalid value_norm checkpoint state") from exc
+
+        if not (np.isfinite(mean) and np.isfinite(var) and np.isfinite(count)):
+            raise ValueError("value_norm checkpoint state must be finite")
+        if var < 0.0 or count <= 0.0:
+            raise ValueError("value_norm checkpoint state requires var >= 0 and count > 0")
+
+        self.mean = mean
+        self.var = var
+        self.count = count
+        return has_count
+
+
+VALUE_NORM_EPS = 1e-8
+
+
+def renormalize_value_head(
+    model: BranchingTransformer,
+    optimizer: optim.Optimizer,
+    *,
+    old_mean: float,
+    old_std: float,
+    new_mean: float,
+    new_std: float,
+) -> None:
+    """Move the critic output from one normalized-return space to another.
+
+    The value head previously represented
+
+        v_old = (v_raw - old_mean) / old_std.
+
+    After the running return statistics change, PPO trains against
+
+        v_new = (v_raw - new_mean) / new_std.
+
+    The final linear layer can make this coordinate change exactly, without
+    changing the raw value predicted at any state. Its Adam moments are scaled
+    consistently as well, so the next optimizer step remains in the new output
+    coordinate system.
+    """
+    if old_std <= 0.0 or new_std <= 0.0:
+        raise ValueError("Value-normalization standard deviations must be positive.")
+
+    output_layer = model.value_head[-1]
+    if not isinstance(output_layer, nn.Linear) or output_layer.out_features != 1:
+        raise TypeError("Expected the critic's final value-head layer to be Linear(..., 1).")
+
+    scale = old_std / new_std
+    offset = (old_mean - new_mean) / new_std
+
+    with torch.no_grad():
+        output_layer.weight.mul_(scale)
+        output_layer.bias.mul_(scale).add_(offset)
+
+    # The final layer is used only by the value loss. Rescale Adam's moments
+    # for its affine parameterization change: g_new = scale * g_old.
+    for parameter in (output_layer.weight, output_layer.bias):
+        state = optimizer.state.get(parameter)
+        if not state:
+            continue
+        if "exp_avg" in state:
+            state["exp_avg"].mul_(scale)
+        if "exp_avg_sq" in state:
+            state["exp_avg_sq"].mul_(scale * scale)
+        if "max_exp_avg_sq" in state:
+            state["max_exp_avg_sq"].mul_(scale * scale)
+
 
 # ---------------------------------------------------------------------------
 # Evaluation (same as train_ppo.py)
@@ -724,12 +813,14 @@ def main() -> None:
     candidate_dim = candidate_feature_dim(max_resources)
     critic_dim = critic_feature_dim()
 
+    saved_value_norm: Optional[Dict[str, Any]] = None
     if config["bc_checkpoint"] is not None:
         print(f"Loading BC checkpoint: {config['bc_checkpoint']}")
-        base_model = load_policy_checkpoint(
+        loaded_checkpoint = load_policy_checkpoint(
             config["bc_checkpoint"], device=device, dropout=float(config["dropout"]),
-            critic_feature_dim=critic_dim,
+            critic_feature_dim=critic_dim, return_value_norm=True,
         )
+        base_model, saved_value_norm = loaded_checkpoint
     else:
         print("No BC checkpoint — initialising from scratch.")
         base_model = BranchingTransformer(
@@ -847,6 +938,17 @@ def main() -> None:
     eval_log: List[Dict] = []
     last_eval_step = -1
     ret_rms = RunningMeanStd()
+    if saved_value_norm is not None:
+        has_count = ret_rms.load_state_dict(saved_value_norm)
+        print(
+            "Restored PPO value normalization: "
+            f"mean={ret_rms.mean:.6g}  var={ret_rms.var:.6g}  count={ret_rms.count:.6g}"
+        )
+        if not has_count:
+            print(
+                "[warn] checkpoint value_norm has no count; restored its mean/variance "
+                "but will estimate future statistics with a fresh count."
+            )
 
     inst_order = list(range(len(instance_paths)))
     random.shuffle(inst_order)
@@ -1040,13 +1142,12 @@ def main() -> None:
                     global_step,
                 )
 
-        # ---- Compute advantages on the FULL episode ----
+        # ---- Compute subtree returns on the FULL episode ----
         # The subtree backup is run before subsampling: a node's return is
         # defined by its entire subtree, so filtering first would corrupt it.
         ta = compute_episode_advantages_decoupled(
             tree=episode_tree,
             node_ids=staged.node_ids,
-            values=staged.values,
             cost_reward_fn=cost_reward_fn,
             bonus_reward_fn=bonus_reward_fn,
             gamma_cost=tree_gamma_cost,
@@ -1162,11 +1263,34 @@ def main() -> None:
         indices = np.array(valid_idx)
 
         # ---- Value normalisation ----
+        # Values in the rollout buffer were predicted under the statistics that
+        # existed throughout collection. Save that coordinate system before
+        # incorporating this batch, then move both the stored values and the
+        # live value head into the new one below.
+        old_ret_mean = ret_rms.mean
+        old_ret_std = ret_rms.std + VALUE_NORM_EPS
         raw_valid = raw_returns[indices].numpy().astype(np.float64)
         ret_rms.update(raw_valid)
-        std = ret_rms.std + 1e-8
-        returns = (raw_returns - ret_rms.mean) / std
-        values_norm = torch.tensor([buffer.values[i] for i in valid_idx])
+        new_ret_mean = ret_rms.mean
+        new_ret_std = ret_rms.std + VALUE_NORM_EPS
+
+        # Preserve the critic's raw predictions while changing its output
+        # coordinate system. Without this, returns would be normalized with
+        # the new stats while the value loss still used old-coordinate outputs.
+        renormalize_value_head(
+            ac.model,
+            optimizer,
+            old_mean=old_ret_mean,
+            old_std=old_ret_std,
+            new_mean=new_ret_mean,
+            new_std=new_ret_std,
+        )
+
+        returns = (raw_returns - new_ret_mean) / new_ret_std
+        values_old = torch.tensor([buffer.values[i] for i in valid_idx])
+        values_norm = (
+            values_old * old_ret_std + old_ret_mean - new_ret_mean
+        ) / new_ret_std
         returns_valid = returns[indices]
         advantages = returns.clone()
         advantages[indices] = returns_valid - values_norm
@@ -1446,12 +1570,12 @@ def main() -> None:
                 writer.add_scalar("eval/mean_nodes", metrics["mean_nodes"], global_step)
 
             ckpt_path = checkpoint_dir / f"policy_ppo_step{global_step}.pt"
-            save_policy_checkpoint(ac.model, str(ckpt_path), extra={"train_config": config, "eval_metrics": metrics, "value_norm": {"mean": ret_rms.mean, "std": ret_rms.std}})
+            save_policy_checkpoint(ac.model, str(ckpt_path), extra={"train_config": config, "eval_metrics": metrics, "value_norm": ret_rms.state_dict()})
             print(f"[Checkpoint] saved  → {ckpt_path}")
 
             if is_best:
                 best_mean_gap = metrics["mean_gap"]
-                save_policy_checkpoint(ac.model, str(best_model_path), extra={"train_config": config, "eval_metrics": metrics, "step": global_step, "value_norm": {"mean": ret_rms.mean, "std": ret_rms.std}})
+                save_policy_checkpoint(ac.model, str(best_model_path), extra={"train_config": config, "eval_metrics": metrics, "step": global_step, "value_norm": ret_rms.state_dict()})
                 print(f"[Checkpoint] best   → {best_model_path}  (gap={best_mean_gap:.2f}%)")
             print(f"{sep}\n")
 
@@ -1498,7 +1622,7 @@ def main() -> None:
 
         if is_best:
             best_mean_gap = metrics["mean_gap"]
-            save_policy_checkpoint(ac.model, str(best_model_path), extra={"train_config": config, "eval_metrics": metrics, "step": global_step, "value_norm": {"mean": ret_rms.mean, "std": ret_rms.std}})
+            save_policy_checkpoint(ac.model, str(best_model_path), extra={"train_config": config, "eval_metrics": metrics, "step": global_step, "value_norm": ret_rms.state_dict()})
             print(f"[Final Eval] best   → {best_model_path}  (gap={best_mean_gap:.2f}%)")
         print(f"{sep}")
 

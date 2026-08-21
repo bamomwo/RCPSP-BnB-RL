@@ -159,8 +159,7 @@ def compute_subtree_returns(
 
 @dataclass
 class TreeAdvantages:
-    """Per-transition training signal from subtree backups. Aligned with the transition buffer."""
-    advantages: List[float]
+    """Raw subtree-return targets aligned with the transition buffer."""
     returns: List[float]
     valid: List[bool]
 
@@ -170,14 +169,13 @@ def compute_tree_advantages(
     trees: List[Optional[Mapping[str, object]]],
     episode_index: List[int],
     node_ids: List[Optional[int]],
-    values: List[float],
     reward_fn: RewardFn,
     gamma: float = 1.0,
     keep_open: bool = False,
 ) -> TreeAdvantages:
     """
     Assign each transition the subtree return G(node) of the node it branched at.
-    Advantage = G(node) - V(node). Open subtrees are invalid unless keep_open=True.
+    Open subtrees are invalid unless keep_open=True.
     """
     # One backup per distinct episode, cached so we don't recompute per transition.
     backups: Dict[int, Optional[TreeReturns]] = {}
@@ -188,7 +186,6 @@ def compute_tree_advantages(
         )
 
     T = len(node_ids)
-    advantages: List[float] = [0.0] * T
     returns: List[float] = [0.0] * T
     valid: List[bool] = [False] * T
 
@@ -199,17 +196,15 @@ def compute_tree_advantages(
             continue  # no tree / unknown node -> leave invalid
         g = res.G[nid]
         returns[t] = g
-        advantages[t] = g - values[t]
         valid[t] = bool(res.closed.get(nid, False)) or keep_open
 
-    return TreeAdvantages(advantages=advantages, returns=returns, valid=valid)
+    return TreeAdvantages(returns=returns, valid=valid)
 
 
 def compute_episode_advantages(
     *,
     tree: Optional[Mapping[str, object]],
     node_ids: List[Optional[int]],
-    values: List[float],
     reward_fn: RewardFn,
     gamma: float = 1.0,
     keep_open: bool = False,
@@ -219,7 +214,6 @@ def compute_episode_advantages(
         trees=[tree],
         episode_index=[0] * len(node_ids),
         node_ids=node_ids,
-        values=values,
         reward_fn=reward_fn,
         gamma=gamma,
         keep_open=keep_open,
@@ -230,7 +224,6 @@ def compute_episode_advantages_decoupled(
     *,
     tree: Optional[Mapping[str, object]],
     node_ids: List[Optional[int]],
-    values: List[float],
     cost_reward_fn: RewardFn,
     bonus_reward_fn: RewardFn,
     gamma_cost: float = 1.0,
@@ -242,13 +235,12 @@ def compute_episode_advantages_decoupled(
     independent gammas, then summed. G(X) = G_cost(X) + G_bonus(X).
     """
     T = len(node_ids)
-    advantages: List[float] = [0.0] * T
     returns: List[float] = [0.0] * T
     valid: List[bool] = [False] * T
 
     if tree is None:
         # No tree (e.g. invalid-action episode) -> nothing usable.
-        return TreeAdvantages(advantages=advantages, returns=returns, valid=valid)
+        return TreeAdvantages(returns=returns, valid=valid)
 
     cost_res = compute_subtree_returns(tree, cost_reward_fn, gamma_cost)
     bonus_res = compute_subtree_returns(tree, bonus_reward_fn, gamma_bonus)
@@ -259,7 +251,6 @@ def compute_episode_advantages_decoupled(
             continue  # unknown node -> leave invalid
         g = cost_res.G[nid] + bonus_res.G[nid]
         returns[t] = g
-        advantages[t] = g - values[t]
         valid[t] = bool(cost_res.closed.get(nid, False)) or keep_open
 
-    return TreeAdvantages(advantages=advantages, returns=returns, valid=valid)
+    return TreeAdvantages(returns=returns, valid=valid)

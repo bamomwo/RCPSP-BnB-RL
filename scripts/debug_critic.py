@@ -227,7 +227,6 @@ def main() -> None:
     ta = compute_episode_advantages_decoupled(
         tree=tree,
         node_ids=node_ids,
-        values=values,
         cost_reward_fn=cost_fn,
         bonus_reward_fn=bonus_fn,
         gamma_cost=args.gamma_cost,
