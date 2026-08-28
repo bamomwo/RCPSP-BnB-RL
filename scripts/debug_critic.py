@@ -12,12 +12,10 @@ gradient step removed.
 
 Normalization note
 ------------------
-The critic is trained to predict NORMALIZED returns:  (raw_return - mean) / std,
-where mean/std come from the running value-normaliser (RunningMeanStd) saved in
-the checkpoint under extra["value_norm"]. So the critic's raw output already
-lives in normalized-return space. To compare against the tree-backup returns
-(which are in RAW units) we must either normalize the returns or denormalize the
-value. This script shows BOTH spaces so nothing is ambiguous.
+The critic has separate cost and incumbent-bonus heads.  Each predicts its own
+NORMALIZED return, using the corresponding running statistics in
+extra["value_norm"].  The policy baseline is the sum after both head outputs
+have been converted back to raw reward units.
 
 Usage
 -----
@@ -39,7 +37,7 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -55,7 +53,6 @@ from rcpsp_bb_rl.ml.rl import BranchingEnv  # noqa: E402
 from rcpsp_bb_rl.ml.rl.ranking_policy import make_ranking_action  # noqa: E402
 from rcpsp_bb_rl.ml.rl.tree_return import (  # noqa: E402
     compute_episode_advantages_decoupled,
-    compute_subtree_returns,
     make_cost_reward_fn,
     make_bonus_reward_fn,
 )
@@ -99,20 +96,24 @@ def parse_args() -> argparse.Namespace:
 # Checkpoint value-norm recovery
 # ---------------------------------------------------------------------------
 
-def load_value_norm(path: str, device: str) -> tuple[float, float]:
-    """Recover the (mean, std) the critic was trained against. Falls back to
-    (0, 1) — the identity — if the checkpoint predates value-norm saving, in
-    which case normalized == raw and the two columns will match."""
+def load_value_norm(path: str, device: str) -> tuple[Tuple[float, float], Tuple[float, float]]:
+    """Recover ``(cost, bonus)`` mean/std pairs from a two-head PPO checkpoint."""
     ckpt = torch.load(path, map_location=device)
     vn = ckpt.get("value_norm") if isinstance(ckpt, dict) else None
-    if not vn:
-        print("[warn] checkpoint has no 'value_norm' — assuming identity (mean=0, std=1). "
-              "Normalized and raw columns will be identical.")
-        return 0.0, 1.0
-    mean = float(vn.get("mean", 0.0))
-    var = vn.get("var")
-    std = float(vn["std"]) if "std" in vn else float(var) ** 0.5 if var is not None else 1.0
-    return mean, max(std, 1e-8)
+    if not isinstance(vn, dict) or not isinstance(vn.get("cost"), dict) or not isinstance(vn.get("bonus"), dict):
+        raise ValueError(
+            "This debugger expects a two-head PPO checkpoint with "
+            "value_norm={'cost': ..., 'bonus': ...}. Scalar legacy checkpoints "
+            "cannot be interpreted as channel-specific critics."
+        )
+
+    def one_channel(channel: Dict[str, float]) -> Tuple[float, float]:
+        mean = float(channel.get("mean", 0.0))
+        var = channel.get("var")
+        std = float(channel["std"]) if "std" in channel else float(var) ** 0.5 if var is not None else 1.0
+        return mean, max(std, 1e-8)
+
+    return one_channel(vn["cost"]), one_channel(vn["bonus"])
 
 
 # ---------------------------------------------------------------------------
@@ -125,14 +126,14 @@ def rollout(
     instance,
     device: torch.device,
     sample: bool,
-) -> tuple[List[int], List[float], List[int], List[int]]:
+) -> tuple[List[int], List[Tuple[float, float]], List[int], List[int]]:
     """
     Run one episode. Returns per-transition lists:
-      node_ids, values(normalized space), depths, cand_counts(R)
+      node_ids, channel values (normalized space), depths, cand_counts(R)
     No gradients, no updates.
     """
     node_ids: List[int] = []
-    values: List[float] = []
+    values: List[Tuple[float, float]] = []
     depths: List[int] = []
     cand_counts: List[int] = []
 
@@ -153,7 +154,9 @@ def rollout(
             action_order = ranking_action.solver_order_indices
 
         cand_counts.append(int(obs["candidate_feats"].shape[0]))
-        values.append(float(value.item()))
+        if value.shape != (2,):
+            raise RuntimeError(f"Expected a two-head critic output [2], got {tuple(value.shape)}")
+        values.append((float(value[0].item()), float(value[1].item())))
 
         step_out = env.step(
             action_order[0], action_order_indices=action_order
@@ -203,7 +206,9 @@ def main() -> None:
     # --- Load frozen model + value normalization stats ---
     model = load_policy_checkpoint(args.checkpoint, device=device)
     model.eval()
-    ret_mean, ret_std = load_value_norm(args.checkpoint, args.device)
+    (cost_mean, cost_std), (bonus_mean, bonus_std) = load_value_norm(
+        args.checkpoint, args.device
+    )
 
     env = BranchingEnv(
         instance_source=instance,
@@ -234,29 +239,30 @@ def main() -> None:
         keep_open=args.keep_open,
     )
     raw_returns = ta.returns          # RAW units (cost + bonus)
+    raw_cost_returns = ta.cost_returns or [0.0] * len(node_ids)
+    raw_bonus_returns = ta.bonus_returns or [0.0] * len(node_ids)
     valid = ta.valid
-
-    # Channel split (per node_id) — for interpretability.
-    cost_res = compute_subtree_returns(tree, cost_fn, args.gamma_cost) if tree else None
-    bonus_res = compute_subtree_returns(tree, bonus_fn, args.gamma_bonus) if tree else None
 
     # --- Per-instance summary ---
     n_total = len(node_ids)
     n_valid = sum(valid)
     valid_frac = n_valid / n_total if n_total else 0.0
 
-    # Work in normalized space for EV (matches the loss the critic minimizes).
-    ret_norm = [(r - ret_mean) / ret_std for r in raw_returns]
-    val_arr = np.array([values[i] for i in range(n_total) if valid[i]], dtype=np.float64)
-    ret_norm_arr = np.array([ret_norm[i] for i in range(n_total) if valid[i]], dtype=np.float64)
+    # The actor baseline is the raw-unit sum of the two independently
+    # denormalized heads; use that combined quantity for EV and advantages.
+    value_raw = [
+        values[i][0] * cost_std + cost_mean + values[i][1] * bonus_std + bonus_mean
+        for i in range(n_total)
+    ]
+    val_arr = np.array([value_raw[i] for i in range(n_total) if valid[i]], dtype=np.float64)
     raw_ret_arr = np.array([raw_returns[i] for i in range(n_total) if valid[i]], dtype=np.float64)
 
-    if val_arr.size > 0 and ret_norm_arr.var() > 0:
-        ev = 1.0 - ((ret_norm_arr - val_arr).var() / ret_norm_arr.var())
+    if val_arr.size > 0 and raw_ret_arr.var() > 0:
+        ev = 1.0 - ((raw_ret_arr - val_arr).var() / raw_ret_arr.var())
     else:
         ev = float("nan")
-    adv_norm = ret_norm_arr - val_arr if val_arr.size else np.array([])
-    mean_abs_adv = float(np.mean(np.abs(adv_norm))) if adv_norm.size else float("nan")
+    adv_raw = raw_ret_arr - val_arr if val_arr.size else np.array([])
+    mean_abs_adv = float(np.mean(np.abs(adv_raw))) if adv_raw.size else float("nan")
 
     sep = "=" * 78
     print(f"\n{sep}")
@@ -269,8 +275,9 @@ def main() -> None:
     print(f"  transitions      : {n_total}")
     print(f"  valid (closed)   : {n_valid}  ({valid_frac*100:.1f}% of transitions)")
     print(f"  action mode      : {'sampled (seed=%d)' % args.seed if args.sample else 'greedy'}")
-    print(f"  value_norm        : mean={ret_mean:.4f}  std={ret_std:.4f}")
-    print(f"  --- critic fit on VALID nodes (normalized space) ---")
+    print(f"  value_norm cost   : mean={cost_mean:.4f}  std={cost_std:.4f}")
+    print(f"  value_norm bonus  : mean={bonus_mean:.4f}  std={bonus_std:.4f}")
+    print(f"  --- combined critic fit on VALID nodes (raw space) ---")
     print(f"  explained_var    : {ev:+.4f}")
     print(f"  mean|advantage|  : {mean_abs_adv:.4f}")
     if raw_ret_arr.size:
@@ -282,8 +289,8 @@ def main() -> None:
     buckets = bucket_indices(depths, valid, args.max_print)
     header = (
         f"  {'node':>7} {'depth':>5} {'R':>4} {'closed':>6} "
-        f"{'V(norm)':>9} {'G(norm)':>9} {'adv':>8} | "
-        f"{'V(raw)':>9} {'G(raw)':>9} {'G_cost':>9} {'G_bonus':>9}"
+        f"{'Vc(norm)':>9} {'Vb(norm)':>9} | {'V(raw)':>9} {'G(raw)':>9} "
+        f"{'adv':>8} {'G_cost':>9} {'G_bonus':>9}"
     )
     for label in ("top", "mid", "bottom"):
         idxs = buckets[label]
@@ -292,20 +299,19 @@ def main() -> None:
         print("  " + "-" * (len(header) - 2))
         for i in idxs:
             nid = node_ids[i]
-            v_norm = values[i]
+            vc_norm, vb_norm = values[i]
             g_raw = raw_returns[i]
-            g_norm = (g_raw - ret_mean) / ret_std
-            adv = g_norm - v_norm
-            v_raw = v_norm * ret_std + ret_mean
-            g_cost = cost_res.G.get(nid) if (cost_res and nid is not None) else None
-            g_bonus = bonus_res.G.get(nid) if (bonus_res and nid is not None) else None
+            v_raw = value_raw[i]
+            adv = g_raw - v_raw
+            g_cost = raw_cost_returns[i] if nid is not None else None
+            g_bonus = raw_bonus_returns[i] if nid is not None else None
             closed_flag = "yes" if valid[i] else "no"
             gc = f"{g_cost:+.3f}" if g_cost is not None else "  -  "
             gb = f"{g_bonus:+.3f}" if g_bonus is not None else "  -  "
             print(
                 f"  {nid:>7} {depths[i]:>5} {cand_counts[i]:>4} {closed_flag:>6} "
-                f"{v_norm:>+9.3f} {g_norm:>+9.3f} {adv:>+8.3f} | "
-                f"{v_raw:>+9.3f} {g_raw:>+9.3f} {gc:>9} {gb:>9}"
+                f"{vc_norm:>+9.3f} {vb_norm:>+9.3f} | {v_raw:>+9.3f} "
+                f"{g_raw:>+9.3f} {adv:>+8.3f} {gc:>9} {gb:>9}"
             )
         print()
 

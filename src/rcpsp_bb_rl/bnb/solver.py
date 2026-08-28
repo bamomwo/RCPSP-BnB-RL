@@ -144,6 +144,10 @@ class SolverResult:
     dominance_rules: Tuple[str, ...]
     dominance_pruned_children: int
     dominance_pruned_by_rule: Dict[str, int]
+    # Ordered DFS frontier remaining when the solve stops.  The entries are
+    # references to the same BBNode objects in ``nodes``; retaining them here
+    # avoids losing stack order in higher-level truncation handling.
+    frontier_nodes: List[BBNode] = field(default_factory=list)
     done_reason: str = "search_exhausted"  # "search_exhausted" | "time_limit"
     final_proof_burden: int = 0  # sum(incumbent - lb) over open stack nodes at termination
     final_frontier_min_lb: Optional[int] = None  # min lb over open frontier at termination
@@ -516,6 +520,7 @@ class BnBSolver:
             dominance_rules=tuple(dominance_cfg.rules),
             dominance_pruned_children=dominance_engine.stats.pruned_children,
             dominance_pruned_by_rule=dict(dominance_engine.stats.pruned_by_rule),
+            frontier_nodes=[self.nodes[nid] for nid in stack],
             done_reason=solver_done_reason,
             final_proof_burden=final_proof_burden,
             final_frontier_min_lb=final_frontier_min_lb,

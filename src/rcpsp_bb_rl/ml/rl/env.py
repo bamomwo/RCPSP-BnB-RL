@@ -177,6 +177,65 @@ class BranchingEnv:
             "critic_feats": critic,
         }
 
+    def observation_for_bootstrap(
+        self,
+        node: BBNode,
+        *,
+        incumbent: Optional[int],
+        frontier_min_lb: Optional[int] = None,
+        stack_size: int = 0,
+    ) -> Dict[str, torch.Tensor]:
+        """Build the normal observation for a pending frontier node.
+
+        This is used only at truncation to obtain a detached continuation value
+        from the existing critic.  It deliberately shares ``_observe`` so the
+        bootstrap state has exactly the same feature construction as rollout.
+        """
+        # Pending children have never reached the solver's normal
+        # ``est_map`` construction.  Recreate it with the same horizon rule
+        # used by BnBSolver (incumbent bound when available), then restore the
+        # node so this read-only bootstrap operation has no solver side effect.
+        old_est_map = node.est_map
+        horizon = int(incumbent) if incumbent is not None else sum(
+            activity.duration for activity in self.instance.activities.values()
+        )
+        profile = build_profile(
+            self.instance.activities,
+            self.instance.resource_caps,
+            node.scheduled,
+            horizon=horizon,
+        )
+        predecessors = self._statics.predecessors
+        node.est_map = {
+            rid: earliest_feasible_start(
+                self.instance,
+                predecessors,
+                node.scheduled,
+                rid,
+                incumbent=incumbent,
+                profile=profile,
+            )
+            for rid in node.ready
+        }
+        try:
+            ctx = StepContext(
+                incumbent_before=incumbent,
+                incumbent_after=incumbent,
+                lb_pruned=0,
+                dom_pruned=0,
+                nodes_expanded=0,
+                proof_burden=0,
+                frontier_min_lb=frontier_min_lb,
+                stack_size=stack_size,
+                elapsed_s=0.0,
+                time_limit_s=self.time_limit_s,
+                stagnation_depth=node.stagnation_depth,
+                node_path_best_lb=node.path_best_lb,
+            )
+            return self._observe(node, incumbent, ctx)
+        finally:
+            node.est_map = old_est_map
+
     def _critic_features(
         self,
         node: BBNode,
@@ -528,4 +587,10 @@ class BranchingEnv:
             "edges": list(res.edges),
             "root_id": root_id,
             "root_lb": float(self._cp_lb),
+            # Internal truncation data.  BBNode objects are intentionally kept
+            # in-memory; this snapshot is consumed immediately by training and
+            # is not written to JSON/checkpoints.
+            "frontier_nodes": list(res.frontier_nodes),
+            "final_incumbent": res.best_makespan,
+            "final_frontier_min_lb": res.final_frontier_min_lb,
         }

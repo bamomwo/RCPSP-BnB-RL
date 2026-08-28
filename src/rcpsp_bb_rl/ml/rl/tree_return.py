@@ -120,10 +120,16 @@ def compute_subtree_returns(
     tree: Mapping[str, object],
     reward_fn: RewardFn,
     gamma: float = 1.0,
+    boundary_values: Optional[Mapping[int, float]] = None,
 ) -> TreeReturns:
     """
     Post-order backup of per-node rewards over the search tree.
     Processes nodes by decreasing depth (iterative, no recursion). O(N log N).
+
+    ``boundary_values`` optionally supplies a continuation return for pending
+    frontier nodes.  Such a node is considered target-complete and its
+    boundary value is added to its immediate reward before propagation.  Nodes
+    that remain pending and have no supplied boundary value stay open.
     """
     nodes: List[Mapping[str, object]] = list(tree.get("nodes", []))  # type: ignore[arg-type]
 
@@ -137,8 +143,14 @@ def compute_subtree_returns(
         nid = int(n["id"])  # type: ignore[index]
         r = float(reward_fn(n))
         reward[nid] = r
-        G[nid] = r
-        closed[nid] = (n.get("status") != "pending")
+        boundary = 0.0 if boundary_values is None else float(boundary_values.get(nid, 0.0))
+        G[nid] = r + boundary
+        # A supplied boundary value completes an otherwise pending leaf.  The
+        # value is a continuation target, so it is added to (rather than
+        # replacing) the node's immediate reward.
+        closed[nid] = (n.get("status") != "pending") or (
+            boundary_values is not None and nid in boundary_values
+        )
         pid = n.get("parent_id")
         parent_of[nid] = None if pid is None else int(pid)  # type: ignore[arg-type]
 
@@ -159,9 +171,17 @@ def compute_subtree_returns(
 
 @dataclass
 class TreeAdvantages:
-    """Raw subtree-return targets aligned with the transition buffer."""
+    """Raw subtree-return targets aligned with the transition buffer.
+
+    ``cost_returns`` and ``bonus_returns`` stay separate so each critic head
+    can learn the target defined by its own discount.  ``returns`` is their
+    raw-unit sum and is retained for callers that need the policy objective's
+    combined reward.
+    """
     returns: List[float]
     valid: List[bool]
+    cost_returns: Optional[List[float]] = None
+    bonus_returns: Optional[List[float]] = None
 
 
 def compute_tree_advantages(
@@ -229,28 +249,63 @@ def compute_episode_advantages_decoupled(
     gamma_cost: float = 1.0,
     gamma_bonus: float = 1.0,
     keep_open: bool = False,
+    cost_boundary_values: Optional[Mapping[int, float]] = None,
+    bonus_boundary_values: Optional[Mapping[int, float]] = None,
 ) -> TreeAdvantages:
     """
     Decoupled two-channel backup: cost and bonus backed up separately with
     independent gammas, then summed. G(X) = G_cost(X) + G_bonus(X).
+
+    A supplied frontier continuation belongs to exactly one channel.  This is
+    essential when ``gamma_cost != gamma_bonus``: a combined scalar boundary
+    value has no single discount that can propagate both components correctly.
     """
     T = len(node_ids)
     returns: List[float] = [0.0] * T
+    cost_returns: List[float] = [0.0] * T
+    bonus_returns: List[float] = [0.0] * T
     valid: List[bool] = [False] * T
 
     if tree is None:
         # No tree (e.g. invalid-action episode) -> nothing usable.
-        return TreeAdvantages(returns=returns, valid=valid)
+        return TreeAdvantages(
+            returns=returns,
+            valid=valid,
+            cost_returns=cost_returns,
+            bonus_returns=bonus_returns,
+        )
 
-    cost_res = compute_subtree_returns(tree, cost_reward_fn, gamma_cost)
-    bonus_res = compute_subtree_returns(tree, bonus_reward_fn, gamma_bonus)
+    cost_res = compute_subtree_returns(
+        tree,
+        cost_reward_fn,
+        gamma_cost,
+        boundary_values=cost_boundary_values,
+    )
+    bonus_res = compute_subtree_returns(
+        tree,
+        bonus_reward_fn,
+        gamma_bonus,
+        boundary_values=bonus_boundary_values,
+    )
 
     for t in range(T):
         nid = node_ids[t]
         if nid is None or nid not in cost_res.G:
             continue  # unknown node -> leave invalid
-        g = cost_res.G[nid] + bonus_res.G[nid]
+        cost_return = cost_res.G[nid]
+        bonus_return = bonus_res.G[nid]
+        g = cost_return + bonus_return
         returns[t] = g
-        valid[t] = bool(cost_res.closed.get(nid, False)) or keep_open
+        cost_returns[t] = cost_return
+        bonus_returns[t] = bonus_return
+        valid[t] = (
+            bool(cost_res.closed.get(nid, False))
+            and bool(bonus_res.closed.get(nid, False))
+        ) or keep_open
 
-    return TreeAdvantages(returns=returns, valid=valid)
+    return TreeAdvantages(
+        returns=returns,
+        valid=valid,
+        cost_returns=cost_returns,
+        bonus_returns=bonus_returns,
+    )

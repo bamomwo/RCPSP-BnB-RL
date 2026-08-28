@@ -71,7 +71,7 @@ class BranchingTransformer(nn.Module):
     Attention-based branching policy for RCPSP branch-and-bound.
 
     CLS token (global features) + per-candidate embeddings → transformer encoder
-    → logits [R] over candidates + value scalar from CLS output.
+    → logits [R] over candidates + separate cost/bonus values from CLS output.
     """
 
     def __init__(
@@ -105,11 +105,14 @@ class BranchingTransformer(nn.Module):
         # Scoring head: maps each candidate embedding → scalar logit
         self.score_head = nn.Linear(d_model, 1)
 
-        # Value head: CLS token + optional critic features → scalar
+        # Value head: CLS token + optional critic features → separate
+        # cost- and incumbent-bonus return estimates.  The two return channels
+        # use different backup discounts, so a single combined value cannot be
+        # used as a mathematically correct truncation bootstrap.
         self.value_head = nn.Sequential(
             nn.Linear(d_model + critic_feature_dim, d_model),
             nn.ReLU(),
-            nn.Linear(d_model, 1),
+            nn.Linear(d_model, 2),
         )
 
         self._init_weights()
@@ -133,7 +136,7 @@ class BranchingTransformer(nn.Module):
 
         Parameters: candidate_feats [R, Fc], global_feats [Fg],
                     action_mask [R] bool, critic_feats [Fk] optional.
-        Returns: logits [R], value scalar.
+        Returns: logits [R], values [2] in (cost, bonus) order.
         """
         R = candidate_feats.shape[0]
 
@@ -183,7 +186,7 @@ class BranchingTransformer(nn.Module):
             value_in = torch.cat([cls_out, critic_feats], dim=-1)  # [d_model + Fk]
         else:
             value_in = cls_out
-        value = self.value_head(value_in).squeeze(-1)  # scalar
+        value = self.value_head(value_in)  # [2]: cost, bonus
 
         return logits, value
 
@@ -201,7 +204,7 @@ class BranchingTransformer(nn.Module):
         Parameters: candidate_feats [B, R_max, Fc], global_feats [B, Fg],
                     action_mask [B, R_max] bool, critic_feats [B, Fk] optional,
                     pad_mask [B, R_max] bool (True=real, False=padding).
-        Returns: logits [B, R_max], values [B].
+        Returns: logits [B, R_max], values [B, 2] in (cost, bonus) order.
         """
         B, R_max, _ = candidate_feats.shape
 
@@ -262,7 +265,7 @@ class BranchingTransformer(nn.Module):
             value_in = torch.cat([cls_out, critic_feats], dim=-1)  # [B, d_model+Fk]
         else:
             value_in = cls_out
-        values = self.value_head(value_in).squeeze(-1)  # [B]
+        values = self.value_head(value_in)  # [B, 2]: cost, bonus
 
         return logits, values
 

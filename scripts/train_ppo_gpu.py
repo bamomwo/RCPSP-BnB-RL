@@ -69,10 +69,11 @@ class EpisodeRecord:
     bonus_reward_fn: RewardFn
     start_idx: int       # index into buffer where this episode starts
     end_idx: int         # index into buffer where this episode ends (exclusive)
-    n_valid: int         # pre-counted valid transitions for this episode
-    # Cached advantages to avoid recomputing subtree returns at update time
-    returns: Optional[List[float]] = field(default=None)
-    valid_flags: Optional[List[bool]] = field(default=None)
+    n_actor: int         # transitions eligible for the PPO actor loss
+    n_critic: int        # transitions eligible for either critic head
+    # Cached channel targets to avoid recomputing subtree returns at update time
+    cost_returns: Optional[List[float]] = field(default=None)
+    bonus_returns: Optional[List[float]] = field(default=None)
     instance_name: str = ""
 
 
@@ -94,7 +95,7 @@ class ActorCritic(nn.Module):
         action_mask: Optional[torch.Tensor] = None,
         critic_feats: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Returns (logits [R], value scalar). Unbatched."""
+        """Returns (logits [R], values [2] in cost/bonus order)."""
         return self.model(candidate_feats, global_feats, action_mask, critic_feats)
 
     def get_ranking_and_value(
@@ -190,37 +191,49 @@ class RolloutBuffer:
         self.obs: List[Dict[str, torch.Tensor]] = []
         self.rankings: List[Tuple[int, ...]] = []
         self.log_probs: List[float] = []
-        self.values: List[float] = []
+        # Critic outputs are normalized (cost, bonus) channel values.
+        self.values: List[Tuple[float, float]] = []
         self.dones: List[bool] = []
         self.terminateds: List[bool] = []
         self.node_ids: List[Optional[int]] = []
         self.parent_ids: List[Optional[int]] = []
         self.depths: List[int] = []
         self.feasible_counts: List[int] = []
+        # A singleton has a supervised critic target but no policy gradient.
+        # Keep the two loss eligibilities explicit instead of overloading the
+        # old single "valid" mask.
+        self.actor_eligible: List[bool] = []
+        self.critic_eligible: List[bool] = []
 
     def add(
         self,
         obs: Dict[str, torch.Tensor],
         ranking: Sequence[int],
         log_prob: float,
-        value: float,
+        value: Sequence[float],
         done: bool,
         terminated: bool,
         node_id: Optional[int] = None,
         parent_id: Optional[int] = None,
         depth: int = 0,
         feasible_count: int = 0,
+        actor_eligible: bool = False,
+        critic_eligible: bool = False,
     ) -> None:
         self.obs.append(obs)
         self.rankings.append(tuple(int(index) for index in ranking))
         self.log_probs.append(log_prob)
-        self.values.append(value)
+        if len(value) != 2:
+            raise ValueError(f"Expected two critic values (cost, bonus), got {value!r}")
+        self.values.append((float(value[0]), float(value[1])))
         self.dones.append(done)
         self.terminateds.append(terminated)
         self.node_ids.append(node_id)
         self.parent_ids.append(parent_id)
         self.depths.append(depth)
         self.feasible_counts.append(feasible_count)
+        self.actor_eligible.append(bool(actor_eligible))
+        self.critic_eligible.append(bool(critic_eligible))
 
     def __len__(self) -> int:
         return len(self.values)
@@ -248,7 +261,7 @@ class StagedEpisode:
     obs: List[Dict[str, torch.Tensor]] = field(default_factory=list)
     rankings: List[Tuple[int, ...]] = field(default_factory=list)
     log_probs: List[float] = field(default_factory=list)
-    values: List[float] = field(default_factory=list)
+    values: List[Tuple[float, float]] = field(default_factory=list)
     dones: List[bool] = field(default_factory=list)
     terminateds: List[bool] = field(default_factory=list)
     node_ids: List[Optional[int]] = field(default_factory=list)
@@ -270,11 +283,13 @@ class StagedEpisode:
 
 @dataclass
 class SubsampleReport:
-    """Per-episode accounting for the stratified subsample (logging only)."""
+    """Per-episode accounting for actor and critic sampling (logging only)."""
     n_valid: int
-    n_forced_dropped: int   # states with <= 1 feasible candidate (no real choice)
+    n_forced_dropped: int   # non-actor states (<= 1 feasible candidate)
     n_included: int
-    n_kept: int
+    n_kept: int             # actor samples
+    n_critic_singletons: int = 0
+    n_critic_singletons_kept: int = 0
     cell_counts: Dict[Tuple[int, int], int] = field(default_factory=dict)
 
     def cells_str(self) -> str:
@@ -297,14 +312,15 @@ def subsample_episode(
     rng: random.Random,
 ) -> Tuple[List[int], SubsampleReport]:
     """
-    Choose which of an episode's transitions enter the PPO batch.
+    Choose the actor-eligible transitions of an episode for the PPO batch.
 
-    Returns (kept_indices_sorted, report). With cap=None every valid transition
-    is kept (legacy behaviour).
+    Returns (kept_indices_sorted, report). With cap=None every
+    actor-eligible transition is kept; forced/singleton states are handled by
+    ``subsample_critic_singletons`` instead.
 
     Selection order:
 
-      1. Drop states that offer no real choice, judged by the number of FEASIBLE
+      1. Keep only states that offer a real policy choice, judged by the number of FEASIBLE
          candidates (action_mask.sum()) rather than the raw candidate count.
          Infeasible candidates are masked to -1e9 before the softmax, which
          underflows to probability exactly 0, so:
@@ -315,10 +331,10 @@ def subsample_episode(
              value, so the softmax is uniform and the gradient is nonzero even
              though the solver skips every child and the ordering is irrelevant.
              These are worse than useless: pure noise with real magnitude.
-         Both cases are removed by requiring feasible_count > 1. Dropping them
-         from the value loss too is safe here because advantages come from the
-         tree backup, so V(X) is only ever consumed as the baseline for the
-         decision at X — and there is no decision at X.
+         The actor therefore requires feasible_count > 1.  Singleton states
+         are sampled separately for critic-only learning: although their policy
+         gradient is exactly zero, their value targets are needed to support
+         critic bootstrapping at forced pending frontier nodes.
       2. Guaranteed inclusion, off-budget: the pre-first-incumbent prefix (the
          opening dive — at most ~n_activities transitions, and the regime a
          short-horizon eval scores most heavily) plus a window either side of
@@ -412,9 +428,24 @@ def subsample_episode(
             break
         exhausted = [key for key, items in pending.items() if len(items) <= share]
         if not exhausted:
-            for key, items in pending.items():
-                chosen.extend(rng.sample(items, share))
-                budget -= share
+            # Every remaining cell can supply the equal share.  Draw that
+            # share first, then distribute any indivisible remainder over the
+            # still-unselected transitions.  The old implementation stopped
+            # after the floor division, silently under-filling the cap when
+            # ``budget`` was not divisible by ``len(pending)``.
+            selected_here: set[int] = set()
+            for items in pending.values():
+                sample = rng.sample(items, share)
+                chosen.extend(sample)
+                selected_here.update(sample)
+            budget -= share * len(pending)
+            if budget > 0:
+                remainder_pool = [
+                    i for items in pending.values() for i in items
+                    if i not in selected_here
+                ]
+                chosen.extend(rng.sample(remainder_pool, budget))
+                budget = 0
             break
         for key in exhausted:
             items = pending.pop(key)
@@ -431,6 +462,84 @@ def subsample_episode(
         key = (t_band, d_band)
         report.cell_counts[key] = report.cell_counts.get(key, 0) + 1
     return kept, report
+
+
+def subsample_critic_singletons(
+    episode: StagedEpisode,
+    valid_flags: List[bool],
+    *,
+    cap: Optional[int],
+    n_activities: int,
+    time_bands: int,
+    depth_bands: int,
+    rng: random.Random,
+) -> List[int]:
+    """Stratify valid forced decisions for critic-only supervision.
+
+    A state with exactly one feasible candidate has no actor signal, but it
+    still has a well-defined two-channel return and can occur as a non-exact
+    pending frontier bootstrap state.  Keep it out of the actor budget while
+    training the critic on a separately capped representative sample.
+    """
+    candidates = [
+        i for i, is_valid in enumerate(valid_flags)
+        if is_valid and episode.feasible_counts[i] == 1
+    ]
+    if not candidates or cap == 0:
+        return []
+    if cap is None or len(candidates) <= cap:
+        return candidates
+
+    n_steps = max(1, len(episode))
+    denom_depth = float(max(1, n_activities))
+    n_time = max(1, int(time_bands))
+    n_depth = max(1, int(depth_bands))
+    cells: Dict[Tuple[int, int], List[int]] = {}
+    for i in candidates:
+        t_band = min(n_time - 1, int(i / n_steps * n_time))
+        d_band = min(
+            n_depth - 1, int(max(0.0, episode.depths[i] / denom_depth) * n_depth)
+        )
+        cells.setdefault((t_band, d_band), []).append(i)
+
+    # Same water-filling scheme as the actor sampler: retain sparse strata in
+    # full and redistribute their unused quota to denser strata.
+    pending = dict(cells)
+    chosen: List[int] = []
+    budget = cap
+    while pending and budget > 0:
+        share = budget // len(pending)
+        if share == 0:
+            for key in rng.sample(sorted(pending), budget):
+                chosen.append(rng.choice(pending[key]))
+            break
+        exhausted = [key for key, items in pending.items() if len(items) <= share]
+        if not exhausted:
+            # Fill the equal per-cell allocation first, then spend any
+            # indivisible remainder without reselecting an already chosen
+            # singleton.  This keeps the returned indices unique and makes a
+            # finite cap mean exactly that many critic samples whenever enough
+            # valid singleton states exist.
+            selected_here: set[int] = set()
+            for items in pending.values():
+                sample = rng.sample(items, share)
+                chosen.extend(sample)
+                selected_here.update(sample)
+            budget -= share * len(pending)
+            if budget > 0:
+                remainder_pool = [
+                    i for items in pending.values() for i in items
+                    if i not in selected_here
+                ]
+                chosen.extend(rng.sample(remainder_pool, budget))
+                budget = 0
+            break
+        for key in exhausted:
+            items = pending.pop(key)
+            chosen.extend(items)
+            budget -= len(items)
+
+    return sorted(chosen)
 
 
 class RunningMeanStd:
@@ -501,14 +610,14 @@ def renormalize_value_head(
     model: BranchingTransformer,
     optimizer: optim.Optimizer,
     *,
-    old_mean: float,
-    old_std: float,
-    new_mean: float,
-    new_std: float,
+    old_mean: Sequence[float],
+    old_std: Sequence[float],
+    new_mean: Sequence[float],
+    new_std: Sequence[float],
 ) -> None:
     """Move the critic output from one normalized-return space to another.
 
-    The value head previously represented
+    Each output row of the value head previously represented
 
         v_old = (v_raw - old_mean) / old_std.
 
@@ -516,23 +625,32 @@ def renormalize_value_head(
 
         v_new = (v_raw - new_mean) / new_std.
 
-    The final linear layer can make this coordinate change exactly, without
-    changing the raw value predicted at any state. Its Adam moments are scaled
-    consistently as well, so the next optimizer step remains in the new output
-    coordinate system.
+    The final linear layer applies this coordinate change independently to the
+    cost and bonus rows, without changing either raw prediction at any state.
+    Its Adam moments are scaled consistently as well, so the next optimizer
+    step remains in the new output coordinate system.
     """
-    if old_std <= 0.0 or new_std <= 0.0:
+    old_mean = np.asarray(old_mean, dtype=np.float64).reshape(-1)
+    old_std = np.asarray(old_std, dtype=np.float64).reshape(-1)
+    new_mean = np.asarray(new_mean, dtype=np.float64).reshape(-1)
+    new_std = np.asarray(new_std, dtype=np.float64).reshape(-1)
+    if not (old_mean.size == old_std.size == new_mean.size == new_std.size == 2):
+        raise ValueError("Two-channel value normalization requires exactly two statistics per head.")
+    if np.any(old_std <= 0.0) or np.any(new_std <= 0.0):
         raise ValueError("Value-normalization standard deviations must be positive.")
 
     output_layer = model.value_head[-1]
-    if not isinstance(output_layer, nn.Linear) or output_layer.out_features != 1:
-        raise TypeError("Expected the critic's final value-head layer to be Linear(..., 1).")
+    if not isinstance(output_layer, nn.Linear) or output_layer.out_features != 2:
+        raise TypeError("Expected the critic's final value-head layer to be Linear(..., 2).")
 
-    scale = old_std / new_std
-    offset = (old_mean - new_mean) / new_std
+    scale = torch.as_tensor(old_std / new_std, dtype=output_layer.weight.dtype,
+                            device=output_layer.weight.device)
+    offset = torch.as_tensor((old_mean - new_mean) / new_std,
+                             dtype=output_layer.bias.dtype,
+                             device=output_layer.bias.device)
 
     with torch.no_grad():
-        output_layer.weight.mul_(scale)
+        output_layer.weight.mul_(scale[:, None])
         output_layer.bias.mul_(scale).add_(offset)
 
     # The final layer is used only by the value loss. Rescale Adam's moments
@@ -542,11 +660,13 @@ def renormalize_value_head(
         if not state:
             continue
         if "exp_avg" in state:
-            state["exp_avg"].mul_(scale)
+            state["exp_avg"].mul_(scale.reshape(-1, *([1] * (state["exp_avg"].ndim - 1))))
         if "exp_avg_sq" in state:
-            state["exp_avg_sq"].mul_(scale * scale)
+            sq_scale = scale * scale
+            state["exp_avg_sq"].mul_(sq_scale.reshape(-1, *([1] * (state["exp_avg_sq"].ndim - 1))))
         if "max_exp_avg_sq" in state:
-            state["max_exp_avg_sq"].mul_(scale * scale)
+            sq_scale = scale * scale
+            state["max_exp_avg_sq"].mul_(sq_scale.reshape(-1, *([1] * (state["max_exp_avg_sq"].ndim - 1))))
 
 
 # ---------------------------------------------------------------------------
@@ -697,12 +817,16 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "tree_gamma": 1.0,
     "tree_gamma_cost": None,
     "tree_gamma_bonus": None,
-    "tree_keep_open": False,
+    # Truncation handling: drop open ancestors (legacy) or complete them with
+    # exact-zero cleanup plus a detached critic continuation estimate.
+    "truncation_mode": "drop",
     "min_batch_size": 4096,
     # Effective-sample-size controls. A PPO batch must contain data from at
     # least min_episodes DISTINCT instances before an update fires, and no
-    # single episode may contribute more than episode_transition_cap
-    # transitions. Without the cap one long time-limit episode overflows
+    # single episode may contribute more than episode_transition_cap actor
+    # transitions. The critic-only singleton sample has its own cap because it
+    # is intentionally off the actor budget. Without the actor cap one long
+    # time-limit episode overflows
     # min_batch_size on its own, so every update was a gradient average over a
     # single instance (task-level sample size 1) — the dominant source of
     # update-to-update variance. The cap is spent by a stratified sampler
@@ -710,7 +834,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     # >99% deep, post-incumbent transitions and the rare shallow/early states
     # are the ones the short-horizon eval actually scores.
     "min_episodes": 8,
-    "episode_transition_cap": 4096,   # None -> keep every valid transition
+    "episode_transition_cap": 4096,   # None -> keep every actor-eligible transition
+    "critic_singleton_transition_cap": 4096,  # None -> keep every valid singleton for critic only
     "stratify_time_bands": 3,         # episode-progress bands (early/mid/late)
     "stratify_depth_bands": 4,        # relative-depth bands (depth / n_activities)
     "incumbent_window": 25,           # transitions kept either side of an incumbent event
@@ -870,12 +995,18 @@ def main() -> None:
     tree_gamma_bonus = float(
         config["tree_gamma_bonus"] if config["tree_gamma_bonus"] is not None else tree_gamma
     )
-    tree_keep_open = bool(config["tree_keep_open"])
+    truncation_mode = str(config.get("truncation_mode", "drop")).strip().lower()
+    if truncation_mode not in {"drop", "critic_bootstrap"}:
+        raise ValueError("truncation_mode must be 'drop' or 'critic_bootstrap'.")
     min_batch_size = int(config["min_batch_size"])
     min_episodes = int(config["min_episodes"])
     episode_transition_cap = (
         None if config["episode_transition_cap"] is None
         else int(config["episode_transition_cap"])
+    )
+    critic_singleton_transition_cap = (
+        None if config.get("critic_singleton_transition_cap") is None
+        else int(config["critic_singleton_transition_cap"])
     )
     stratify_time_bands = int(config["stratify_time_bands"])
     stratify_depth_bands = int(config["stratify_depth_bands"])
@@ -937,18 +1068,27 @@ def main() -> None:
     best_mean_gap = float("inf")
     eval_log: List[Dict] = []
     last_eval_step = -1
-    ret_rms = RunningMeanStd()
+    cost_rms = RunningMeanStd()
+    bonus_rms = RunningMeanStd()
     if saved_value_norm is not None:
-        has_count = ret_rms.load_state_dict(saved_value_norm)
-        print(
-            "Restored PPO value normalization: "
-            f"mean={ret_rms.mean:.6g}  var={ret_rms.var:.6g}  count={ret_rms.count:.6g}"
-        )
-        if not has_count:
+        # Only a nested two-channel payload is a valid continuation of this
+        # critic.  Older scalar PPO checkpoints must start fresh channel
+        # statistics (and their scalar value head is shape-filtered on load).
+        if (
+            isinstance(saved_value_norm.get("cost"), Mapping)
+            and isinstance(saved_value_norm.get("bonus"), Mapping)
+        ):
+            cost_has_count = cost_rms.load_state_dict(saved_value_norm["cost"])
+            bonus_has_count = bonus_rms.load_state_dict(saved_value_norm["bonus"])
             print(
-                "[warn] checkpoint value_norm has no count; restored its mean/variance "
-                "but will estimate future statistics with a fresh count."
+                "Restored PPO value normalization: "
+                f"cost(mean={cost_rms.mean:.6g}, var={cost_rms.var:.6g}, count={cost_rms.count:.6g})  "
+                f"bonus(mean={bonus_rms.mean:.6g}, var={bonus_rms.var:.6g}, count={bonus_rms.count:.6g})"
             )
+            if not (cost_has_count and bonus_has_count):
+                print("[warn] checkpoint channel value_norm has no count; restored means/variances with fresh counts.")
+        else:
+            print("[warn] checkpoint value_norm is scalar/legacy; starting fresh cost and bonus normalizers.")
 
     inst_order = list(range(len(instance_paths)))
     random.shuffle(inst_order)
@@ -975,10 +1115,19 @@ def main() -> None:
     print(f"\n{'='*80}")
     print(f"  PPO Training (GPU-batched update, min_batch_size={min_batch_size}, min_episodes={min_episodes})")
     print(f"  total_steps={total_env_steps:,}  backup=tree(cost_gamma={tree_gamma_cost},bonus_gamma={tree_gamma_bonus})  train_instances={len(instance_paths)}  eval_instances={len(eval_paths)}")
+    print(f"  truncation_mode={truncation_mode}")
     print(f"  clip_eps={clip_eps}  ent_coef={ent_coef_start}->{ent_coef_end} (linear decay)")
     print("  action_order=plackett_luce_full_ranking  ppo_action=complete_feasible_order")
     cap_desc = "off" if episode_transition_cap is None else str(episode_transition_cap)
-    print(f"  episode_cap={cap_desc}  stratify={stratify_time_bands}x{stratify_depth_bands} (time x rel-depth)  incumbent_window={incumbent_window}")
+    singleton_cap_desc = (
+        "off" if critic_singleton_transition_cap is None
+        else str(critic_singleton_transition_cap)
+    )
+    print(
+        f"  episode_cap_actor={cap_desc}  critic_singleton_cap={singleton_cap_desc}  "
+        f"stratify={stratify_time_bands}x{stratify_depth_bands} "
+        f"(time x rel-depth)  incumbent_window={incumbent_window}"
+    )
     vf_desc = f"huber(delta={huber_delta})" if vf_loss_type == "huber" else "mse"
     print(f"  vf_loss={vf_desc}  vf_coef={vf_coef}")
     if oracle_path is not None:
@@ -995,8 +1144,9 @@ def main() -> None:
     print(f"[Episode 1] start  {current_instance_path.name}\n")
 
     # === MAIN TRAINING LOOP ===
-    # Multi-episode accumulation: collect episodes until we have enough valid
-    # transitions (>= min_batch_size) before performing a PPO update.
+    # Multi-episode accumulation: collect until there are enough actor-eligible
+    # transitions (>= min_batch_size) before performing a PPO update. Critic-only
+    # singleton rows are retained alongside them but never satisfy this gate.
     episode_records: List[EpisodeRecord] = []
     accumulated_valid = 0
 
@@ -1022,7 +1172,7 @@ def main() -> None:
             staged.obs.append(obs)
             staged.rankings.append(tuple(ranking_action.feasible_order_indices))
             staged.log_probs.append(ranking_action.log_prob.item())
-            staged.values.append(value_t.item())
+            staged.values.append((float(value_t[0].item()), float(value_t[1].item())))
             staged.dones.append(step_out.done)
             staged.terminateds.append(bool(step_out.info.get("terminated", False)))
             staged.node_ids.append(step_out.info.get("node_id"))
@@ -1145,6 +1295,89 @@ def main() -> None:
         # ---- Compute subtree returns on the FULL episode ----
         # The subtree backup is run before subsampling: a node's return is
         # defined by its entire subtree, so filtering first would corrupt it.
+        # Complete time-limit frontier nodes only in the explicit bootstrap
+        # mode.  Exact-zero cases need no model call; genuinely unresolved
+        # nodes use the existing critic as a detached continuation target.
+        cost_boundary_values: Optional[Dict[int, float]] = None
+        bonus_boundary_values: Optional[Dict[int, float]] = None
+        if (
+            truncation_mode == "critic_bootstrap"
+            and episode_tree is not None
+            and stats.done_reason == "time_limit"
+        ):
+            cost_boundary_values = {}
+            bonus_boundary_values = {}
+            frontier_nodes = episode_tree.get("frontier_nodes", [])
+            final_incumbent = episode_tree.get("final_incumbent")
+            final_frontier_lb = episode_tree.get("final_frontier_min_lb")
+            for frontier_node in frontier_nodes:
+                nid = int(frontier_node.node_id)
+                if (
+                    final_incumbent is not None
+                    and frontier_node.lower_bound >= int(final_incumbent)
+                ):
+                    # Immediate reward (if any) remains in the normal backup;
+                    # this boundary contributes no unresolved future work.
+                    cost_boundary_values[nid] = 0.0
+                    bonus_boundary_values[nid] = 0.0
+                    continue
+
+                # An empty ready set is pruned by the solver without an
+                # expansion, so its unresolved continuation is exactly zero.
+                # (A complete schedule is handled separately below.)
+                if frontier_node.unscheduled and not frontier_node.ready:
+                    cost_boundary_values[nid] = 0.0
+                    bonus_boundary_values[nid] = 0.0
+                    continue
+
+                # Do not bootstrap a complete schedule: it may produce an
+                # incumbent bonus whose effect on later DFS siblings cannot be
+                # represented by an isolated local boundary value.  Such a
+                # frontier remains open until a later, explicit terminal-target
+                # design is introduced.
+                if not frontier_node.unscheduled:
+                    continue
+
+                bootstrap_obs = env.observation_for_bootstrap(
+                    frontier_node,
+                    incumbent=(None if final_incumbent is None else int(final_incumbent)),
+                    frontier_min_lb=(
+                        None if final_frontier_lb is None else int(final_frontier_lb)
+                    ),
+                    stack_size=len(frontier_nodes),
+                )
+                # A non-terminal node whose ready activities are all infeasible
+                # is still expanded once by the solver (and therefore incurs
+                # exactly one node-cost charge) before producing no children.
+                # A complete schedule has an empty candidate set, but is
+                # intentionally left unresolved because popping it can create
+                # an incumbent bonus that changes later DFS siblings.
+                if (
+                    bool(frontier_node.unscheduled)
+                    and int(bootstrap_obs["action_mask"].sum().item()) == 0
+                ):
+                    cost_boundary_values[nid] = -float(episode_alpha)
+                    bonus_boundary_values[nid] = 0.0
+                    continue
+                with torch.no_grad():
+                    _, bootstrap_values = ac(
+                        bootstrap_obs["candidate_feats"].to(device),
+                        bootstrap_obs["global_feats"].to(device),
+                        bootstrap_obs["action_mask"].to(device),
+                        bootstrap_obs["critic_feats"].to(device),
+                    )
+                # Each value head is in its own normalized coordinate system;
+                # convert each continuation to raw units before its channel's
+                # discounted backup propagates it.
+                cost_boundary_values[nid] = (
+                    float(bootstrap_values[0].item()) * (cost_rms.std + VALUE_NORM_EPS)
+                    + cost_rms.mean
+                )
+                bonus_boundary_values[nid] = (
+                    float(bootstrap_values[1].item()) * (bonus_rms.std + VALUE_NORM_EPS)
+                    + bonus_rms.mean
+                )
+
         ta = compute_episode_advantages_decoupled(
             tree=episode_tree,
             node_ids=staged.node_ids,
@@ -1152,8 +1385,12 @@ def main() -> None:
             bonus_reward_fn=bonus_reward_fn,
             gamma_cost=tree_gamma_cost,
             gamma_bonus=tree_gamma_bonus,
-            keep_open=tree_keep_open,
+            keep_open=False,
+            cost_boundary_values=cost_boundary_values,
+            bonus_boundary_values=bonus_boundary_values,
         )
+        if ta.cost_returns is None or ta.bonus_returns is None:
+            raise RuntimeError("Decoupled tree backup did not return channel targets.")
 
         # ---- Stratified subsample, then commit to the buffer ----
         kept_idx, sub_report = subsample_episode(
@@ -1166,10 +1403,26 @@ def main() -> None:
             incumbent_window=incumbent_window,
             rng=subsample_rng,
         )
-        n_valid_ep = len(kept_idx)
+        singleton_idx = subsample_critic_singletons(
+            staged,
+            ta.valid,
+            cap=critic_singleton_transition_cap,
+            n_activities=len(current_instance.activities),
+            time_bands=stratify_time_bands,
+            depth_bands=stratify_depth_bands,
+            rng=subsample_rng,
+        )
+        selected_idx = sorted(set(kept_idx) | set(singleton_idx))
+        n_actor_ep = len(kept_idx)
+        n_critic_ep = len(selected_idx)
+        sub_report.n_critic_singletons = sum(
+            1 for i, is_valid in enumerate(ta.valid)
+            if is_valid and staged.feasible_counts[i] == 1
+        )
+        sub_report.n_critic_singletons_kept = len(singleton_idx)
 
-        if n_valid_ep == 0:
-            print(f"[Accumulate] no usable transitions (valid={sub_report.n_valid}, "
+        if n_critic_ep == 0:
+            print(f"[Accumulate] no usable critic transitions (valid={sub_report.n_valid}, "
                   f"forced={sub_report.n_forced_dropped}) — skipping episode "
                   f"(accumulated={accumulated_valid})\n")
             if global_step < total_env_steps:
@@ -1180,7 +1433,9 @@ def main() -> None:
             continue
 
         ep_start_idx = len(buffer)
-        for i in kept_idx:
+        actor_idx_set = set(kept_idx)
+        for i in selected_idx:
+            is_actor = i in actor_idx_set
             buffer.add(
                 obs=staged.obs[i],
                 ranking=staged.rankings[i],
@@ -1192,49 +1447,56 @@ def main() -> None:
                 parent_id=staged.parent_ids[i],
                 depth=staged.depths[i],
                 feasible_count=staged.feasible_counts[i],
+                actor_eligible=is_actor,
+                critic_eligible=True,
             )
         ep_end_idx = len(buffer)
 
         print(
             f"[Subsample] valid={sub_report.n_valid}  forced_dropped={sub_report.n_forced_dropped}  "
-            f"included={sub_report.n_included}  kept={sub_report.n_kept}  "
+            f"included={sub_report.n_included}  kept_actor={sub_report.n_kept}  "
+            f"singleton_critic={sub_report.n_critic_singletons_kept}/{sub_report.n_critic_singletons}  "
             f"cells=[{sub_report.cells_str()}]"
         )
 
-        # Cache the per-episode tree advantages for the kept transitions only
-        # (avoids recomputing subtree returns at update time).
+        # Cache the two channel targets for every selected critic sample;
+        # actor eligibility remains on the aligned rollout-buffer entries.
         episode_records.append(EpisodeRecord(
             tree=episode_tree,
             cost_reward_fn=cost_reward_fn,
             bonus_reward_fn=bonus_reward_fn,
             start_idx=ep_start_idx,
             end_idx=ep_end_idx,
-            n_valid=n_valid_ep,
-            returns=[ta.returns[i] for i in kept_idx],
-            valid_flags=[True] * n_valid_ep,
+            n_actor=n_actor_ep,
+            n_critic=n_critic_ep,
+            cost_returns=[ta.cost_returns[i] for i in selected_idx],
+            bonus_returns=[ta.bonus_returns[i] for i in selected_idx],
             instance_name=current_instance_path.name,
         ))
-        accumulated_valid += n_valid_ep
+        accumulated_valid += n_actor_ep
         staged = StagedEpisode()  # release the full episode
 
         if writer is not None:
             writer.add_scalar("subsample/valid", sub_report.n_valid, global_step)
-            writer.add_scalar("subsample/kept", sub_report.n_kept, global_step)
+            writer.add_scalar("subsample/kept_actor", sub_report.n_kept, global_step)
+            writer.add_scalar("subsample/kept_critic_singletons", sub_report.n_critic_singletons_kept, global_step)
             writer.add_scalar("subsample/included", sub_report.n_included, global_step)
             writer.add_scalar(
                 "subsample/forced_dropped", sub_report.n_forced_dropped, global_step
             )
 
         # ---- Check if we have enough data for a PPO update ----
-        # BOTH conditions must hold. The transition count alone let a single
+        # BOTH actor conditions must hold. The transition count alone let a single
         # long episode fire an update on its own, making every gradient an
         # average over one instance; requiring min_episodes distinct episodes
         # is what raises the effective (task-level) sample size. Postponing the
         # update keeps the batch strictly on-policy — no update has happened, so
         # every accumulated episode was collected under the same parameters.
-        if accumulated_valid < min_batch_size or len(episode_records) < min_episodes:
-            print(f"[Accumulate] valid={n_valid_ep}  accumulated={accumulated_valid}/{min_batch_size}  "
-                  f"episodes={len(episode_records)}/{min_episodes} — collecting more\n")
+        actor_episodes = sum(rec.n_actor > 0 for rec in episode_records)
+        if accumulated_valid < min_batch_size or actor_episodes < min_episodes:
+            print(f"[Accumulate] actor={n_actor_ep}  critic={n_critic_ep}  "
+                  f"accumulated_actor={accumulated_valid}/{min_batch_size}  "
+                  f"actor_episodes={actor_episodes}/{min_episodes} — collecting more\n")
             if global_step < total_env_steps:
                 current_instance_path, current_instance = next_instance()
                 obs = env.reset(instance=current_instance)
@@ -1246,33 +1508,46 @@ def main() -> None:
         # PPO UPDATE — we have accumulated >= min_batch_size valid transitions
         # ==================================================================
 
-        # ---- Assemble combined returns and valid mask from all episodes ----
-        all_returns: List[float] = []
-        all_valid: List[bool] = []
+        # ---- Assemble channel returns and valid mask from all episodes ----
+        all_cost_returns: List[float] = []
+        all_bonus_returns: List[float] = []
         for rec in episode_records:
-            all_returns.extend(rec.returns)
-            all_valid.extend(rec.valid_flags)
+            if rec.cost_returns is None or rec.bonus_returns is None:
+                raise RuntimeError("Episode record is missing decoupled critic targets.")
+            all_cost_returns.extend(rec.cost_returns)
+            all_bonus_returns.extend(rec.bonus_returns)
 
-        raw_returns = torch.tensor(all_returns, dtype=torch.float32)
-        valid_mask = torch.tensor(all_valid, dtype=torch.bool)
-
-        valid_idx = valid_mask.nonzero().squeeze(-1).tolist()
-        n_valid = len(valid_idx)
+        raw_cost_returns = torch.tensor(all_cost_returns, dtype=torch.float32)
+        raw_bonus_returns = torch.tensor(all_bonus_returns, dtype=torch.float32)
         n_total = len(buffer)
+        if len(raw_cost_returns) != n_total or len(raw_bonus_returns) != n_total:
+            raise RuntimeError("Rollout targets and buffer entries are misaligned.")
+        actor_idx = [i for i, ok in enumerate(buffer.actor_eligible) if ok]
+        critic_idx = [i for i, ok in enumerate(buffer.critic_eligible) if ok]
+        n_actor = len(actor_idx)
+        n_critic = len(critic_idx)
+        if n_actor == 0 or n_critic == 0:
+            raise RuntimeError("PPO batch must contain both actor and critic samples.")
+        actor_indices = np.asarray(actor_idx, dtype=np.int64)
+        critic_indices = np.asarray(critic_idx, dtype=np.int64)
 
-        indices = np.array(valid_idx)
-
-        # ---- Value normalisation ----
-        # Values in the rollout buffer were predicted under the statistics that
-        # existed throughout collection. Save that coordinate system before
-        # incorporating this batch, then move both the stored values and the
-        # live value head into the new one below.
-        old_ret_mean = ret_rms.mean
-        old_ret_std = ret_rms.std + VALUE_NORM_EPS
-        raw_valid = raw_returns[indices].numpy().astype(np.float64)
-        ret_rms.update(raw_valid)
-        new_ret_mean = ret_rms.mean
-        new_ret_std = ret_rms.std + VALUE_NORM_EPS
+        # ---- Per-channel value normalization ----
+        # The actor's objective retains the raw-unit sum of channel residuals;
+        # only the critic targets are normalized independently.  This avoids
+        # letting normalizer scale alter the reward trade-off configured by
+        # alpha, beta1, and beta2.
+        old_means = np.array([cost_rms.mean, bonus_rms.mean], dtype=np.float64)
+        old_stds = np.array(
+            [cost_rms.std + VALUE_NORM_EPS, bonus_rms.std + VALUE_NORM_EPS],
+            dtype=np.float64,
+        )
+        cost_rms.update(raw_cost_returns[critic_indices].numpy().astype(np.float64))
+        bonus_rms.update(raw_bonus_returns[critic_indices].numpy().astype(np.float64))
+        new_means = np.array([cost_rms.mean, bonus_rms.mean], dtype=np.float64)
+        new_stds = np.array(
+            [cost_rms.std + VALUE_NORM_EPS, bonus_rms.std + VALUE_NORM_EPS],
+            dtype=np.float64,
+        )
 
         # Preserve the critic's raw predictions while changing its output
         # coordinate system. Without this, returns would be normalized with
@@ -1280,53 +1555,71 @@ def main() -> None:
         renormalize_value_head(
             ac.model,
             optimizer,
-            old_mean=old_ret_mean,
-            old_std=old_ret_std,
-            new_mean=new_ret_mean,
-            new_std=new_ret_std,
+            old_mean=old_means,
+            old_std=old_stds,
+            new_mean=new_means,
+            new_std=new_stds,
         )
 
-        returns = (raw_returns - new_ret_mean) / new_ret_std
-        values_old = torch.tensor([buffer.values[i] for i in valid_idx])
-        values_norm = (
-            values_old * old_ret_std + old_ret_mean - new_ret_mean
-        ) / new_ret_std
-        returns_valid = returns[indices]
-        advantages = returns.clone()
-        advantages[indices] = returns_valid - values_norm
+        cost_returns = (raw_cost_returns - new_means[0]) / new_stds[0]
+        bonus_returns = (raw_bonus_returns - new_means[1]) / new_stds[1]
+        values_old = torch.tensor([buffer.values[i] for i in critic_idx], dtype=torch.float32)
+        old_means_t = torch.tensor(old_means, dtype=torch.float32)
+        old_stds_t = torch.tensor(old_stds, dtype=torch.float32)
+        values_raw = values_old * old_stds_t + old_means_t
+        combined_returns_valid = raw_cost_returns[critic_indices] + raw_bonus_returns[critic_indices]
+        combined_values_valid = values_raw[:, 0] + values_raw[:, 1]
+        # Actor advantages are computed only where a genuine ranking choice
+        # exists. Singleton critic-only rows have no valid log-probability
+        # gradient and must not dilute actor normalization.
+        actor_values_old = torch.tensor([buffer.values[i] for i in actor_idx], dtype=torch.float32)
+        actor_values_raw = actor_values_old * old_stds_t + old_means_t
+        actor_combined_returns = raw_cost_returns[actor_indices] + raw_bonus_returns[actor_indices]
+        actor_advantages = actor_combined_returns - (actor_values_raw[:, 0] + actor_values_raw[:, 1])
+        advantages = torch.zeros_like(raw_cost_returns)
+        advantages[actor_indices] = actor_advantages
 
-        var_returns = returns_valid.var()
+        var_returns = combined_returns_valid.var()
         explained_var = (
             float("nan") if var_returns.item() == 0.0
-            else (1.0 - (returns_valid - values_norm).var() / var_returns).item()
+            else (1.0 - (combined_returns_valid - combined_values_valid).var() / var_returns).item()
         )
-        ret_std = returns_valid.std().item()
+        ret_std = combined_returns_valid.std().item()
 
-        adv_valid = advantages[indices]
-        advantages = (advantages - adv_valid.mean()) / (adv_valid.std() + 1e-8)
+        adv_valid = actor_advantages
+        advantages[actor_indices] = (adv_valid - adv_valid.mean()) / (adv_valid.std() + 1e-8)
 
         # ---- BATCHED PPO UPDATE (the GPU-optimized part) ----
-        # Sort valid indices by candidate-set size (R) for bucket batching.
-        # Transitions with similar R end up in the same minibatch, minimizing
-        # padding waste.
-        seq_lens_all = [buffer.obs[i]["candidate_feats"].shape[0] for i in valid_idx]
+        # Sort actor rows by candidate-set size (R) for bucket batching.
+        # Critic-only singleton rows are sorted and spread over the same actor
+        # chunks, so every value target is trained once per epoch without
+        # entering any actor statistic or policy-loss reduction.
+        seq_lens_all = [buffer.obs[i]["candidate_feats"].shape[0] for i in actor_idx]
         sorted_order = np.argsort(seq_lens_all)
-        sorted_indices = indices[sorted_order]
+        sorted_actor_indices = actor_indices[sorted_order]
 
         ac.train()
-        # Fix minibatch SIZE, not count: derive the chunk count per update so
-        # each minibatch holds ~target_mb_size transitions regardless of the
-        # (fluctuating) rollout size. Fixing the count instead let the size swing
-        # ~5x with buffer size, so gradient-noise and KL-estimate variance swung
-        # with it; pinning the size holds both roughly constant across updates.
+        # Fix ACTOR minibatch SIZE, not count: derive the chunk count per update
+        # so each actor minibatch holds ~target_mb_size transitions regardless
+        # of the (fluctuating) rollout size. Critic-only singleton rows are
+        # attached separately and do not alter actor gradient scale or KL.
         # round() (not //) centers the realized size on the target rather than
         # biasing it larger. array_split then guarantees exactly n_chunks
         # contiguous chunks whose sizes differ by at most 1 — no remainder tail,
         # no orphan minibatch of 1-10 transitions whose KL is pure noise (the
         # old `T // minibatches` + range-stepping failure mode). Contiguous
         # slices preserve the R-bucketing that minimizes padding waste.
-        n_chunks = max(1, round(len(sorted_indices) / target_mb_size))
-        mb_chunks = np.array_split(sorted_indices, n_chunks)
+        n_chunks = max(1, round(len(sorted_actor_indices) / target_mb_size))
+        actor_mb_chunks = np.array_split(sorted_actor_indices, n_chunks)
+        critic_only_idx = [
+            i for i, is_actor in enumerate(buffer.actor_eligible)
+            if buffer.critic_eligible[i] and not is_actor
+        ]
+        critic_only_sorted = np.asarray(
+            sorted(critic_only_idx, key=lambda i: buffer.obs[i]["candidate_feats"].shape[0]),
+            dtype=np.int64,
+        )
+        critic_only_mb_chunks = np.array_split(critic_only_sorted, n_chunks)
 
         # Linear entropy-coefficient decay (with floor) based on training
         # progress. progress in [0, 1] -> coef from ent_coef_start to ent_coef_end.
@@ -1340,13 +1633,13 @@ def main() -> None:
         early_stop = False
         initial_logprob_error = float("nan")
         mean_ranking_length = float(
-            np.mean([len(buffer.rankings[i]) for i in valid_idx])
+            np.mean([len(buffer.rankings[i]) for i in actor_idx])
         )
 
         # ---- KL-stop diagnostics (logging only, no effect on the update) ----
-        # n_chunks floats with buffer size (~target_mb_size per chunk), so
+        # n_chunks follows actor batch size (~target_mb_size per chunk), so
         # planned == n_chunks * epochs and varies from update to update.
-        chunks_per_epoch = len(mb_chunks)
+        chunks_per_epoch = len(actor_mb_chunks)
         planned_steps = chunks_per_epoch * ppo_epochs
         max_kl = 0.0            # largest per-minibatch KL this update
         trigger_kl = None       # KL of the minibatch that crossed target_kl
@@ -1358,18 +1651,25 @@ def main() -> None:
                 break
             # Shuffle the chunk ORDER each epoch (not the chunk contents, so the
             # R-bucketing within each chunk is preserved).
-            chunk_order = list(range(len(mb_chunks)))
+            chunk_order = list(range(len(actor_mb_chunks)))
             np.random.shuffle(chunk_order)
 
             for mb_i, ci in enumerate(chunk_order):
-                mb_idx = mb_chunks[ci]
+                actor_mb_idx = actor_mb_chunks[ci]
+                critic_only_mb_idx = critic_only_mb_chunks[ci]
+                # Actor rows intentionally precede critic-only rows.  The
+                # first slice is the sole input to PPO likelihood, entropy,
+                # KL, and policy loss; the complete minibatch feeds the critic.
+                mb_idx = np.concatenate((actor_mb_idx, critic_only_mb_idx))
+                n_actor_mb = len(actor_mb_idx)
 
                 mb_log_probs_old = torch.tensor(
-                    [buffer.log_probs[i] for i in mb_idx], dtype=torch.float32, device=device
+                    [buffer.log_probs[i] for i in actor_mb_idx], dtype=torch.float32, device=device
                 )
-                mb_rankings = [buffer.rankings[i] for i in mb_idx]
-                mb_advantages = advantages[mb_idx].to(device)
-                mb_returns = returns[mb_idx].to(device)
+                mb_rankings = [buffer.rankings[i] for i in actor_mb_idx]
+                mb_advantages = advantages[actor_mb_idx].to(device)
+                mb_cost_returns = cost_returns[mb_idx].to(device)
+                mb_bonus_returns = bonus_returns[mb_idx].to(device)
 
                 # Batched forward pass
                 mb_obs_list = [buffer.obs[i] for i in mb_idx]
@@ -1387,7 +1687,7 @@ def main() -> None:
                     mb_entropies_t,
                     mb_entropy_per_choice_t,
                 ) = compute_ranking_log_probs_entropy(
-                    logits_b, mask_b, mb_rankings
+                    logits_b[:n_actor_mb], mask_b[:n_actor_mb], mb_rankings
                 )
 
                 # Before the first optimizer step, collection and batched replay
@@ -1410,14 +1710,20 @@ def main() -> None:
                 pg_loss2 = -mb_advantages * torch.clamp(ratio, 1 - clip_eps, 1 + clip_eps)
                 pg_loss = torch.max(pg_loss1, pg_loss2).mean()
 
-                # Value loss — Huber (robust to shallow-hard outliers) or MSE.
-                # Returns are normalized to ~unit std, so huber_delta is in
-                # standard-deviation units: errors within delta are quadratic
-                # (precise fit), beyond delta grow linearly (outlier-robust).
+                # Value loss — each head predicts its own independently
+                # normalized return. Average the channel losses so changing
+                # from one head to two does not double the critic-loss scale.
                 if vf_loss_type == "huber":
-                    vf_loss = nn.functional.huber_loss(values_b, mb_returns, delta=huber_delta)
+                    vf_cost = nn.functional.huber_loss(
+                        values_b[:, 0], mb_cost_returns, delta=huber_delta
+                    )
+                    vf_bonus = nn.functional.huber_loss(
+                        values_b[:, 1], mb_bonus_returns, delta=huber_delta
+                    )
                 else:
-                    vf_loss = nn.functional.mse_loss(values_b, mb_returns)
+                    vf_cost = nn.functional.mse_loss(values_b[:, 0], mb_cost_returns)
+                    vf_bonus = nn.functional.mse_loss(values_b[:, 1], mb_bonus_returns)
+                vf_loss = 0.5 * (vf_cost + vf_bonus)
 
                 # Entropy bonus
                 entropy_loss = -mb_entropies_t.mean()
@@ -1464,7 +1770,8 @@ def main() -> None:
             f"steps={global_step}  "
             f"episodes_in_batch={len(episode_records)}  "
             f"instances={n_distinct_instances}  "
-            f"valid={n_valid}/{n_total}  "
+            f"actor={n_actor}/{n_total}  "
+            f"critic={n_critic}/{n_total}  "
             f"pg={total_pg_loss/n_updates:+.4f}  "
             f"vf={total_vf_loss/n_updates:.4f}  "
             f"ev={explained_var:+.3f}  "
@@ -1520,12 +1827,14 @@ def main() -> None:
             if not (explained_var != explained_var):  # skip NaN
                 writer.add_scalar("train/explained_variance", explained_var, global_step)
             writer.add_scalar("train/return_std", ret_std, global_step)
-            writer.add_scalar("train/valid_fraction", n_valid / max(n_total, 1), global_step)
+            writer.add_scalar("train/actor_fraction", n_actor / max(n_total, 1), global_step)
+            writer.add_scalar("train/critic_fraction", n_critic / max(n_total, 1), global_step)
             # Effective-sample-size diagnostics: batch_instances is the quantity
             # the min_episodes gate exists to raise (it was ~1 before).
             writer.add_scalar("train/batch_episodes", len(episode_records), global_step)
             writer.add_scalar("train/batch_instances", n_distinct_instances, global_step)
-            writer.add_scalar("train/batch_size", n_valid, global_step)
+            writer.add_scalar("train/actor_batch_size", n_actor, global_step)
+            writer.add_scalar("train/critic_batch_size", n_critic, global_step)
 
         # ---- Clear accumulation state for next cycle ----
         buffer.clear()
@@ -1570,12 +1879,24 @@ def main() -> None:
                 writer.add_scalar("eval/mean_nodes", metrics["mean_nodes"], global_step)
 
             ckpt_path = checkpoint_dir / f"policy_ppo_step{global_step}.pt"
-            save_policy_checkpoint(ac.model, str(ckpt_path), extra={"train_config": config, "eval_metrics": metrics, "value_norm": ret_rms.state_dict()})
+            value_norm_state = {
+                "cost": cost_rms.state_dict(),
+                "bonus": bonus_rms.state_dict(),
+            }
+            save_policy_checkpoint(
+                ac.model,
+                str(ckpt_path),
+                extra={"train_config": config, "eval_metrics": metrics, "value_norm": value_norm_state},
+            )
             print(f"[Checkpoint] saved  → {ckpt_path}")
 
             if is_best:
                 best_mean_gap = metrics["mean_gap"]
-                save_policy_checkpoint(ac.model, str(best_model_path), extra={"train_config": config, "eval_metrics": metrics, "step": global_step, "value_norm": ret_rms.state_dict()})
+                save_policy_checkpoint(
+                    ac.model,
+                    str(best_model_path),
+                    extra={"train_config": config, "eval_metrics": metrics, "step": global_step, "value_norm": value_norm_state},
+                )
                 print(f"[Checkpoint] best   → {best_model_path}  (gap={best_mean_gap:.2f}%)")
             print(f"{sep}\n")
 
@@ -1622,7 +1943,15 @@ def main() -> None:
 
         if is_best:
             best_mean_gap = metrics["mean_gap"]
-            save_policy_checkpoint(ac.model, str(best_model_path), extra={"train_config": config, "eval_metrics": metrics, "step": global_step, "value_norm": ret_rms.state_dict()})
+            value_norm_state = {
+                "cost": cost_rms.state_dict(),
+                "bonus": bonus_rms.state_dict(),
+            }
+            save_policy_checkpoint(
+                ac.model,
+                str(best_model_path),
+                extra={"train_config": config, "eval_metrics": metrics, "step": global_step, "value_norm": value_norm_state},
+            )
             print(f"[Final Eval] best   → {best_model_path}  (gap={best_mean_gap:.2f}%)")
         print(f"{sep}")
 

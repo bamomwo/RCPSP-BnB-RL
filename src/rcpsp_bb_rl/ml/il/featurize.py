@@ -470,9 +470,10 @@ def candidate_feature_dim(max_resources: int) -> int:
 # That rule removed the old history/global features (nodes_expanded,
 # nodes_since_inc, stack_size, proof_burden, num_incumbents, time_fraction):
 # G(X) is independent of how much search happened before X was reached, so those
-# only add noise the critic cannot turn into a subtree-size prediction. (Under
-# the tree backup, truncated subtrees are dropped from the update, so
-# time_fraction is moot too.)
+# only add noise the critic cannot turn into a subtree-size prediction.  In the
+# default ``drop`` truncation mode, open subtrees are excluded; in
+# ``critic_bootstrap`` mode, the continuation estimate is still conditioned on
+# the state/frontier features below rather than on arbitrary collection history.
 #
 # Kept: gap/pruning measures that predict how fast X's subtree collapses, plus
 # the incumbent-regime flag. Added: explicit structural scalars (how much of the
