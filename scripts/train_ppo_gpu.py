@@ -1579,10 +1579,28 @@ def main() -> None:
         advantages = torch.zeros_like(raw_cost_returns)
         advantages[actor_indices] = actor_advantages
 
-        var_returns = combined_returns_valid.var()
-        explained_var = (
-            float("nan") if var_returns.item() == 0.0
-            else (1.0 - (combined_returns_valid - combined_values_valid).var() / var_returns).item()
+        # Critic diagnostics are evaluated in raw reward units on every
+        # critic-supervised row (actor choices plus critic-only singletons).
+        # Keeping the channel EVs separate is important: the dense cost head
+        # can look healthy in the combined metric while the sparse incumbent
+        # bonus head fails to learn useful variation.
+        def _explained_variance(targets: torch.Tensor, predictions: torch.Tensor) -> float:
+            target_var = targets.var()
+            if target_var.item() == 0.0:
+                # A constant target has no variance to explain. In particular,
+                # bonus returns are often all zero in a batch, so NaN is the
+                # informative/standard value rather than a critic failure.
+                return float("nan")
+            return (1.0 - (targets - predictions).var() / target_var).item()
+
+        ev_cost = _explained_variance(
+            raw_cost_returns[critic_indices], values_raw[:, 0]
+        )
+        ev_bonus = _explained_variance(
+            raw_bonus_returns[critic_indices], values_raw[:, 1]
+        )
+        ev_combined = _explained_variance(
+            combined_returns_valid, combined_values_valid
         )
         ret_std = combined_returns_valid.std().item()
 
@@ -1629,6 +1647,12 @@ def main() -> None:
         total_pg_loss = total_vf_loss = total_ent = total_ent_per_choice = 0.0
         total_kl = 0.0
         n_kl_samples = 0
+        # PPO's ratio is defined only for actor-eligible complete rankings.
+        # Accumulate numerator/denominator separately so clipfrac remains
+        # sample-weighted if chunks differ in size or KL stopping truncates an
+        # update part-way through its planned replay passes.
+        total_clipped_actor_samples = 0
+        total_replayed_actor_samples = 0
         update_count += 1
         early_stop = False
         initial_logprob_error = float("nan")
@@ -1706,6 +1730,11 @@ def main() -> None:
                 # Policy loss (clipped surrogate)
                 log_ratio = mb_log_probs_new - mb_log_probs_old
                 ratio = torch.exp(log_ratio)
+                with torch.no_grad():
+                    total_clipped_actor_samples += int(
+                        ((ratio - 1.0).abs() > clip_eps).sum().item()
+                    )
+                    total_replayed_actor_samples += n_actor_mb
                 pg_loss1 = -mb_advantages * ratio
                 pg_loss2 = -mb_advantages * torch.clamp(ratio, 1 - clip_eps, 1 + clip_eps)
                 pg_loss = torch.max(pg_loss1, pg_loss2).mean()
@@ -1763,6 +1792,10 @@ def main() -> None:
         n_updates = max(n_kl_samples, 1)  # actual number of minibatch steps taken
         completed_steps = n_kl_samples    # minibatch steps actually run this update
         mean_kl = total_kl / n_kl_samples if n_kl_samples > 0 else 0.0
+        clipfrac = (
+            total_clipped_actor_samples / total_replayed_actor_samples
+            if total_replayed_actor_samples > 0 else float("nan")
+        )
         n_distinct_instances = len({rec.instance_name for rec in episode_records})
         elapsed = time.perf_counter() - t_start
         print(
@@ -1774,13 +1807,16 @@ def main() -> None:
             f"critic={n_critic}/{n_total}  "
             f"pg={total_pg_loss/n_updates:+.4f}  "
             f"vf={total_vf_loss/n_updates:.4f}  "
-            f"ev={explained_var:+.3f}  "
+            f"ev_cost={ev_cost:+.3f}  "
+            f"ev_bonus={ev_bonus:+.3f}  "
+            f"ev_combined={ev_combined:+.3f}  "
             f"ret_std={ret_std:.4f}  "
             f"ent={total_ent/n_updates:.4f}  "
             f"ent_pos={total_ent_per_choice/n_updates:.4f}  "
             f"rank_len={mean_ranking_length:.2f}  "
             f"ent_coef={ent_coef_now:.4f}  "
             f"kl={mean_kl:.4f}  "
+            f"clipfrac={clipfrac:.3f}  "
             f"max_kl={max_kl:.4f}  "
             f"lp_err={initial_logprob_error:.2e}  "
             f"steps={completed_steps}/{planned_steps}  "
@@ -1807,6 +1843,7 @@ def main() -> None:
             )
             writer.add_scalar("train/ent_coef", ent_coef_now, global_step)
             writer.add_scalar("train/approx_kl", mean_kl, global_step)
+            writer.add_scalar("train/clipfrac", clipfrac, global_step)
             # KL-stop diagnostics: max_kl exposes the spike the mean hides;
             # completed/planned and the fraction show how much of each update
             # survives; kl_stopped is a 0/1 rate. On a stop, trigger_kl and the
@@ -1824,8 +1861,15 @@ def main() -> None:
                 writer.add_scalar("train/trigger_kl", trigger_kl, global_step)
                 writer.add_scalar("train/stop_epoch", stop_epoch, global_step)
                 writer.add_scalar("train/stop_minibatch", stop_minibatch, global_step)
-            if not (explained_var != explained_var):  # skip NaN
-                writer.add_scalar("train/explained_variance", explained_var, global_step)
+            # Keep the legacy combined tag for existing TensorBoard views and
+            # add explicit channel diagnostics for the two-head critic.
+            if not (ev_cost != ev_cost):  # skip NaN (constant target)
+                writer.add_scalar("train/ev_cost", ev_cost, global_step)
+            if not (ev_bonus != ev_bonus):
+                writer.add_scalar("train/ev_bonus", ev_bonus, global_step)
+            if not (ev_combined != ev_combined):
+                writer.add_scalar("train/ev_combined", ev_combined, global_step)
+                writer.add_scalar("train/explained_variance", ev_combined, global_step)
             writer.add_scalar("train/return_std", ret_std, global_step)
             writer.add_scalar("train/actor_fraction", n_actor / max(n_total, 1), global_step)
             writer.add_scalar("train/critic_fraction", n_critic / max(n_total, 1), global_step)
