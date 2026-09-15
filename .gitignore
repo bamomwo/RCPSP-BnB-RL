@@ -5,9 +5,15 @@
 __pycache__/
 
 /data/1ktrain
+# Deprecated estimator data, implementation, and config (kept locally).
+/data/estimator/
+/src/rcpsp_bb_rl/ml/estimator/
+/config/train_estimator.json
 /data/eval/J30/J30_10/
 /data/eval/J30/J30_87/
 /data/eval/J30/J30_100/
+/data/baseline/
+/data/oracles/
 
 models/*
 !models/best/
@@ -20,3 +26,9 @@ znotes/
 
 tests/
 scripts/verify_policy_speedup.py
+
+# Scripts kept locally but excluded from version control.
+/scripts/build_estimator_dataset.py
+/scripts/debug_critic.py
+/scripts/extract_oracle_node_counts.py
+/scripts/train_estimator.py

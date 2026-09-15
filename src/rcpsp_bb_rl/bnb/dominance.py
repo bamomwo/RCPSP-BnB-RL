@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Dict, Iterable, Mapping, MutableMapping, Optional, Sequence, Set, Tuple
+from typing import TYPE_CHECKING, AbstractSet, Dict, Hashable, Iterable, Mapping, MutableMapping, Optional, Sequence, Set, Tuple
 
 from rcpsp_bb_rl.bnb.scheduling import build_profile, earliest_feasible_start, entry_finish, entry_start
 
@@ -10,6 +10,7 @@ if TYPE_CHECKING:
 
 DominanceRuleId = str
 SerialStateSignature = Tuple[frozenset[int], Tuple[Tuple[int, int, int], ...]]
+DominanceStateKey = Hashable
 
 RULE_SET_BASED = "set_based"
 RULE_CONTRADICTION = "contradiction"
@@ -134,44 +135,89 @@ class DominanceEngine:
         instance: RCPSPInstance,
         predecessors: Mapping[int, Set[int]],
         config: DominanceConfig,
+        retain_state_history: bool = True,
     ) -> None:
         self.instance = instance
         self.predecessors = predecessors
         self.config = config
+        self.retain_state_history = bool(retain_state_history)
         self.stats = DominanceStats()
-        self._best_lb_by_signature: MutableMapping[SerialStateSignature, int] = {}
+        self._best_lb_by_signature: MutableMapping[DominanceStateKey, int] = {}
 
     def register_state(
         self,
-        unscheduled: Set[int],
+        unscheduled: AbstractSet[int],
         scheduled: Mapping[int, object],
         lower_bound: int,
+        state_key: Optional[DominanceStateKey] = None,
     ) -> None:
         if not self.config.enabled:
             return
 
         if RULE_SET_BASED in self.config.rules:
-            signature = _schedule_signature(unscheduled, scheduled)
+            signature = (
+                state_key
+                if state_key is not None
+                else _schedule_signature(set(unscheduled), scheduled)
+            )
             prev = self._best_lb_by_signature.get(signature)
             if prev is None or int(lower_bound) < prev:
                 self._best_lb_by_signature[signature] = int(lower_bound)
+
+    def release_state(
+        self,
+        unscheduled: Set[int],
+        scheduled: Mapping[int, object],
+    ) -> None:
+        """Remove a state after it leaves the live frontier when history is disabled.
+
+        Keeping signatures for completed nodes improves duplicate-state pruning,
+        but makes the cache grow with the total search history.  A
+        memory-bounded solve instead keeps signatures only for pending DFS
+        nodes.  Forgetting a completed signature can cause repeated work, but
+        it cannot remove a feasible solution or invalidate the search.
+        """
+        if (
+            not self.config.enabled
+            or self.retain_state_history
+            or RULE_SET_BASED not in self.config.rules
+        ):
+            return
+        signature = _schedule_signature(unscheduled, scheduled)
+        self._best_lb_by_signature.pop(signature, None)
+
+    def release_state_key(self, state_key: DominanceStateKey) -> None:
+        """Remove a precomputed compact state key from a frontier-only cache."""
+        if (
+            not self.config.enabled
+            or self.retain_state_history
+            or RULE_SET_BASED not in self.config.rules
+        ):
+            return
+        self._best_lb_by_signature.pop(state_key, None)
 
     def prune_child(
         self,
         *,
         parent_scheduled: Mapping[int, object],
         child_scheduled: Mapping[int, object],
-        child_unscheduled: Set[int],
+        child_unscheduled: AbstractSet[int],
         child_lb: int,
         act_id: int,
         child_start: int,
+        state_key: Optional[DominanceStateKey] = None,
     ) -> Optional[DominanceRuleId]:
         if not self.config.enabled:
             return None
 
         for rule_id in self.config.rules:
             if rule_id == RULE_SET_BASED:
-                if self._set_based_dominated(child_unscheduled, child_scheduled, child_lb):
+                if self._set_based_dominated(
+                    child_unscheduled,
+                    child_scheduled,
+                    child_lb,
+                    state_key=state_key,
+                ):
                     self.stats.record_prune(RULE_SET_BASED)
                     return RULE_SET_BASED
             elif rule_id == RULE_CONTRADICTION:
@@ -187,16 +233,22 @@ class DominanceEngine:
             child_unscheduled,
             child_scheduled,
             child_lb,
+            state_key=state_key,
         )
         return None
 
     def _set_based_dominated(
         self,
-        child_unscheduled: Set[int],
+        child_unscheduled: AbstractSet[int],
         child_scheduled: Mapping[int, object],
         child_lb: int,
+        state_key: Optional[DominanceStateKey] = None,
     ) -> bool:
-        signature = _schedule_signature(child_unscheduled, child_scheduled)
+        signature = (
+            state_key
+            if state_key is not None
+            else _schedule_signature(set(child_unscheduled), child_scheduled)
+        )
         prev_best = self._best_lb_by_signature.get(signature)
         if prev_best is None:
             return False
@@ -261,10 +313,12 @@ def build_dominance_engine(
     instance: RCPSPInstance,
     predecessors: Mapping[int, Set[int]],
     dominance: object = False,
+    retain_state_history: bool = True,
 ) -> DominanceEngine:
     cfg = normalize_dominance_spec(dominance)
     return DominanceEngine(
         instance=instance,
         predecessors=predecessors,
         config=cfg,
+        retain_state_history=retain_state_history,
     )
