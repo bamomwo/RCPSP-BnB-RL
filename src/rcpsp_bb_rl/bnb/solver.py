@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import time
+from collections import Counter
 from collections.abc import Mapping, Set as AbstractSet
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Dict, Iterator, List, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Callable, Dict, Iterator, List, Optional, Set, Tuple
 
 from rcpsp_bb_rl.bnb.branching import (
     ReadyOrderFn,
@@ -87,6 +88,90 @@ class ScheduleEntry:
     duration: int
 
 
+@dataclass(frozen=True)
+class DebugBranchChoice:
+    """One early choice; node id distinguishes identical activities on different paths.
+
+    Rank/count refer to ordered candidates BEFORE feasibility/dominance filtering.
+    Forced decisions (one candidate) are excluded from prefixes.
+    """
+
+    decision_node_id: int
+    activity: int
+    start: int
+    rank: int
+    candidate_count: int
+
+
+DebugPrefix = Tuple[DebugBranchChoice, ...]
+
+
+@dataclass
+class DebugPrefixCount:
+    prefix: DebugPrefix
+    count: int
+
+
+def _debug_bound_distribution(values: List[int]) -> Dict[str, object]:
+    """Exact histogram and linearly interpolated quartiles of queued node bounds."""
+    ordered = sorted(values)
+
+    def quantile(fraction: float) -> Optional[float]:
+        if not ordered:
+            return None
+        index = (len(ordered) - 1) * fraction
+        lo = int(index)
+        hi = min(lo + 1, len(ordered) - 1)
+        return ordered[lo] + (ordered[hi] - ordered[lo]) * (index - lo)
+
+    return {
+        "count": len(ordered),
+        "min": ordered[0] if ordered else None,
+        "p25": quantile(0.25),
+        "median": quantile(0.5),
+        "p75": quantile(0.75),
+        "max": ordered[-1] if ordered else None,
+        "histogram": dict(sorted(Counter(values).items())),
+    }
+
+
+@dataclass
+class DebugCheckpoint:
+    reason: str  # periodic | incumbent | termination
+    termination: Optional[str]
+    nodes_expanded: int
+    elapsed_s: float
+    incumbent: Optional[int]
+    pruning_cutoff: Optional[int]
+    external_lower_bound: Optional[int]
+    nodes_since_improvement: Optional[int]
+    seconds_since_improvement: Optional[float]
+    incumbent_prefix: Optional[DebugPrefix]
+    incumbent_depth: Optional[int]
+    frontier_size: int
+    internal_lb: Dict[str, object]
+    effective_lb: Dict[str, object]
+    below_incumbent: Optional[int]
+    below_incumbent_pct: Optional[float]
+    at_or_above_incumbent: Optional[int]
+    at_or_above_incumbent_pct: Optional[float]
+    internal_at_or_below_external: Optional[int]
+    internal_at_or_below_external_pct: Optional[float]
+    proof_burden: Optional[int]
+    last_expanded_node_id: Optional[int]
+    last_expanded_depth: Optional[int]
+    last_expanded_prefix: DebugPrefix
+    next_pending_prefix: Optional[DebugPrefix]
+    recent_expansions_by_prefix: List[DebugPrefixCount]
+    frontier_by_first_branch: List[DebugPrefixCount]
+    interval: Dict[str, int]
+    totals: Dict[str, int]
+    interval_elapsed_s: float
+    nodes_per_second: Optional[float]
+    lb_pruned_pct_of_visited: Optional[float]
+    dominance_pruned_pct_of_bounded_children: Optional[float]
+
+
 @dataclass
 class BBNode:
     node_id: int
@@ -111,6 +196,9 @@ class BBNode:
     # by the solver just before branching so the ordering callback (policy) and
     # the solver's own child loop share one computation instead of duplicating it.
     est_map: Optional[Dict[int, Optional[int]]] = None
+    # Populated only for opt-in checkpoint diagnostics in full-tree debug mode.
+    internal_lower_bound: Optional[int] = None
+    debug_prefix: DebugPrefix = ()
 
 
 class ActivityMaskSet(AbstractSet[int]):
@@ -218,6 +306,8 @@ class IncumbentEvent:
     makespan: int
     nodes_expanded: int     # how many nodes had been expanded when this was found
     depth: int              # depth of the solution node in the tree
+    elapsed_s: float = 0.0
+    prefix: DebugPrefix = ()
 
 
 @dataclass
@@ -226,6 +316,7 @@ class DebugInfo:
     all_makespans: List[int] = field(default_factory=list)   # every complete schedule seen
     lb_pruned: int = 0
     dominance_pruned: int = 0
+    checkpoints: List[DebugCheckpoint] = field(default_factory=list)
 
 
 @dataclass
@@ -287,6 +378,9 @@ class BnBSolver:
         debug: bool = False,
         external_lower_bound: Optional[int] = None,
         memory_bounded: bool = False,
+        debug_checkpoint_nodes: Optional[int] = None,
+        debug_prefix_depth: int = 3,
+        debug_checkpoint_callback: Optional[Callable[[DebugCheckpoint], None]] = None,
     ) -> SolverResult:
         """Solve the instance with depth-first branch and bound.
 
@@ -303,25 +397,39 @@ class BnBSolver:
         retained in the returned result. This mode is intended for long-running
         evaluation, where callers consume aggregate solver statistics rather
         than reconstructing the full tree.
+
+        Checkpoint diagnostics are opt-in via ``debug_checkpoint_nodes`` and
+        require ``debug=True`` with full-tree storage. They observe the pending
+        stack after complete expansion, on incumbent updates, and at termination;
+        they never reorder or remove nodes. Callback time counts toward the run
+        time limit. Use a node budget for debug-on/off search equivalence checks.
         """
+        collect_checkpoints = debug_checkpoint_nodes is not None
+        if collect_checkpoints:
+            if not debug or memory_bounded:
+                raise ValueError("Checkpoint diagnostics require debug=True and memory_bounded=False.")
+            if debug_checkpoint_nodes <= 0 or debug_prefix_depth <= 0:
+                raise ValueError("Debug checkpoint interval and prefix depth must be positive.")
+        elif debug_checkpoint_callback is not None:
+            raise ValueError("A debug checkpoint callback requires debug_checkpoint_nodes.")
         if external_lower_bound is not None:
             external_lower_bound = int(external_lower_bound)
             if external_lower_bound < 0:
                 raise ValueError("external_lower_bound must be >= 0 when provided.")
 
-        def _effective_lower_bound(
+        def _internal_lower_bound(
             node_unscheduled,
             node_scheduled: Dict[int, ScheduleEntry],
         ) -> int:
-            internal = lower_bound(
+            return lower_bound(
                 self.instance,
                 node_unscheduled,
                 node_scheduled,
                 lb_id=lb_spec,
             )
-            if external_lower_bound is None:
-                return internal
-            return max(internal, external_lower_bound)
+
+        def _effective_lower_bound(internal: int) -> int:
+            return internal if external_lower_bound is None else max(internal, external_lower_bound)
 
         unscheduled = set(self.instance.activities.keys())
         ready = compute_ready_set(unscheduled, set(), self.predecessors)
@@ -395,7 +503,8 @@ class BnBSolver:
         )
 
         root_id = self._new_node_id()
-        root_lb = _effective_lower_bound(unscheduled, {})
+        root_internal_lb = _internal_lower_bound(unscheduled, {})
+        root_lb = _effective_lower_bound(root_internal_lb)
         if memory_bounded:
             root = CompactBBNode(
                 node_id=root_id,
@@ -425,6 +534,8 @@ class BnBSolver:
                 stagnation_depth=0,
             )
             self.nodes.append(root)
+            if collect_checkpoints:
+                root.internal_lower_bound = root_internal_lb
         if memory_bounded:
             assert isinstance(root, CompactBBNode)
             dominance_engine.register_state(
@@ -559,6 +670,94 @@ class BnBSolver:
                 return list(order_ready_fn(node, incumbent, _make_step_context(node)))
             return list(order_ready_fn(node, incumbent))
 
+        # These aggregates are touched only when the debug runner opts in.
+        diagnostic_totals: Counter = Counter({
+            key: 0 for key in (
+                "visited", "expanded", "lb_pruned", "dominance_pruned",
+                "candidate_attempts", "infeasible_candidates", "bounded_children",
+                "dead_ends", "solutions", "improvements",
+            )
+        }) if collect_checkpoints else Counter()
+        previous_totals: Counter = diagnostic_totals.copy()
+        recent_prefixes: Counter = Counter()
+        previous_checkpoint_elapsed = 0.0
+        last_expanded_node: Optional[BBNode] = None
+
+        def _record_checkpoint(reason: str, termination: Optional[str] = None) -> None:
+            nonlocal previous_totals, previous_checkpoint_elapsed
+            assert debug_info is not None
+            # Called between expansions: no currently popped node is omitted
+            # from an unfinished subtree, and newly generated children are included.
+            pending = [self.nodes[int(ref)] for ref in stack]
+            internal_lbs = []
+            for queued in pending:
+                assert queued.internal_lower_bound is not None
+                internal_lbs.append(queued.internal_lower_bound)
+            effective_lbs = [queued.lower_bound for queued in pending]
+            size = len(pending)
+            elapsed = time.perf_counter() - start_time_monotonic
+            interval_elapsed = elapsed - previous_checkpoint_elapsed
+            interval = {key: diagnostic_totals[key] - previous_totals[key]
+                        for key in diagnostic_totals}
+            below = (sum(lb < best_makespan for lb in effective_lbs)
+                     if best_makespan is not None else None)
+            above = size - below if below is not None else None
+            floor_count = (sum(lb <= external_lower_bound for lb in internal_lbs)
+                           if external_lower_bound is not None else None)
+            last_improvement = (debug_info.incumbent_history[-1]
+                                if debug_info.incumbent_history else None)
+
+            def pct(count: Optional[int], total: int) -> Optional[float]:
+                return 100.0 * count / total if count is not None and total else None
+
+            def groups(counts: Counter) -> List[DebugPrefixCount]:
+                return [DebugPrefixCount(prefix, count) for prefix, count in counts.most_common()]
+
+            checkpoint = DebugCheckpoint(
+                reason=reason,
+                termination=termination,
+                nodes_expanded=nodes_expanded,
+                elapsed_s=elapsed,
+                incumbent=best_makespan,
+                pruning_cutoff=incumbent_bound,
+                external_lower_bound=external_lower_bound,
+                nodes_since_improvement=(nodes_expanded - last_improvement.nodes_expanded
+                                         if last_improvement is not None else None),
+                seconds_since_improvement=(elapsed - last_improvement.elapsed_s
+                                           if last_improvement is not None else None),
+                incumbent_prefix=(last_improvement.prefix if last_improvement else None),
+                incumbent_depth=(last_improvement.depth if last_improvement else None),
+                frontier_size=size,
+                internal_lb=_debug_bound_distribution(internal_lbs),
+                effective_lb=_debug_bound_distribution(effective_lbs),
+                below_incumbent=below,
+                below_incumbent_pct=pct(below, size),
+                at_or_above_incumbent=above,
+                at_or_above_incumbent_pct=pct(above, size),
+                internal_at_or_below_external=floor_count,
+                internal_at_or_below_external_pct=pct(floor_count, size),
+                proof_burden=(_compute_proof_burden() if best_makespan is not None else None),
+                last_expanded_node_id=(last_expanded_node.node_id if last_expanded_node else None),
+                last_expanded_depth=(last_expanded_node.depth if last_expanded_node else None),
+                last_expanded_prefix=(last_expanded_node.debug_prefix if last_expanded_node else ()),
+                next_pending_prefix=(pending[-1].debug_prefix if pending else None),
+                recent_expansions_by_prefix=groups(recent_prefixes),
+                frontier_by_first_branch=groups(Counter(n.debug_prefix[:1] for n in pending)),
+                interval=interval,
+                totals=dict(diagnostic_totals),
+                interval_elapsed_s=interval_elapsed,
+                nodes_per_second=(interval["expanded"] / interval_elapsed if interval_elapsed > 0 else None),
+                lb_pruned_pct_of_visited=pct(interval["lb_pruned"], interval["visited"]),
+                dominance_pruned_pct_of_bounded_children=pct(
+                    interval["dominance_pruned"], interval["bounded_children"]),
+            )
+            debug_info.checkpoints.append(checkpoint)
+            recent_prefixes.clear()
+            previous_totals = diagnostic_totals.copy()
+            previous_checkpoint_elapsed = elapsed
+            if debug_checkpoint_callback is not None:
+                debug_checkpoint_callback(checkpoint)
+
         while stack and ((max_nodes is None) or (nodes_expanded < max_nodes)) and not time_exceeded():
             if stop_on_first_solution and best_makespan is not None:
                 break
@@ -566,6 +765,8 @@ class BnBSolver:
             node_ref = stack.pop()
             stored_node = _stack_node(node_ref)
             node_id = stored_node.node_id
+            if collect_checkpoints:
+                diagnostic_totals["visited"] += 1
             compact_node: Optional[CompactBBNode] = None
             if memory_bounded:
                 assert isinstance(stored_node, CompactBBNode)
@@ -586,6 +787,8 @@ class BnBSolver:
                 _step_lb_pruned += 1
                 if debug_info is not None:
                     debug_info.lb_pruned += 1
+                if collect_checkpoints:
+                    diagnostic_totals["lb_pruned"] += 1
                 if seen_incumbent:
                     nodes_pruned_after_incumbent += 1
                 continue
@@ -605,6 +808,8 @@ class BnBSolver:
                 )
                 if debug_info is not None:
                     debug_info.all_makespans.append(makespan)
+                if collect_checkpoints:
+                    diagnostic_totals["solutions"] += 1
                 if incumbent_bound is None or makespan < incumbent_bound:
                     incumbent_bound = makespan
                     best_makespan = makespan
@@ -620,10 +825,15 @@ class BnBSolver:
                             makespan=makespan,
                             nodes_expanded=nodes_expanded,
                             depth=stored_node.depth,
+                            elapsed_s=time.perf_counter() - start_time_monotonic,
+                            prefix=stored_node.debug_prefix,
                         ))
                     if not seen_incumbent:
                         first_incumbent_expanded = nodes_expanded
                         seen_incumbent = True
+                    if collect_checkpoints:
+                        diagnostic_totals["improvements"] += 1
+                        _record_checkpoint("incumbent")
                     # A feasible solution equal to a certified external lower
                     # bound closes the primal/dual gap. No remaining branch can
                     # improve it, so the optimality proof is complete without
@@ -642,6 +852,8 @@ class BnBSolver:
                 else bool(stored_node.ready)
             )
             if not node_has_ready:
+                if collect_checkpoints:
+                    diagnostic_totals["dead_ends"] += 1
                 if not memory_bounded:
                     stored_node.status = "pruned"
                 nodes_pruned += 1
@@ -710,11 +922,17 @@ class BnBSolver:
             if not memory_bounded:
                 node.status = "expanded"
             nodes_expanded += 1
+            if collect_checkpoints:
+                diagnostic_totals["expanded"] += 1
+                recent_prefixes[node.debug_prefix] += 1
+                last_expanded_node = node
             if seen_incumbent:
                 nodes_expanded_after_incumbent += 1
 
             # Reverse push for DFS/LIFO.
-            for act_id in reversed(acts):
+            for reversed_rank, act_id in enumerate(reversed(acts)):
+                if collect_checkpoints:
+                    diagnostic_totals["candidate_attempts"] += 1
                 # Reuse the earliest-start computed once above (shared with
                 # the ordering callback). Fall back to a direct computation
                 # only if this act was not in node.ready (defensive).
@@ -730,6 +948,8 @@ class BnBSolver:
                         profile=node_profile,
                     )
                 if est_start is None:
+                    if collect_checkpoints:
+                        diagnostic_totals["infeasible_candidates"] += 1
                     continue
 
                 duration = self.instance.activities[act_id].duration
@@ -765,10 +985,13 @@ class BnBSolver:
                         self.predecessors,
                     )
 
-                child_lb = _effective_lower_bound(
+                child_internal_lb = _internal_lower_bound(
                     child_unscheduled,
                     child_scheduled,
                 )
+                child_lb = _effective_lower_bound(child_internal_lb)
+                if collect_checkpoints:
+                    diagnostic_totals["bounded_children"] += 1
 
                 compact_child_key = None
                 if compact_node is not None:
@@ -788,6 +1011,8 @@ class BnBSolver:
                     state_key=compact_child_key,
                 )
                 if pruned_rule is not None:
+                    if collect_checkpoints:
+                        diagnostic_totals["dominance_pruned"] += 1
                     if debug_info is not None:
                         debug_info.dominance_pruned += 1
                     _step_dom_pruned += 1
@@ -835,6 +1060,18 @@ class BnBSolver:
                         stagnation_depth=child_stagnation_depth,
                     )
                     self.nodes.append(child_node)
+                    if collect_checkpoints:
+                        child_node.internal_lower_bound = child_internal_lb
+                        prefix = node.debug_prefix
+                        if len(acts) > 1 and len(prefix) < debug_prefix_depth:
+                            prefix += (DebugBranchChoice(
+                                decision_node_id=node_id,
+                                activity=act_id,
+                                start=est_start,
+                                rank=len(acts) - reversed_rank,
+                                candidate_count=len(acts),
+                            ),)
+                        child_node.debug_prefix = prefix
                     self.edges.append((node_id, child_id))
                     stack.append(child_id)
 
@@ -842,6 +1079,8 @@ class BnBSolver:
             # and the child loop above); free it so long runs don't retain one
             # dict per expanded node in self.nodes.
             node.est_map = None
+            if collect_checkpoints and nodes_expanded % debug_checkpoint_nodes == 0:
+                _record_checkpoint("periodic")
 
         if external_bound_matched:
             solver_done_reason = "external_bound_matched"
@@ -856,6 +1095,8 @@ class BnBSolver:
         # being expanded). On an exhausted search the stack is empty -> None,
         # which the env treats as a fully closed gap (proof complete).
         final_frontier_min_lb = _compute_frontier_min_lb(None)
+        if collect_checkpoints:
+            _record_checkpoint("termination", solver_done_reason)
 
         if best_compact_node is not None:
             best_schedule = _reconstruct_schedule(best_compact_node)

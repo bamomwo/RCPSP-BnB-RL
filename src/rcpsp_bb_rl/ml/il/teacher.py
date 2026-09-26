@@ -13,7 +13,10 @@ from rcpsp_bb_rl.bnb.solver import ScheduleEntry, current_makespan
 from rcpsp_bb_rl.data.parsing import RCPSPInstance
 
 
-def _build_cp_model(instance: RCPSPInstance) -> tuple[cp_model.CpModel, Dict[int, cp_model.IntVar]]:
+def _build_cp_model(
+    instance: RCPSPInstance,
+    known_makespan: Optional[int] = None,
+) -> tuple[cp_model.CpModel, Dict[int, cp_model.IntVar]]:
     model = cp_model.CpModel()
     horizon = sum(act.duration for act in instance.activities.values())
 
@@ -43,7 +46,12 @@ def _build_cp_model(instance: RCPSPInstance) -> tuple[cp_model.CpModel, Dict[int
     makespan = model.new_int_var(0, horizon, "makespan")
     for end in end_vars.values():
         model.add(end <= makespan)
-    model.minimize(makespan)
+    if known_makespan is not None:
+        if known_makespan < 0:
+            raise ValueError("known_makespan must be non-negative")
+        model.add(makespan == int(known_makespan))
+    else:
+        model.minimize(makespan)
 
     return model, start_vars
 
@@ -51,12 +59,18 @@ def _build_cp_model(instance: RCPSPInstance) -> tuple[cp_model.CpModel, Dict[int
 def solve_optimal_schedule(
     instance: RCPSPInstance,
     time_limit_s: Optional[float] = None,
+    known_makespan: Optional[int] = None,
+    num_search_workers: Optional[int] = None,
 ) -> Dict[int, int]:
-    """Solve instance with OR-Tools CP-SAT and return optimal start times per activity."""
-    model, start_vars = _build_cp_model(instance)
+    """Solve instance and return start times, optionally at a known makespan."""
+    model, start_vars = _build_cp_model(instance, known_makespan=known_makespan)
     solver = cp_model.CpSolver()
     if time_limit_s is not None:
         solver.parameters.max_time_in_seconds = time_limit_s
+    if num_search_workers is not None:
+        if num_search_workers < 1:
+            raise ValueError("num_search_workers must be at least 1")
+        solver.parameters.num_search_workers = num_search_workers
 
     status = solver.solve(model)
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
