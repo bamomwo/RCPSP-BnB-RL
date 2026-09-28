@@ -84,11 +84,15 @@ python scripts/run_bnb.py --config config/run_bnb.json
 `scripts/train_ppo_gpu.py` uses the fixed root lower bound `L` to score an
 incumbent of makespan `C` as `Q(C) = L / C`. The first incumbent earns
 `beta1 * Q(first)`; each later incumbent earns
-`beta2 * (Q(new) - Q(previous))`. Training requires `beta1 == beta2 >= 0`
-and `tree_gamma_bonus = 1.0`, so the cumulative incumbent reward equals
-`beta1 * Q(final)` regardless of intermediate solutions. For example, with
-`L = 80` and both weights equal to 1, both `100` and `160 -> 125 -> 100`
-earn a total of `0.8`. Separate first/incumbent-improvement logs are retained.
+`beta2 * (Q(new) - Q(previous))`. `beta1` and `beta2` are independent,
+finite, non-negative weights. `tree_gamma_bonus = 1.0` keeps quality gains
+undiscounted, and intermediate incumbents cannot inflate the improvement
+channel: its cumulative value is `beta2 * (Q(final) - Q(first))`. For example,
+with `L = 80`, `beta1 = 1`, and `beta2 = 2`, the histories `100` and
+`160 -> 125 -> 100` earn total incumbent rewards `0.8` and `0.8 + 2*(0.8 -
+0.5) = 1.1`, respectively. This lets training choose between first-incumbent
+quality and later refinement according to the configured objective. Separate
+first/incumbent-improvement logs are retained.
 
 Both `config/train_ppo_gpu.json` and `config/train_ppo_gpu_oracle.json` already
 use these settings. Node-cost rewards retain their existing scaling and

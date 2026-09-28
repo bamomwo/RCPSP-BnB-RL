@@ -761,8 +761,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "time_limit_s": 60.0,
     # Reward
     "alpha": 0.01,          # static node-cost coef; used only when estimator_path is null
-    "beta1": 1.0,           # first quality L/C; must equal beta2
-    "beta2": 1.0,           # quality gain L/C_new - L/C_prev; must equal beta1
+    "beta1": 1.0,           # first-incumbent quality weight
+    "beta2": 1.0,           # later quality-gain weight; independently tunable
     # Dynamic reward scaling: when estimator_path is set, the node-cost coef is
     # computed per instance as alpha(I) = clip(c_target / N_hat(I), alpha_min,
     # alpha_max), where N_hat is the search-effort estimator's prediction. This
@@ -799,9 +799,10 @@ def main() -> None:
     config = DEFAULT_CONFIG.copy()
     config.update(load_json(Path(args.config)))
 
-    # Validate the quality-reward invariant before loading data/models or
-    # creating output files. Both components must share one weight, and their
-    # subtree backup must be undiscounted, for intermediate bonuses to cancel.
+    # Validate the reward-channel configuration before loading data/models or
+    # creating output files. The two weights are independent; only the bonus
+    # backup must remain undiscounted so intermediate quality gains do not get
+    # distorted by tree depth.
     beta1 = float(config["beta1"])
     beta2 = float(config["beta2"])
     tree_gamma = float(config["tree_gamma"])

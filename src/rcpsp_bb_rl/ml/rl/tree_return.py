@@ -27,18 +27,17 @@ RewardFn = Callable[[Mapping[str, object]], float]
 def validate_incumbent_bonus_config(
     *, beta1: float, beta2: float, gamma_bonus: float,
 ) -> None:
-    """Keep PPO's combined incumbent reward independent of intermediate solutions.
+    """Validate the independently tunable incumbent-reward channels.
 
-    Component-only reward functions remain available for logging; these
-    constraints apply to the combined reward used for training.
+    The quality-gain form of the improvement reward prevents repeated
+    intermediate incumbents from inflating the improvement channel. ``beta1``
+    and ``beta2`` therefore represent separate design choices: first-incumbent
+    quality and later quality improvement. The bonus backup remains
+    undiscounted so each quality gain is credited consistently through its
+    ancestor decisions.
     """
     if not math.isfinite(beta1) or not math.isfinite(beta2) or beta1 < 0 or beta2 < 0:
         raise ValueError("beta1 and beta2 must be finite and non-negative.")
-    if beta1 != beta2:
-        raise ValueError(
-            "beta1 and beta2 must be equal so cumulative incumbent bonuses "
-            "depend only on final incumbent quality."
-        )
     if gamma_bonus != 1.0:
         raise ValueError(
             "tree_gamma_bonus must be 1.0 so incumbent quality gains "
@@ -75,11 +74,11 @@ def make_bonus_reward_fn(
       1. First incumbent: beta1 * Q(first)
       2. Each later improvement: beta2 * (Q(new) - Q(previous))
 
-    When beta1 == beta2 == beta, the sum telescopes to beta * Q(final),
-    regardless of the first incumbent or the number of intermediate solutions.
-    PPO keeps this channel undiscounted (gamma_bonus=1.0). Separate weights
-    are retained to isolate components for logging, not to tune them separately
-    during training. A missing or zero root bound gives no quality bonus;
+    With independent weights, the cumulative incumbent reward is
+    ``beta1 * Q(first) + beta2 * (Q(final) - Q(first))``. Thus intermediate
+    incumbents cannot inflate the improvement channel, while the two weights
+    retain their separate meanings. PPO keeps this channel undiscounted
+    (gamma_bonus=1.0). A missing or zero root bound gives no quality bonus;
     non-positive/missing makespans are skipped to avoid undefined quality.
     """
     nodes: List[Mapping[str, object]] = list(tree.get("nodes", [])) if tree else []  # type: ignore[arg-type]
