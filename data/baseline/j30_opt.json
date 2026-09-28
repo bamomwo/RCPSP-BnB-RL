@@ -1,0 +1,1925 @@
+{
+  "instances": {
+    "J3010_1.RCP": {
+      "cpu_time": 2.51,
+      "makespan": 42
+    },
+    "J3010_10.RCP": {
+      "cpu_time": 9.6,
+      "makespan": 41
+    },
+    "J3010_2.RCP": {
+      "cpu_time": 0.19,
+      "makespan": 56
+    },
+    "J3010_3.RCP": {
+      "cpu_time": 8.22,
+      "makespan": 62
+    },
+    "J3010_4.RCP": {
+      "cpu_time": 1.57,
+      "makespan": 58
+    },
+    "J3010_5.RCP": {
+      "cpu_time": 11.1,
+      "makespan": 41
+    },
+    "J3010_6.RCP": {
+      "cpu_time": 1.52,
+      "makespan": 44
+    },
+    "J3010_7.RCP": {
+      "cpu_time": 0.47,
+      "makespan": 49
+    },
+    "J3010_8.RCP": {
+      "cpu_time": 3.81,
+      "makespan": 54
+    },
+    "J3010_9.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 49
+    },
+    "J3011_1.RCP": {
+      "cpu_time": 0.07,
+      "makespan": 54
+    },
+    "J3011_10.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 38
+    },
+    "J3011_2.RCP": {
+      "cpu_time": 0.14,
+      "makespan": 56
+    },
+    "J3011_3.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 81
+    },
+    "J3011_4.RCP": {
+      "cpu_time": 0.6,
+      "makespan": 63
+    },
+    "J3011_5.RCP": {
+      "cpu_time": 0.08,
+      "makespan": 49
+    },
+    "J3011_6.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 44
+    },
+    "J3011_7.RCP": {
+      "cpu_time": 0.5,
+      "makespan": 36
+    },
+    "J3011_8.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 62
+    },
+    "J3011_9.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 67
+    },
+    "J3012_1.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 47
+    },
+    "J3012_10.RCP": {
+      "cpu_time": 0.0,
+      "makespan": 57
+    },
+    "J3012_2.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 46
+    },
+    "J3012_3.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 37
+    },
+    "J3012_4.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 63
+    },
+    "J3012_5.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 47
+    },
+    "J3012_6.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 53
+    },
+    "J3012_7.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 55
+    },
+    "J3012_8.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 35
+    },
+    "J3012_9.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 52
+    },
+    "J3013_1.RCP": {
+      "cpu_time": 7208.9,
+      "makespan": 58
+    },
+    "J3013_10.RCP": {
+      "cpu_time": 987.83,
+      "makespan": 64
+    },
+    "J3013_2.RCP": {
+      "cpu_time": 1409.73,
+      "makespan": 62
+    },
+    "J3013_3.RCP": {
+      "cpu_time": 178.05,
+      "makespan": 76
+    },
+    "J3013_4.RCP": {
+      "cpu_time": 48.57,
+      "makespan": 72
+    },
+    "J3013_5.RCP": {
+      "cpu_time": 3329.75,
+      "makespan": 67
+    },
+    "J3013_6.RCP": {
+      "cpu_time": 1114.68,
+      "makespan": 64
+    },
+    "J3013_7.RCP": {
+      "cpu_time": 151.06,
+      "makespan": 77
+    },
+    "J3013_8.RCP": {
+      "cpu_time": 23.8,
+      "makespan": 106
+    },
+    "J3013_9.RCP": {
+      "cpu_time": 239.17,
+      "makespan": 71
+    },
+    "J3014_1.RCP": {
+      "cpu_time": 7.23,
+      "makespan": 50
+    },
+    "J3014_10.RCP": {
+      "cpu_time": 0.1,
+      "makespan": 61
+    },
+    "J3014_2.RCP": {
+      "cpu_time": 11.69,
+      "makespan": 53
+    },
+    "J3014_3.RCP": {
+      "cpu_time": 1.74,
+      "makespan": 58
+    },
+    "J3014_4.RCP": {
+      "cpu_time": 106.3,
+      "makespan": 50
+    },
+    "J3014_5.RCP": {
+      "cpu_time": 0.2,
+      "makespan": 52
+    },
+    "J3014_6.RCP": {
+      "cpu_time": 0.75,
+      "makespan": 35
+    },
+    "J3014_7.RCP": {
+      "cpu_time": 41.86,
+      "makespan": 50
+    },
+    "J3014_8.RCP": {
+      "cpu_time": 0.05,
+      "makespan": 54
+    },
+    "J3014_9.RCP": {
+      "cpu_time": 50.09,
+      "makespan": 46
+    },
+    "J3015_1.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 46
+    },
+    "J3015_10.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 65
+    },
+    "J3015_2.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 47
+    },
+    "J3015_3.RCP": {
+      "cpu_time": 0.03,
+      "makespan": 48
+    },
+    "J3015_4.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 48
+    },
+    "J3015_5.RCP": {
+      "cpu_time": 7.57,
+      "makespan": 58
+    },
+    "J3015_6.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 67
+    },
+    "J3015_7.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 47
+    },
+    "J3015_8.RCP": {
+      "cpu_time": 25.41,
+      "makespan": 50
+    },
+    "J3015_9.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 54
+    },
+    "J3016_1.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 51
+    },
+    "J3016_10.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 51
+    },
+    "J3016_2.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 48
+    },
+    "J3016_3.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 36
+    },
+    "J3016_4.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 47
+    },
+    "J3016_5.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 51
+    },
+    "J3016_6.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 51
+    },
+    "J3016_7.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 34
+    },
+    "J3016_8.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 44
+    },
+    "J3016_9.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 44
+    },
+    "J3017_1.RCP": {
+      "cpu_time": 0.4,
+      "makespan": 64
+    },
+    "J3017_10.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 66
+    },
+    "J3017_2.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 68
+    },
+    "J3017_3.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 60
+    },
+    "J3017_4.RCP": {
+      "cpu_time": 0.04,
+      "makespan": 49
+    },
+    "J3017_5.RCP": {
+      "cpu_time": 0.06,
+      "makespan": 47
+    },
+    "J3017_6.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 63
+    },
+    "J3017_7.RCP": {
+      "cpu_time": 0.05,
+      "makespan": 57
+    },
+    "J3017_8.RCP": {
+      "cpu_time": 0.04,
+      "makespan": 61
+    },
+    "J3017_9.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 48
+    },
+    "J3018_1.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 53
+    },
+    "J3018_10.RCP": {
+      "cpu_time": 0.03,
+      "makespan": 49
+    },
+    "J3018_2.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 55
+    },
+    "J3018_3.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 56
+    },
+    "J3018_4.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 70
+    },
+    "J3018_5.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 52
+    },
+    "J3018_6.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 62
+    },
+    "J3018_7.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 48
+    },
+    "J3018_8.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 52
+    },
+    "J3018_9.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 47
+    },
+    "J3019_1.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 40
+    },
+    "J3019_10.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 47
+    },
+    "J3019_2.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 58
+    },
+    "J3019_3.RCP": {
+      "cpu_time": 0.0,
+      "makespan": 83
+    },
+    "J3019_4.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 39
+    },
+    "J3019_5.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 48
+    },
+    "J3019_6.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 49
+    },
+    "J3019_7.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 57
+    },
+    "J3019_8.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 55
+    },
+    "J3019_9.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 38
+    },
+    "J301_1.RCP": {
+      "cpu_time": 0.3,
+      "makespan": 43
+    },
+    "J301_10.RCP": {
+      "cpu_time": 0.04,
+      "makespan": 45
+    },
+    "J301_2.RCP": {
+      "cpu_time": 0.11,
+      "makespan": 47
+    },
+    "J301_3.RCP": {
+      "cpu_time": 0.12,
+      "makespan": 47
+    },
+    "J301_4.RCP": {
+      "cpu_time": 0.64,
+      "makespan": 62
+    },
+    "J301_5.RCP": {
+      "cpu_time": 0.48,
+      "makespan": 39
+    },
+    "J301_6.RCP": {
+      "cpu_time": 0.04,
+      "makespan": 48
+    },
+    "J301_7.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 60
+    },
+    "J301_8.RCP": {
+      "cpu_time": 0.03,
+      "makespan": 53
+    },
+    "J301_9.RCP": {
+      "cpu_time": 0.1,
+      "makespan": 49
+    },
+    "J3020_1.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 57
+    },
+    "J3020_10.RCP": {
+      "cpu_time": 0.0,
+      "makespan": 37
+    },
+    "J3020_2.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 70
+    },
+    "J3020_3.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 49
+    },
+    "J3020_4.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 43
+    },
+    "J3020_5.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 61
+    },
+    "J3020_6.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 51
+    },
+    "J3020_7.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 42
+    },
+    "J3020_8.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 51
+    },
+    "J3020_9.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 41
+    },
+    "J3021_1.RCP": {
+      "cpu_time": 0.21,
+      "makespan": 84
+    },
+    "J3021_10.RCP": {
+      "cpu_time": 0.9,
+      "makespan": 69
+    },
+    "J3021_2.RCP": {
+      "cpu_time": 1.1,
+      "makespan": 59
+    },
+    "J3021_3.RCP": {
+      "cpu_time": 0.22,
+      "makespan": 76
+    },
+    "J3021_4.RCP": {
+      "cpu_time": 1.09,
+      "makespan": 70
+    },
+    "J3021_5.RCP": {
+      "cpu_time": 0.55,
+      "makespan": 55
+    },
+    "J3021_6.RCP": {
+      "cpu_time": 0.7,
+      "makespan": 76
+    },
+    "J3021_7.RCP": {
+      "cpu_time": 1.51,
+      "makespan": 65
+    },
+    "J3021_8.RCP": {
+      "cpu_time": 1.83,
+      "makespan": 62
+    },
+    "J3021_9.RCP": {
+      "cpu_time": 2.28,
+      "makespan": 69
+    },
+    "J3022_1.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 42
+    },
+    "J3022_10.RCP": {
+      "cpu_time": 0.67,
+      "makespan": 55
+    },
+    "J3022_2.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 45
+    },
+    "J3022_3.RCP": {
+      "cpu_time": 0.03,
+      "makespan": 63
+    },
+    "J3022_4.RCP": {
+      "cpu_time": 0.04,
+      "makespan": 42
+    },
+    "J3022_5.RCP": {
+      "cpu_time": 0.14,
+      "makespan": 52
+    },
+    "J3022_6.RCP": {
+      "cpu_time": 1.95,
+      "makespan": 52
+    },
+    "J3022_7.RCP": {
+      "cpu_time": 0.19,
+      "makespan": 60
+    },
+    "J3022_8.RCP": {
+      "cpu_time": 2.21,
+      "makespan": 55
+    },
+    "J3022_9.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 76
+    },
+    "J3023_1.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 63
+    },
+    "J3023_10.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 61
+    },
+    "J3023_2.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 53
+    },
+    "J3023_3.RCP": {
+      "cpu_time": 0.03,
+      "makespan": 46
+    },
+    "J3023_4.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 65
+    },
+    "J3023_5.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 52
+    },
+    "J3023_6.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 48
+    },
+    "J3023_7.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 60
+    },
+    "J3023_8.RCP": {
+      "cpu_time": 0.03,
+      "makespan": 48
+    },
+    "J3023_9.RCP": {
+      "cpu_time": 0.04,
+      "makespan": 63
+    },
+    "J3024_1.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 53
+    },
+    "J3024_10.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 53
+    },
+    "J3024_2.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 58
+    },
+    "J3024_3.RCP": {
+      "cpu_time": 0.0,
+      "makespan": 69
+    },
+    "J3024_4.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 53
+    },
+    "J3024_5.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 51
+    },
+    "J3024_6.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 56
+    },
+    "J3024_7.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 44
+    },
+    "J3024_8.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 38
+    },
+    "J3024_9.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 43
+    },
+    "J3025_1.RCP": {
+      "cpu_time": 64.75,
+      "makespan": 93
+    },
+    "J3025_10.RCP": {
+      "cpu_time": 27.03,
+      "makespan": 58
+    },
+    "J3025_2.RCP": {
+      "cpu_time": 3.12,
+      "makespan": 75
+    },
+    "J3025_3.RCP": {
+      "cpu_time": 115.13,
+      "makespan": 76
+    },
+    "J3025_4.RCP": {
+      "cpu_time": 10.81,
+      "makespan": 81
+    },
+    "J3025_5.RCP": {
+      "cpu_time": 12.96,
+      "makespan": 72
+    },
+    "J3025_6.RCP": {
+      "cpu_time": 24.84,
+      "makespan": 58
+    },
+    "J3025_7.RCP": {
+      "cpu_time": 24.34,
+      "makespan": 95
+    },
+    "J3025_8.RCP": {
+      "cpu_time": 42.39,
+      "makespan": 69
+    },
+    "J3025_9.RCP": {
+      "cpu_time": 1.57,
+      "makespan": 84
+    },
+    "J3026_1.RCP": {
+      "cpu_time": 0.12,
+      "makespan": 59
+    },
+    "J3026_10.RCP": {
+      "cpu_time": 0.4,
+      "makespan": 49
+    },
+    "J3026_2.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 40
+    },
+    "J3026_3.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 58
+    },
+    "J3026_4.RCP": {
+      "cpu_time": 0.05,
+      "makespan": 62
+    },
+    "J3026_5.RCP": {
+      "cpu_time": 0.03,
+      "makespan": 74
+    },
+    "J3026_6.RCP": {
+      "cpu_time": 0.1,
+      "makespan": 53
+    },
+    "J3026_7.RCP": {
+      "cpu_time": 0.03,
+      "makespan": 56
+    },
+    "J3026_8.RCP": {
+      "cpu_time": 0.08,
+      "makespan": 66
+    },
+    "J3026_9.RCP": {
+      "cpu_time": 0.29,
+      "makespan": 43
+    },
+    "J3027_1.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 43
+    },
+    "J3027_10.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 62
+    },
+    "J3027_2.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 58
+    },
+    "J3027_3.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 60
+    },
+    "J3027_4.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 64
+    },
+    "J3027_5.RCP": {
+      "cpu_time": 0.04,
+      "makespan": 49
+    },
+    "J3027_6.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 59
+    },
+    "J3027_7.RCP": {
+      "cpu_time": 0.06,
+      "makespan": 49
+    },
+    "J3027_8.RCP": {
+      "cpu_time": 0.03,
+      "makespan": 66
+    },
+    "J3027_9.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 55
+    },
+    "J3028_1.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 69
+    },
+    "J3028_10.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 59
+    },
+    "J3028_2.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 57
+    },
+    "J3028_3.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 40
+    },
+    "J3028_4.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 49
+    },
+    "J3028_5.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 73
+    },
+    "J3028_6.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 55
+    },
+    "J3028_7.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 48
+    },
+    "J3028_8.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 53
+    },
+    "J3028_9.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 62
+    },
+    "J3029_1.RCP": {
+      "cpu_time": 209.88,
+      "makespan": 85
+    },
+    "J3029_10.RCP": {
+      "cpu_time": 2.88,
+      "makespan": 76
+    },
+    "J3029_2.RCP": {
+      "cpu_time": 52.26,
+      "makespan": 90
+    },
+    "J3029_3.RCP": {
+      "cpu_time": 40.1,
+      "makespan": 78
+    },
+    "J3029_4.RCP": {
+      "cpu_time": 26.29,
+      "makespan": 103
+    },
+    "J3029_5.RCP": {
+      "cpu_time": 20.72,
+      "makespan": 98
+    },
+    "J3029_6.RCP": {
+      "cpu_time": 48.33,
+      "makespan": 92
+    },
+    "J3029_7.RCP": {
+      "cpu_time": 16.69,
+      "makespan": 73
+    },
+    "J3029_8.RCP": {
+      "cpu_time": 353.74,
+      "makespan": 80
+    },
+    "J3029_9.RCP": {
+      "cpu_time": 31.09,
+      "makespan": 97
+    },
+    "J302_1.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 38
+    },
+    "J302_10.RCP": {
+      "cpu_time": 0.04,
+      "makespan": 43
+    },
+    "J302_2.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 51
+    },
+    "J302_3.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 43
+    },
+    "J302_4.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 43
+    },
+    "J302_5.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 51
+    },
+    "J302_6.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 47
+    },
+    "J302_7.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 47
+    },
+    "J302_8.RCP": {
+      "cpu_time": 0.03,
+      "makespan": 54
+    },
+    "J302_9.RCP": {
+      "cpu_time": 0.03,
+      "makespan": 54
+    },
+    "J3030_1.RCP": {
+      "cpu_time": 22.78,
+      "makespan": 47
+    },
+    "J3030_10.RCP": {
+      "cpu_time": 2.32,
+      "makespan": 53
+    },
+    "J3030_2.RCP": {
+      "cpu_time": 4.44,
+      "makespan": 68
+    },
+    "J3030_3.RCP": {
+      "cpu_time": 1.46,
+      "makespan": 55
+    },
+    "J3030_4.RCP": {
+      "cpu_time": 0.57,
+      "makespan": 53
+    },
+    "J3030_5.RCP": {
+      "cpu_time": 2.26,
+      "makespan": 54
+    },
+    "J3030_6.RCP": {
+      "cpu_time": 1.0,
+      "makespan": 62
+    },
+    "J3030_7.RCP": {
+      "cpu_time": 0.42,
+      "makespan": 68
+    },
+    "J3030_8.RCP": {
+      "cpu_time": 0.47,
+      "makespan": 46
+    },
+    "J3030_9.RCP": {
+      "cpu_time": 2.11,
+      "makespan": 46
+    },
+    "J3031_1.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 43
+    },
+    "J3031_10.RCP": {
+      "cpu_time": 1.91,
+      "makespan": 55
+    },
+    "J3031_2.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 63
+    },
+    "J3031_3.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 58
+    },
+    "J3031_4.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 50
+    },
+    "J3031_5.RCP": {
+      "cpu_time": 0.28,
+      "makespan": 52
+    },
+    "J3031_6.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 53
+    },
+    "J3031_7.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 61
+    },
+    "J3031_8.RCP": {
+      "cpu_time": 0.04,
+      "makespan": 58
+    },
+    "J3031_9.RCP": {
+      "cpu_time": 0.33,
+      "makespan": 50
+    },
+    "J3032_1.RCP": {
+      "cpu_time": 0.0,
+      "makespan": 61
+    },
+    "J3032_10.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 51
+    },
+    "J3032_2.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 60
+    },
+    "J3032_3.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 57
+    },
+    "J3032_4.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 68
+    },
+    "J3032_5.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 54
+    },
+    "J3032_6.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 44
+    },
+    "J3032_7.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 35
+    },
+    "J3032_8.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 54
+    },
+    "J3032_9.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 65
+    },
+    "J3033_1.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 65
+    },
+    "J3033_10.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 53
+    },
+    "J3033_2.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 60
+    },
+    "J3033_3.RCP": {
+      "cpu_time": 0.03,
+      "makespan": 55
+    },
+    "J3033_4.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 77
+    },
+    "J3033_5.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 53
+    },
+    "J3033_6.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 59
+    },
+    "J3033_7.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 58
+    },
+    "J3033_8.RCP": {
+      "cpu_time": 0.04,
+      "makespan": 61
+    },
+    "J3033_9.RCP": {
+      "cpu_time": 0.04,
+      "makespan": 65
+    },
+    "J3034_1.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 68
+    },
+    "J3034_10.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 47
+    },
+    "J3034_2.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 44
+    },
+    "J3034_3.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 69
+    },
+    "J3034_4.RCP": {
+      "cpu_time": 0.0,
+      "makespan": 67
+    },
+    "J3034_5.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 63
+    },
+    "J3034_6.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 52
+    },
+    "J3034_7.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 58
+    },
+    "J3034_8.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 58
+    },
+    "J3034_9.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 60
+    },
+    "J3035_1.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 57
+    },
+    "J3035_10.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 59
+    },
+    "J3035_2.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 53
+    },
+    "J3035_3.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 60
+    },
+    "J3035_4.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 50
+    },
+    "J3035_5.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 60
+    },
+    "J3035_6.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 58
+    },
+    "J3035_7.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 61
+    },
+    "J3035_8.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 63
+    },
+    "J3035_9.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 59
+    },
+    "J3036_1.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 66
+    },
+    "J3036_10.RCP": {
+      "cpu_time": 0.0,
+      "makespan": 59
+    },
+    "J3036_2.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 44
+    },
+    "J3036_3.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 61
+    },
+    "J3036_4.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 59
+    },
+    "J3036_5.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 64
+    },
+    "J3036_6.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 46
+    },
+    "J3036_7.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 56
+    },
+    "J3036_8.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 63
+    },
+    "J3036_9.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 59
+    },
+    "J3037_1.RCP": {
+      "cpu_time": 0.23,
+      "makespan": 79
+    },
+    "J3037_10.RCP": {
+      "cpu_time": 0.29,
+      "makespan": 81
+    },
+    "J3037_2.RCP": {
+      "cpu_time": 0.21,
+      "makespan": 69
+    },
+    "J3037_3.RCP": {
+      "cpu_time": 0.4,
+      "makespan": 81
+    },
+    "J3037_4.RCP": {
+      "cpu_time": 0.25,
+      "makespan": 83
+    },
+    "J3037_5.RCP": {
+      "cpu_time": 0.23,
+      "makespan": 80
+    },
+    "J3037_6.RCP": {
+      "cpu_time": 0.06,
+      "makespan": 73
+    },
+    "J3037_7.RCP": {
+      "cpu_time": 0.37,
+      "makespan": 92
+    },
+    "J3037_8.RCP": {
+      "cpu_time": 0.18,
+      "makespan": 72
+    },
+    "J3037_9.RCP": {
+      "cpu_time": 0.08,
+      "makespan": 57
+    },
+    "J3038_1.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 48
+    },
+    "J3038_10.RCP": {
+      "cpu_time": 0.03,
+      "makespan": 60
+    },
+    "J3038_2.RCP": {
+      "cpu_time": 0.06,
+      "makespan": 54
+    },
+    "J3038_3.RCP": {
+      "cpu_time": 0.03,
+      "makespan": 59
+    },
+    "J3038_4.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 59
+    },
+    "J3038_5.RCP": {
+      "cpu_time": 0.04,
+      "makespan": 71
+    },
+    "J3038_6.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 63
+    },
+    "J3038_7.RCP": {
+      "cpu_time": 0.03,
+      "makespan": 65
+    },
+    "J3038_8.RCP": {
+      "cpu_time": 0.04,
+      "makespan": 61
+    },
+    "J3038_9.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 63
+    },
+    "J3039_1.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 55
+    },
+    "J3039_10.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 60
+    },
+    "J3039_2.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 54
+    },
+    "J3039_3.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 54
+    },
+    "J3039_4.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 53
+    },
+    "J3039_5.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 55
+    },
+    "J3039_6.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 69
+    },
+    "J3039_7.RCP": {
+      "cpu_time": 0.03,
+      "makespan": 56
+    },
+    "J3039_8.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 67
+    },
+    "J3039_9.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 64
+    },
+    "J303_1.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 72
+    },
+    "J303_10.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 59
+    },
+    "J303_2.RCP": {
+      "cpu_time": 0.03,
+      "makespan": 40
+    },
+    "J303_3.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 57
+    },
+    "J303_4.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 98
+    },
+    "J303_5.RCP": {
+      "cpu_time": 0.05,
+      "makespan": 53
+    },
+    "J303_6.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 54
+    },
+    "J303_7.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 48
+    },
+    "J303_8.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 54
+    },
+    "J303_9.RCP": {
+      "cpu_time": 0.04,
+      "makespan": 65
+    },
+    "J3040_1.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 51
+    },
+    "J3040_10.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 51
+    },
+    "J3040_2.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 56
+    },
+    "J3040_3.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 57
+    },
+    "J3040_4.RCP": {
+      "cpu_time": 0.05,
+      "makespan": 57
+    },
+    "J3040_5.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 65
+    },
+    "J3040_6.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 60
+    },
+    "J3040_7.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 46
+    },
+    "J3040_8.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 57
+    },
+    "J3040_9.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 64
+    },
+    "J3041_1.RCP": {
+      "cpu_time": 0.17,
+      "makespan": 86
+    },
+    "J3041_10.RCP": {
+      "cpu_time": 7.42,
+      "makespan": 99
+    },
+    "J3041_2.RCP": {
+      "cpu_time": 0.43,
+      "makespan": 89
+    },
+    "J3041_3.RCP": {
+      "cpu_time": 0.21,
+      "makespan": 85
+    },
+    "J3041_4.RCP": {
+      "cpu_time": 2.75,
+      "makespan": 78
+    },
+    "J3041_5.RCP": {
+      "cpu_time": 0.69,
+      "makespan": 99
+    },
+    "J3041_6.RCP": {
+      "cpu_time": 0.2,
+      "makespan": 103
+    },
+    "J3041_7.RCP": {
+      "cpu_time": 3.71,
+      "makespan": 92
+    },
+    "J3041_8.RCP": {
+      "cpu_time": 1.6,
+      "makespan": 88
+    },
+    "J3041_9.RCP": {
+      "cpu_time": 0.55,
+      "makespan": 92
+    },
+    "J3042_1.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 58
+    },
+    "J3042_10.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 75
+    },
+    "J3042_2.RCP": {
+      "cpu_time": 0.23,
+      "makespan": 50
+    },
+    "J3042_3.RCP": {
+      "cpu_time": 0.05,
+      "makespan": 60
+    },
+    "J3042_4.RCP": {
+      "cpu_time": 0.37,
+      "makespan": 49
+    },
+    "J3042_5.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 52
+    },
+    "J3042_6.RCP": {
+      "cpu_time": 0.03,
+      "makespan": 66
+    },
+    "J3042_7.RCP": {
+      "cpu_time": 0.07,
+      "makespan": 66
+    },
+    "J3042_8.RCP": {
+      "cpu_time": 0.12,
+      "makespan": 82
+    },
+    "J3042_9.RCP": {
+      "cpu_time": 0.14,
+      "makespan": 60
+    },
+    "J3043_1.RCP": {
+      "cpu_time": 0.14,
+      "makespan": 55
+    },
+    "J3043_10.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 60
+    },
+    "J3043_2.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 43
+    },
+    "J3043_3.RCP": {
+      "cpu_time": 0.04,
+      "makespan": 57
+    },
+    "J3043_4.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 67
+    },
+    "J3043_5.RCP": {
+      "cpu_time": 0.46,
+      "makespan": 64
+    },
+    "J3043_6.RCP": {
+      "cpu_time": 0.03,
+      "makespan": 58
+    },
+    "J3043_7.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 52
+    },
+    "J3043_8.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 62
+    },
+    "J3043_9.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 57
+    },
+    "J3044_1.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 50
+    },
+    "J3044_10.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 63
+    },
+    "J3044_2.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 54
+    },
+    "J3044_3.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 51
+    },
+    "J3044_4.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 57
+    },
+    "J3044_5.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 55
+    },
+    "J3044_6.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 56
+    },
+    "J3044_7.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 42
+    },
+    "J3044_8.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 49
+    },
+    "J3044_9.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 64
+    },
+    "J3045_1.RCP": {
+      "cpu_time": 2.15,
+      "makespan": 82
+    },
+    "J3045_10.RCP": {
+      "cpu_time": 0.38,
+      "makespan": 90
+    },
+    "J3045_2.RCP": {
+      "cpu_time": 0.27,
+      "makespan": 125
+    },
+    "J3045_3.RCP": {
+      "cpu_time": 0.6,
+      "makespan": 92
+    },
+    "J3045_4.RCP": {
+      "cpu_time": 2.17,
+      "makespan": 84
+    },
+    "J3045_5.RCP": {
+      "cpu_time": 0.62,
+      "makespan": 86
+    },
+    "J3045_6.RCP": {
+      "cpu_time": 1.62,
+      "makespan": 129
+    },
+    "J3045_7.RCP": {
+      "cpu_time": 2.08,
+      "makespan": 101
+    },
+    "J3045_8.RCP": {
+      "cpu_time": 0.37,
+      "makespan": 94
+    },
+    "J3045_9.RCP": {
+      "cpu_time": 8.32,
+      "makespan": 82
+    },
+    "J3046_1.RCP": {
+      "cpu_time": 0.15,
+      "makespan": 59
+    },
+    "J3046_10.RCP": {
+      "cpu_time": 1.39,
+      "makespan": 55
+    },
+    "J3046_2.RCP": {
+      "cpu_time": 1.73,
+      "makespan": 67
+    },
+    "J3046_3.RCP": {
+      "cpu_time": 0.59,
+      "makespan": 65
+    },
+    "J3046_4.RCP": {
+      "cpu_time": 0.09,
+      "makespan": 64
+    },
+    "J3046_5.RCP": {
+      "cpu_time": 0.34,
+      "makespan": 57
+    },
+    "J3046_6.RCP": {
+      "cpu_time": 1.7,
+      "makespan": 59
+    },
+    "J3046_7.RCP": {
+      "cpu_time": 5.89,
+      "makespan": 59
+    },
+    "J3046_8.RCP": {
+      "cpu_time": 0.6,
+      "makespan": 58
+    },
+    "J3046_9.RCP": {
+      "cpu_time": 0.25,
+      "makespan": 49
+    },
+    "J3047_1.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 58
+    },
+    "J3047_10.RCP": {
+      "cpu_time": 0.39,
+      "makespan": 60
+    },
+    "J3047_2.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 59
+    },
+    "J3047_3.RCP": {
+      "cpu_time": 0.06,
+      "makespan": 55
+    },
+    "J3047_4.RCP": {
+      "cpu_time": 0.03,
+      "makespan": 49
+    },
+    "J3047_5.RCP": {
+      "cpu_time": 0.04,
+      "makespan": 47
+    },
+    "J3047_6.RCP": {
+      "cpu_time": 0.22,
+      "makespan": 53
+    },
+    "J3047_7.RCP": {
+      "cpu_time": 0.06,
+      "makespan": 66
+    },
+    "J3047_8.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 48
+    },
+    "J3047_9.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 65
+    },
+    "J3048_1.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 63
+    },
+    "J3048_10.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 54
+    },
+    "J3048_2.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 54
+    },
+    "J3048_3.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 50
+    },
+    "J3048_4.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 57
+    },
+    "J3048_5.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 58
+    },
+    "J3048_6.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 58
+    },
+    "J3048_7.RCP": {
+      "cpu_time": 0.0,
+      "makespan": 55
+    },
+    "J3048_8.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 44
+    },
+    "J3048_9.RCP": {
+      "cpu_time": 0.0,
+      "makespan": 59
+    },
+    "J304_1.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 49
+    },
+    "J304_10.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 48
+    },
+    "J304_2.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 60
+    },
+    "J304_3.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 47
+    },
+    "J304_4.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 57
+    },
+    "J304_5.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 59
+    },
+    "J304_6.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 45
+    },
+    "J304_7.RCP": {
+      "cpu_time": 0.0,
+      "makespan": 56
+    },
+    "J304_8.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 55
+    },
+    "J304_9.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 38
+    },
+    "J305_1.RCP": {
+      "cpu_time": 2.81,
+      "makespan": 53
+    },
+    "J305_10.RCP": {
+      "cpu_time": 2.84,
+      "makespan": 70
+    },
+    "J305_2.RCP": {
+      "cpu_time": 2.21,
+      "makespan": 82
+    },
+    "J305_3.RCP": {
+      "cpu_time": 3.06,
+      "makespan": 76
+    },
+    "J305_4.RCP": {
+      "cpu_time": 34.63,
+      "makespan": 63
+    },
+    "J305_5.RCP": {
+      "cpu_time": 0.17,
+      "makespan": 76
+    },
+    "J305_6.RCP": {
+      "cpu_time": 10.32,
+      "makespan": 64
+    },
+    "J305_7.RCP": {
+      "cpu_time": 37.06,
+      "makespan": 76
+    },
+    "J305_8.RCP": {
+      "cpu_time": 4.33,
+      "makespan": 67
+    },
+    "J305_9.RCP": {
+      "cpu_time": 6.03,
+      "makespan": 49
+    },
+    "J306_1.RCP": {
+      "cpu_time": 0.4,
+      "makespan": 59
+    },
+    "J306_10.RCP": {
+      "cpu_time": 0.57,
+      "makespan": 61
+    },
+    "J306_2.RCP": {
+      "cpu_time": 1.44,
+      "makespan": 51
+    },
+    "J306_3.RCP": {
+      "cpu_time": 0.37,
+      "makespan": 48
+    },
+    "J306_4.RCP": {
+      "cpu_time": 2.46,
+      "makespan": 42
+    },
+    "J306_5.RCP": {
+      "cpu_time": 0.1,
+      "makespan": 67
+    },
+    "J306_6.RCP": {
+      "cpu_time": 0.04,
+      "makespan": 37
+    },
+    "J306_7.RCP": {
+      "cpu_time": 0.23,
+      "makespan": 46
+    },
+    "J306_8.RCP": {
+      "cpu_time": 0.36,
+      "makespan": 39
+    },
+    "J306_9.RCP": {
+      "cpu_time": 0.23,
+      "makespan": 51
+    },
+    "J307_1.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 55
+    },
+    "J307_10.RCP": {
+      "cpu_time": 0.16,
+      "makespan": 49
+    },
+    "J307_2.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 42
+    },
+    "J307_3.RCP": {
+      "cpu_time": 0.03,
+      "makespan": 42
+    },
+    "J307_4.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 44
+    },
+    "J307_5.RCP": {
+      "cpu_time": 0.26,
+      "makespan": 44
+    },
+    "J307_6.RCP": {
+      "cpu_time": 0.02,
+      "makespan": 35
+    },
+    "J307_7.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 50
+    },
+    "J307_8.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 44
+    },
+    "J307_9.RCP": {
+      "cpu_time": 0.03,
+      "makespan": 60
+    },
+    "J308_1.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 44
+    },
+    "J308_10.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 67
+    },
+    "J308_2.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 51
+    },
+    "J308_3.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 53
+    },
+    "J308_4.RCP": {
+      "cpu_time": 0.0,
+      "makespan": 48
+    },
+    "J308_5.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 58
+    },
+    "J308_6.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 47
+    },
+    "J308_7.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 41
+    },
+    "J308_8.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 51
+    },
+    "J308_9.RCP": {
+      "cpu_time": 0.01,
+      "makespan": 39
+    },
+    "J309_1.RCP": {
+      "cpu_time": 423.46,
+      "makespan": 83
+    },
+    "J309_10.RCP": {
+      "cpu_time": 64.67,
+      "makespan": 88
+    },
+    "J309_2.RCP": {
+      "cpu_time": 27.74,
+      "makespan": 92
+    },
+    "J309_3.RCP": {
+      "cpu_time": 59.56,
+      "makespan": 68
+    },
+    "J309_4.RCP": {
+      "cpu_time": 91.77,
+      "makespan": 71
+    },
+    "J309_5.RCP": {
+      "cpu_time": 3.59,
+      "makespan": 70
+    },
+    "J309_6.RCP": {
+      "cpu_time": 29.45,
+      "makespan": 59
+    },
+    "J309_7.RCP": {
+      "cpu_time": 144.04,
+      "makespan": 63
+    },
+    "J309_8.RCP": {
+      "cpu_time": 14.26,
+      "makespan": 91
+    },
+    "J309_9.RCP": {
+      "cpu_time": 39.98,
+      "makespan": 63
+    }
+  },
+  "source": "j30opt.sm"
+}
