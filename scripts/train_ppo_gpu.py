@@ -37,7 +37,11 @@ if str(SRC_PATH) not in sys.path:
 from rcpsp_bb_rl.data.dataset import list_instance_paths  # noqa: E402
 from rcpsp_bb_rl.data.parsing import load_instance  # noqa: E402
 from rcpsp_bb_rl.ml.models import BranchingTransformer, load_policy_checkpoint, save_policy_checkpoint  # noqa: E402
-from rcpsp_bb_rl.ml.il.featurize import global_feature_dim, candidate_feature_dim, critic_feature_dim  # noqa: E402
+from rcpsp_bb_rl.ml.il.featurize import (  # noqa: E402
+    global_feature_dim, candidate_feature_dim, critic_feature_dim,
+    set_global_feature_dim, set_candidate_feature_dim,
+    set_resource_feature_dim, set_interaction_feature_dim,
+)
 from rcpsp_bb_rl.ml.estimator import load_estimator_checkpoint, predict_difficulty  # noqa: E402
 from rcpsp_bb_rl.ml.rl import BranchingEnv  # noqa: E402
 from rcpsp_bb_rl.ml.rl.ranking_policy import (  # noqa: E402
@@ -49,6 +53,7 @@ from rcpsp_bb_rl.ml.rl.tree_return import (  # noqa: E402
     compute_episode_advantages_decoupled,
     make_cost_reward_fn,
     make_bonus_reward_fn,
+    validate_incumbent_bonus_config,
 )
 from rcpsp_bb_rl.bnb.branching_order import make_order_fn  # noqa: E402
 from rcpsp_bb_rl.bnb.solver import BnBSolver  # noqa: E402
@@ -93,9 +98,15 @@ class ActorCritic(nn.Module):
         global_feats: torch.Tensor,
         action_mask: Optional[torch.Tensor] = None,
         critic_feats: Optional[torch.Tensor] = None,
+        resource_feats: Optional[torch.Tensor] = None,
+        candidate_resource_feats: Optional[torch.Tensor] = None,
+        resource_mask: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Returns (logits [R], value scalar). Unbatched."""
-        return self.model(candidate_feats, global_feats, action_mask, critic_feats)
+        return self.model(
+            candidate_feats, global_feats, action_mask, critic_feats,
+            resource_feats, candidate_resource_feats, resource_mask,
+        )
 
     def get_ranking_and_value(
         self,
@@ -115,7 +126,11 @@ class ActorCritic(nn.Module):
         if critic is not None:
             critic = critic.to(device)
 
-        logits, value = self.forward(cand, glob, mask, critic)
+        kwargs = {"resource_feats": obs.get("resource_feats"),
+                  "candidate_resource_feats": obs.get("candidate_resource_feats"),
+                  "resource_mask": obs.get("resource_mask")}
+        kwargs = {k: v.to(device) for k, v in kwargs.items() if v is not None}
+        logits, value = self.model(cand, glob, mask, critic, **kwargs)
         ranking_action = make_ranking_action(logits, mask, sample=True)
         return ranking_action, value
 
@@ -127,7 +142,7 @@ class ActorCritic(nn.Module):
 def batch_observations(
     obs_list: List[Dict[str, torch.Tensor]],
     device: torch.device,
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, List[int]]:
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, Optional[torch.Tensor], torch.Tensor, List[int], Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor]]:
     """
     Pad a list of variable-length observations into batched tensors.
 
@@ -153,6 +168,17 @@ def batch_observations(
     pad_mask = torch.zeros(B, R_max, dtype=torch.bool, device=device)
     critic_batch = torch.zeros(B, Fk, device=device) if Fk > 0 else None
 
+    has_resources = "resource_feats" in obs_list[0]
+    resource_batch = interaction_batch = resource_mask_batch = None
+    if has_resources:
+        resource_lens = [obs["resource_feats"].shape[0] for obs in obs_list]
+        M_max = max(resource_lens)
+        Fr = obs_list[0]["resource_feats"].shape[1]
+        Fi = obs_list[0]["candidate_resource_feats"].shape[2]
+        resource_batch = torch.zeros(B, M_max, Fr, device=device)
+        interaction_batch = torch.zeros(B, R_max, M_max, Fi, device=device)
+        resource_mask_batch = torch.zeros(B, M_max, dtype=torch.bool, device=device)
+
     for i, obs in enumerate(obs_list):
         R_i = seq_lens[i]
         cand_batch[i, :R_i] = obs["candidate_feats"]
@@ -161,8 +187,15 @@ def batch_observations(
         pad_mask[i, :R_i] = True
         if critic_batch is not None and "critic_feats" in obs:
             critic_batch[i] = obs["critic_feats"]
+        if has_resources:
+            M_i = obs["resource_feats"].shape[0]
+            resource_batch[i, :M_i] = obs["resource_feats"].to(device)
+            interaction_batch[i, :R_i, :M_i] = obs["candidate_resource_feats"].to(device)
+            resource_mask_batch[i, :M_i] = obs.get(
+                "resource_mask", torch.ones(M_i, dtype=torch.bool)
+            ).to(device)
 
-    return cand_batch, glob_batch, mask_batch, critic_batch, pad_mask, seq_lens
+    return cand_batch, glob_batch, mask_batch, critic_batch, pad_mask, seq_lens, resource_batch, interaction_batch, resource_mask_batch
 
 
 def compute_ranking_log_probs_entropy(
@@ -557,6 +590,7 @@ def evaluate(
     model: BranchingTransformer,
     instance_paths: List[Path],
     max_resources: int,
+    resource_encoder: str,
     time_limit_s: float,
     dominance: str,
     device: torch.device,
@@ -581,6 +615,7 @@ def evaluate(
             instance=instance,
             model=model,
             max_resources=max_resources,
+            resource_encoder=resource_encoder,
             device=device,
             predecessors=solver.predecessors,
         )
@@ -681,6 +716,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "pattern": "*.rcp",
     "max_instances": None,
     "max_resources": 4,
+    "resource_encoder": "legacy_flat",
     "dominance": "set_based",
     # Model
     "d_model": 64,
@@ -725,8 +761,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "time_limit_s": 60.0,
     # Reward
     "alpha": 0.01,          # static node-cost coef; used only when estimator_path is null
-    "beta1": 1.0,
-    "beta2": 1.0,
+    "beta1": 1.0,           # first quality L/C; must equal beta2
+    "beta2": 1.0,           # quality gain L/C_new - L/C_prev; must equal beta1
     # Dynamic reward scaling: when estimator_path is set, the node-cost coef is
     # computed per instance as alpha(I) = clip(c_target / N_hat(I), alpha_min,
     # alpha_max), where N_hat is the search-effort estimator's prediction. This
@@ -762,6 +798,22 @@ def main() -> None:
     args = parse_args()
     config = DEFAULT_CONFIG.copy()
     config.update(load_json(Path(args.config)))
+
+    # Validate the quality-reward invariant before loading data/models or
+    # creating output files. Both components must share one weight, and their
+    # subtree backup must be undiscounted, for intermediate bonuses to cancel.
+    beta1 = float(config["beta1"])
+    beta2 = float(config["beta2"])
+    tree_gamma = float(config["tree_gamma"])
+    tree_gamma_cost = float(
+        config["tree_gamma_cost"] if config["tree_gamma_cost"] is not None else tree_gamma
+    )
+    tree_gamma_bonus = float(
+        config["tree_gamma_bonus"] if config["tree_gamma_bonus"] is not None else tree_gamma
+    )
+    validate_incumbent_bonus_config(
+        beta1=beta1, beta2=beta2, gamma_bonus=tree_gamma_bonus,
+    )
 
     # --- Optional log file ---
     if args.log:
@@ -808,9 +860,11 @@ def main() -> None:
         }
 
     # --- Model ---
-    max_resources = int(config["max_resources"])
-    global_dim = global_feature_dim(max_resources)
-    candidate_dim = candidate_feature_dim(max_resources)
+    resource_encoder = str(config.get("resource_encoder", "legacy_flat")).strip().lower()
+    use_set_encoder = resource_encoder == "set"
+    max_resources = int(config.get("max_resources", 4))
+    global_dim = set_global_feature_dim() if use_set_encoder else global_feature_dim(max_resources)
+    candidate_dim = set_candidate_feature_dim() if use_set_encoder else candidate_feature_dim(max_resources)
     critic_dim = critic_feature_dim()
 
     saved_value_norm: Optional[Dict[str, Any]] = None
@@ -821,6 +875,12 @@ def main() -> None:
             critic_feature_dim=critic_dim, return_value_norm=True,
         )
         base_model, saved_value_norm = loaded_checkpoint
+        if use_set_encoder != bool(getattr(base_model, "resource_set_enabled", False)):
+            raise ValueError(
+                "PPO resource_encoder does not match the BC checkpoint schema. "
+                "Train BC with resource_encoder='set' before using the variable-resource PPO path, "
+                "or select resource_encoder='legacy_flat' for the old checkpoint."
+            )
     else:
         print("No BC checkpoint — initialising from scratch.")
         base_model = BranchingTransformer(
@@ -832,6 +892,8 @@ def main() -> None:
             ffn_dim=int(config["ffn_dim"]),
             dropout=float(config["dropout"]),
             critic_feature_dim=critic_dim,
+            resource_feature_dim=set_resource_feature_dim() if use_set_encoder else 0,
+            interaction_feature_dim=set_interaction_feature_dim() if use_set_encoder else 0,
         )
 
     ac = ActorCritic(base_model).to(device)
@@ -863,13 +925,6 @@ def main() -> None:
     ppo_epochs = int(config["ppo_epochs"])
     target_mb_size = int(config["target_mb_size"])
     clip_eps = float(config["clip_eps"])
-    tree_gamma = float(config["tree_gamma"])
-    tree_gamma_cost = float(
-        config["tree_gamma_cost"] if config["tree_gamma_cost"] is not None else tree_gamma
-    )
-    tree_gamma_bonus = float(
-        config["tree_gamma_bonus"] if config["tree_gamma_bonus"] is not None else tree_gamma
-    )
     tree_keep_open = bool(config["tree_keep_open"])
     min_batch_size = int(config["min_batch_size"])
     min_episodes = int(config["min_episodes"])
@@ -882,8 +937,6 @@ def main() -> None:
     incumbent_window = int(config["incumbent_window"])
     subsample_rng = random.Random(int(config["seed"]) + 1)
     alpha = float(config["alpha"])
-    beta1 = float(config["beta1"])
-    beta2 = float(config["beta2"])
 
     # --- Dynamic node-cost scaling ---
     estimator = None
@@ -925,6 +978,7 @@ def main() -> None:
     env = BranchingEnv(
         instance_source=instance_paths[0],
         max_resources=max_resources,
+        resource_encoder=resource_encoder,
         time_limit_s=time_limit_s,
         dominance=dominance,
     )
@@ -1373,12 +1427,13 @@ def main() -> None:
 
                 # Batched forward pass
                 mb_obs_list = [buffer.obs[i] for i in mb_idx]
-                cand_b, glob_b, mask_b, critic_b, pad_b, _ = batch_observations(
+                cand_b, glob_b, mask_b, critic_b, pad_b, _, resource_b, interaction_b, resource_mask_b = batch_observations(
                     mb_obs_list, device
                 )
 
                 logits_b, values_b = ac.model.forward_batch(
-                    cand_b, glob_b, mask_b, critic_b, pad_b
+                    cand_b, glob_b, mask_b, critic_b, pad_b,
+                    resource_b, interaction_b, resource_mask_b,
                 )
 
                 # Complete Plackett-Luce action likelihood and entropy.
@@ -1541,6 +1596,7 @@ def main() -> None:
                 model=ac.model,
                 instance_paths=eval_paths,
                 max_resources=max_resources,
+                resource_encoder=resource_encoder,
                 time_limit_s=float(config["eval_time_limit_s"]),
                 dominance=dominance,
                 device=device,
@@ -1594,6 +1650,7 @@ def main() -> None:
             model=ac.model,
             instance_paths=eval_paths,
             max_resources=max_resources,
+            resource_encoder=resource_encoder,
             time_limit_s=float(config["eval_time_limit_s"]),
             dominance=dominance,
             device=device,

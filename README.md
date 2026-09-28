@@ -6,7 +6,7 @@ A learned branching policy for the Resource-Constrained Project Scheduling Probl
 
 RCPSP is the problem of scheduling a set of activities with known durations, precedence constraints, and resource requirements to minimize project makespan (Blazewicz et al., 1983). We utlize the branch and bound procedure in solving this problem where we specifcially learn a branching policy to optimize search. A robust branching policy drastically reduces the search tree, enables aggressive pruning and faster convergence. We show that a machine learning policy outperforms classic branching order methods leading to better optimal search. 
 
-We train a transformer-based branching policy in two stages: supervised imitation learning on optimal trajectories from OR-Tools CP-SAT, followed by PPO reinforcement learning to improve late-search navigation.
+We train a transformer-based branching policy in two stages: supervised imitation learning on optimal trajectories from OR-Tools CP-SAT, followed by PPO reinforcement learning to improve efficient search navigation.
 
 ## Layout
 
@@ -78,3 +78,19 @@ python scripts/run_bnb.py --config config/run_bnb.json
 `config/train_bc.json` — BC training: trajectory directory, model architecture, learning rate, epochs.
 
 `config/train_ppo.json` — PPO training: BC checkpoint, reward coefficients, rollout and update settings.
+
+### Incumbent rewards in PPO
+
+`scripts/train_ppo_gpu.py` uses the fixed root lower bound `L` to score an
+incumbent of makespan `C` as `Q(C) = L / C`. The first incumbent earns
+`beta1 * Q(first)`; each later incumbent earns
+`beta2 * (Q(new) - Q(previous))`. Training requires `beta1 == beta2 >= 0`
+and `tree_gamma_bonus = 1.0`, so the cumulative incumbent reward equals
+`beta1 * Q(final)` regardless of intermediate solutions. For example, with
+`L = 80` and both weights equal to 1, both `100` and `160 -> 125 -> 100`
+earn a total of `0.8`. Separate first/incumbent-improvement logs are retained.
+
+Both `config/train_ppo_gpu.json` and `config/train_ppo_gpu_oracle.json` already
+use these settings. Node-cost rewards retain their existing scaling and
+discount. The new bonuses apply to subsequent PPO training; existing
+checkpoints are not changed by updating the reward code.

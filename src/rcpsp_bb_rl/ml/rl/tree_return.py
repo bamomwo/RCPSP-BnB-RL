@@ -16,11 +16,34 @@ open (closed=False). The training loop decides what to do with them.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Mapping, Optional
 
 # A per-node reward function: maps one node dict to its immediate reward r(n).
 RewardFn = Callable[[Mapping[str, object]], float]
+
+
+def validate_incumbent_bonus_config(
+    *, beta1: float, beta2: float, gamma_bonus: float,
+) -> None:
+    """Keep PPO's combined incumbent reward independent of intermediate solutions.
+
+    Component-only reward functions remain available for logging; these
+    constraints apply to the combined reward used for training.
+    """
+    if not math.isfinite(beta1) or not math.isfinite(beta2) or beta1 < 0 or beta2 < 0:
+        raise ValueError("beta1 and beta2 must be finite and non-negative.")
+    if beta1 != beta2:
+        raise ValueError(
+            "beta1 and beta2 must be equal so cumulative incumbent bonuses "
+            "depend only on final incumbent quality."
+        )
+    if gamma_bonus != 1.0:
+        raise ValueError(
+            "tree_gamma_bonus must be 1.0 so incumbent quality gains "
+            "remain undiscounted."
+        )
 
 
 def make_cost_reward_fn(*, alpha: float) -> RewardFn:
@@ -48,12 +71,16 @@ def make_bonus_reward_fn(
     """
     Incumbent-bonus channel: positive bonuses on incumbent nodes, zero elsewhere.
 
-    Components:
-      1. First incumbent: beta1 * (root_lb / first_incumbent_makespan)
-      2. Each later improvement: beta2 * (prev - new) / prev
+    With a fixed root lower bound L, define incumbent quality Q(C) = L / C:
+      1. First incumbent: beta1 * Q(first)
+      2. Each later improvement: beta2 * (Q(new) - Q(previous))
 
-    This channel is kept undiscounted (gamma_bonus=1.0) since an incumbent is a
-    path quantity — every ancestor contributed equally to reaching it.
+    When beta1 == beta2 == beta, the sum telescopes to beta * Q(final),
+    regardless of the first incumbent or the number of intermediate solutions.
+    PPO keeps this channel undiscounted (gamma_bonus=1.0). Separate weights
+    are retained to isolate components for logging, not to tune them separately
+    during training. A missing or zero root bound gives no quality bonus;
+    non-positive/missing makespans are skipped to avoid undefined quality.
     """
     nodes: List[Mapping[str, object]] = list(tree.get("nodes", [])) if tree else []  # type: ignore[arg-type]
 
@@ -66,23 +93,24 @@ def make_bonus_reward_fn(
     )
 
     bonus: Dict[int, float] = {}
-    prev_mk: Optional[float] = None
-    for i, n in enumerate(inc_nodes):
+    prev_quality: Optional[float] = None
+    for n in inc_nodes:
         nid = int(n["id"])  # type: ignore[index]
         mk = n.get("makespan")
         if mk is None:
             # Defensive: an incumbent node should always carry a makespan.
             continue
         mk = float(mk)
-        if i == 0:
+        if mk <= 0 or root_lb is None:
+            continue
+        quality = float(root_lb) / mk
+        if prev_quality is None:
             # Component 1: strength of the FIRST incumbent.
-            if beta1 and root_lb is not None and mk > 0:
-                bonus[nid] = bonus.get(nid, 0.0) + beta1 * (float(root_lb) / mk)
+            bonus[nid] = beta1 * quality
         else:
-            # Component 2: relative improvement over the previous incumbent.
-            if beta2 and prev_mk is not None and prev_mk > 0:
-                bonus[nid] = bonus.get(nid, 0.0) + beta2 * ((prev_mk - mk) / prev_mk)
-        prev_mk = mk
+            # Component 2: only the quality gain not already rewarded.
+            bonus[nid] = beta2 * (quality - prev_quality)
+        prev_quality = quality
 
     def reward_fn(node: Mapping[str, object]) -> float:
         return bonus.get(int(node["id"]), 0.0)  # type: ignore[index]

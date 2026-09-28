@@ -522,6 +522,7 @@ def _run(args: argparse.Namespace, outputs: ExitStack) -> None:
     policy_model = None
     policy_device = None
     policy_max_resources = int(config.get("policy_max_resources", 4))
+    policy_resource_encoder = str(config.get("policy_resource_encoder", "legacy_flat"))
     if branch_order == "policy":
         policy_path = config.get("policy_path")
         if not policy_path:
@@ -534,6 +535,10 @@ def _run(args: argparse.Namespace, outputs: ExitStack) -> None:
             torch.set_num_threads(1)
         policy_device = _resolve_device(requested_device)
         policy_model = load_policy_checkpoint(str(policy_path), device=policy_device)
+        if policy_resource_encoder == "set" and not getattr(policy_model, "resource_set_enabled", False):
+            raise ValueError("policy_resource_encoder='set' requires a resource-set checkpoint")
+        if policy_resource_encoder == "legacy_flat" and getattr(policy_model, "resource_set_enabled", False):
+            policy_resource_encoder = "set"
 
     rows: List[Dict[str, object]] = []
     debug_lines: List[str] = []
@@ -586,6 +591,7 @@ def _run(args: argparse.Namespace, outputs: ExitStack) -> None:
                 instance=instance,
                 model=policy_model,
                 max_resources=policy_max_resources,
+                resource_encoder=policy_resource_encoder,
                 device=policy_device,
                 predecessors=solver.predecessors,
             )
