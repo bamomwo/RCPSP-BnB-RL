@@ -62,7 +62,7 @@ from rcpsp_bb_rl.data.dataset import list_instance_paths  # noqa: E402
 from rcpsp_bb_rl.data.parsing import RCPSPInstance, load_instance  # noqa: E402
 
 
-SUPPORTED_BRANCHING_ORDERS = {"activity_id", "lower_bound", "policy"}
+SUPPORTED_BRANCHING_ORDERS = {"activity_id", "lower_bound", "mtw", "random", "policy"}
 DEFAULT_INSTANCE_PATTERNS = ("*.rcp",)
 
 
@@ -565,6 +565,7 @@ def _run(args: argparse.Namespace, outputs: ExitStack) -> None:
         print("\n".join(lines), flush=True)
 
     progress_every = max(0, int(config.get("progress_every", 1)))
+    random_seed = int(config.get("random_seed", 0))
 
     for position, (path, record) in enumerate(selected, start=1):
         external_lb = record.external_lower_bound
@@ -602,6 +603,13 @@ def _run(args: argparse.Namespace, outputs: ExitStack) -> None:
                 predecessors=solver.predecessors,
                 lb_id=lb_spec,
             )
+        elif branch_order == "mtw":
+            order_fn = make_order_fn(
+                "mtw",
+                instance=instance,
+            )
+        elif branch_order == "random":
+            order_fn = make_order_fn("random", seed=random_seed)
 
         if args.debug:
             emit_debug([
@@ -770,6 +778,8 @@ def _run(args: argparse.Namespace, outputs: ExitStack) -> None:
     emit(f"  baseline JSON       : {baseline.path}")
     emit(f"  benchmark set       : {baseline.family}")
     emit(f"  branching order     : {branch_order}")
+    if branch_order == "random":
+        emit(f"  random seed         : {random_seed}")
     emit("  search strategy     : upper-bound search")
     emit(f"  internal lower bound: {format_lower_bound_spec(lb_spec)}")
     emit("  effective node bound: max(external LB, internal node LB)")

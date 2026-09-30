@@ -25,8 +25,10 @@ from rcpsp_bb_rl.bnb.branching import (
 )
 from rcpsp_bb_rl.bnb.branching_order import (
     make_lower_bound_order_fn,
+    make_mtw_order_fn,
     make_order_fn,
     make_policy_order_fn,
+    make_random_order_fn,
     order_by_activity_id,
 )
 from rcpsp_bb_rl.bnb.lower_bounds import (
@@ -60,6 +62,8 @@ __all__ = [
     "SerialBranchingScheme",
     "order_by_activity_id",
     "make_lower_bound_order_fn",
+    "make_mtw_order_fn",
+    "make_random_order_fn",
     "make_policy_order_fn",
     "make_order_fn",
     "build_predecessors",

@@ -1,6 +1,6 @@
 {
-  "trajectories_dir": "data/train/trajectories/1kNetRes",
-  "instances_dir": "data/train/1kNetRes",
+  "trajectories_dir": "data/train/trajectories/trainM",
+  "instances_dir": "data/train/trainM",
   "instances_pattern": "*.rcp",
   "pattern": "*.jsonl",
   "batch_size": 64,
@@ -12,7 +12,7 @@
   "dropout": 0.1,
   "val_frac": 0.3,
   "resource_encoder": "set",
-  "output": "models/policy_bc.pt",
+  "output": "models/policy_bcM.pt",
   "seed": 42,
   "patience": 10,
   "min_epochs": 5
