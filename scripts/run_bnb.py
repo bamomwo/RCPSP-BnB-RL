@@ -31,7 +31,7 @@ REQUIRED_CONFIG_KEYS: set = set()
 # Glob(s) used to discover instances under --root when the config omits "patterns".
 DEFAULT_INSTANCE_PATTERNS = ("*.rcp",)
 
-SUPPORTED_BRANCHING_ORDERS = {"activity_id", "lower_bound", "policy"}
+SUPPORTED_BRANCHING_ORDERS = {"activity_id", "lower_bound", "mtw", "random", "policy"}
 
 OPTIONAL_CONFIG_KEYS = {
     "max_nodes",
@@ -41,6 +41,7 @@ OPTIONAL_CONFIG_KEYS = {
     "policy_path",
     "policy_device",
     "policy_max_resources",
+    "random_seed",
     "dominance",
     "progress_every",
     "limit",
@@ -460,6 +461,7 @@ def main() -> None:
     progress_every = int(cfg.get("progress_every", 1))
     if progress_every <= 0:
         progress_every = 0
+    random_seed = int(cfg.get("random_seed", 0))
 
     policy_model = None
     device = None
@@ -498,6 +500,13 @@ def main() -> None:
                 predecessors=order_context_solver.predecessors,
                 lb_id=lb_spec,
             )
+        elif branch_order == "mtw":
+            order_fn = make_order_fn(
+                "mtw",
+                instance=instance,
+            )
+        elif branch_order == "random":
+            order_fn = make_order_fn("random", seed=random_seed)
 
         def solver_pass(
             *,
@@ -716,6 +725,8 @@ def main() -> None:
     emit("")
     emit("Configuration")
     emit(f"  branching order    : {branch_order}")
+    if branch_order == "random":
+        emit(f"  random seed        : {random_seed}")
     emit(f"  search strategy    : {search_strategy}")
     emit(f"  lower bound        : {format_lower_bound_spec(lb_spec)}")
     emit(f"  dominance          : {format_dominance_spec(dominance_spec)}")
