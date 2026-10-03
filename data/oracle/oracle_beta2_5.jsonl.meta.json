@@ -1,0 +1,30 @@
+{
+  "done_reason_counts": {
+    "search_exhausted": 949,
+    "time_limit": 1564
+  },
+  "episode_count": 2513,
+  "key": [
+    "episode",
+    "instance"
+  ],
+  "node_count_definition": "Realized BnBSolver.nodes_expanded at episode completion, including time_limit episodes; it is the 120-second training-horizon effort target.",
+  "purpose": "Episode-indexed horizon-bounded B&B node-count reference for oracle alpha.",
+  "schema_version": 1,
+  "seed": 42,
+  "source_log": "models/train-oracle-va-2048-beta2-5/policy_ppo_train_log.txt",
+  "source_log_sha256": "4e03404e5671b4d048481558907b035151a313bf3caaeb77dd2b640263427c98",
+  "source_run": {
+    "action_contract": "plackett_luce_full_ranking",
+    "beta1": 1.0,
+    "beta2": 5.0,
+    "name": "full_ranking_beta2_5",
+    "ppo_action": "complete_feasible_order",
+    "time_limit_s": 120.0
+  },
+  "validation": {
+    "episode_ids_contiguous": true,
+    "nodes_equal_steps": true,
+    "parser": "scripts/extract_oracle_node_counts.py"
+  }
+}
