@@ -79,6 +79,20 @@ python scripts/run_bnb.py --config config/run_bnb.json
 
 `config/train_ppo.json` — PPO training: BC checkpoint, reward coefficients, rollout and update settings.
 
+### Evaluation during GPU PPO training
+
+In `scripts/train_ppo_gpu.py`, set `eval_every_updates` to a positive integer
+to evaluate and save a checkpoint after that many complete PPO updates. This
+setting overrides `eval_every_steps`; omitting it or using `null` keeps
+evaluation based on environment steps, checked after each PPO update.
+
+`config/train_ppo_gpu_oracle.json` uses `eval_every_updates: 1` for the
+600-second training episodes. Each evaluation still uses its own
+`eval_time_limit_s` budget. Evaluation JSON records and checkpoint metadata
+include both `step` and `update`; the best model is selected by mean gap.
+The final evaluation is skipped when the latest policy was already evaluated,
+including when training ends with a partially collected batch and no new update.
+
 ### Incumbent rewards in PPO
 
 `scripts/train_ppo_gpu.py` uses the fixed root lower bound `L` to score an

@@ -777,6 +777,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "alpha_max": 0.5,
     # Eval
     "eval_every_steps": 20_000,
+    "eval_every_updates": None,  # positive integer overrides eval_every_steps
     "eval_root": None,
     "eval_pattern": "*.rcp",
     "eval_time_limit_s": 60.0,
@@ -798,6 +799,20 @@ def main() -> None:
     args = parse_args()
     config = DEFAULT_CONFIG.copy()
     config.update(load_json(Path(args.config)))
+
+    # Update-based evaluation takes precedence over the legacy step interval.
+    eval_every_updates = config["eval_every_updates"]
+    if eval_every_updates is not None and (
+        isinstance(eval_every_updates, bool)
+        or not isinstance(eval_every_updates, int)
+        or eval_every_updates <= 0
+    ):
+        raise ValueError("eval_every_updates must be a positive integer or null.")
+    eval_every_steps = (
+        int(config["eval_every_steps"]) if eval_every_updates is None else None
+    )
+    if eval_every_steps is not None and eval_every_steps <= 0:
+        raise ValueError("eval_every_steps must be positive when eval_every_updates is null.")
 
     # Validate the reward-channel configuration before loading data/models or
     # creating output files. The two weights are independent; only the bonus
@@ -971,7 +986,6 @@ def main() -> None:
     huber_delta = float(config["huber_delta"])
     max_grad_norm = float(config["max_grad_norm"])
     target_kl = config.get("target_kl")
-    eval_every = int(config["eval_every_steps"])
     time_limit_s = float(config["time_limit_s"])
     dominance = str(config["dominance"])
 
@@ -988,10 +1002,10 @@ def main() -> None:
     global_step = 0
     update_count = 0
     episode_count = 0
-    next_eval_step = eval_every
+    next_eval_step = eval_every_steps
     best_mean_gap = float("inf")
     eval_log: List[Dict] = []
-    last_eval_step = -1
+    last_eval_update = -1
     ret_rms = RunningMeanStd()
     if saved_value_norm is not None:
         has_count = ret_rms.load_state_dict(saved_value_norm)
@@ -1031,6 +1045,10 @@ def main() -> None:
     print(f"  PPO Training (GPU-batched update, min_batch_size={min_batch_size}, min_episodes={min_episodes})")
     print(f"  total_steps={total_env_steps:,}  backup=tree(cost_gamma={tree_gamma_cost},bonus_gamma={tree_gamma_bonus})  train_instances={len(instance_paths)}  eval_instances={len(eval_paths)}")
     print(f"  clip_eps={clip_eps}  ent_coef={ent_coef_start}->{ent_coef_end} (linear decay)")
+    if eval_every_updates is not None:
+        print(f"  evaluation every {eval_every_updates} PPO update(s)")
+    else:
+        print(f"  evaluation every {eval_every_steps:,} environment steps (after a PPO update)")
     print("  action_order=plackett_luce_full_ranking  ppo_action=complete_feasible_order")
     cap_desc = "off" if episode_transition_cap is None else str(episode_transition_cap)
     print(f"  episode_cap={cap_desc}  stratify={stratify_time_bands}x{stratify_depth_bands} (time x rel-depth)  incumbent_window={incumbent_window}")
@@ -1588,10 +1606,18 @@ def main() -> None:
         episode_records.clear()
         accumulated_valid = 0
 
-        # ---- Periodic evaluation ----
-        if eval_paths and optimal_makespans and global_step >= next_eval_step:
-            next_eval_step += eval_every
-            last_eval_step = global_step
+        # ---- Periodic evaluation (only after a completed PPO update) ----
+        eval_due = (
+            update_count % eval_every_updates == 0
+            if eval_every_updates is not None
+            else global_step >= next_eval_step
+        )
+        if eval_paths and optimal_makespans and eval_due:
+            if eval_every_updates is None:
+                # A long batch can cross several step thresholds. Evaluate its
+                # policy once, then advance to the next future threshold.
+                next_eval_step = (global_step // eval_every_steps + 1) * eval_every_steps
+            last_eval_update = update_count
             ac.eval()
             metrics = evaluate(
                 model=ac.model,
@@ -1611,13 +1637,14 @@ def main() -> None:
             print(
                 f"[Checkpoint] "
                 f"steps={global_step}  "
+                f"update={update_count}  "
                 f"solved={metrics['solved_frac']*100:.1f}%  "
                 f"gap={metrics['mean_gap']:.2f}%  "
                 f"nodes={metrics['mean_nodes']:.0f}"
                 f"{best_tag}"
             )
 
-            log_entry = {"step": global_step, **metrics}
+            log_entry = {"step": global_step, "update": update_count, **metrics}
             eval_log.append(log_entry)
             eval_log_path.write_text(json.dumps(eval_log, indent=2))
 
@@ -1627,12 +1654,12 @@ def main() -> None:
                 writer.add_scalar("eval/mean_nodes", metrics["mean_nodes"], global_step)
 
             ckpt_path = checkpoint_dir / f"policy_ppo_step{global_step}.pt"
-            save_policy_checkpoint(ac.model, str(ckpt_path), extra={"train_config": config, "eval_metrics": metrics, "value_norm": ret_rms.state_dict()})
+            save_policy_checkpoint(ac.model, str(ckpt_path), extra={"train_config": config, "eval_metrics": metrics, "step": global_step, "update": update_count, "value_norm": ret_rms.state_dict()})
             print(f"[Checkpoint] saved  → {ckpt_path}")
 
             if is_best:
                 best_mean_gap = metrics["mean_gap"]
-                save_policy_checkpoint(ac.model, str(best_model_path), extra={"train_config": config, "eval_metrics": metrics, "step": global_step, "value_norm": ret_rms.state_dict()})
+                save_policy_checkpoint(ac.model, str(best_model_path), extra={"train_config": config, "eval_metrics": metrics, "step": global_step, "update": update_count, "value_norm": ret_rms.state_dict()})
                 print(f"[Checkpoint] best   → {best_model_path}  (gap={best_mean_gap:.2f}%)")
             print(f"{sep}\n")
 
@@ -1645,7 +1672,9 @@ def main() -> None:
 
     # ---- Final evaluation ----
     elapsed = time.perf_counter() - t_start
-    if eval_paths and optimal_makespans and global_step != last_eval_step:
+    # Trailing collection can advance global_step without changing the policy.
+    # Evaluate only if these weights have not already been evaluated.
+    if eval_paths and optimal_makespans and update_count != last_eval_update:
         ac.eval()
         metrics = evaluate(
             model=ac.model,
@@ -1664,12 +1693,13 @@ def main() -> None:
         print(
             f"[Final Eval] "
             f"steps={global_step}  "
+            f"update={update_count}  "
             f"solved={metrics['solved_frac']*100:.1f}%  "
             f"gap={metrics['mean_gap']:.2f}%  "
             f"nodes={metrics['mean_nodes']:.0f}"
             f"{best_tag}"
         )
-        log_entry = {"step": global_step, "final": True, **metrics}
+        log_entry = {"step": global_step, "update": update_count, "final": True, **metrics}
         eval_log.append(log_entry)
         eval_log_path.write_text(json.dumps(eval_log, indent=2))
 
@@ -1680,7 +1710,7 @@ def main() -> None:
 
         if is_best:
             best_mean_gap = metrics["mean_gap"]
-            save_policy_checkpoint(ac.model, str(best_model_path), extra={"train_config": config, "eval_metrics": metrics, "step": global_step, "value_norm": ret_rms.state_dict()})
+            save_policy_checkpoint(ac.model, str(best_model_path), extra={"train_config": config, "eval_metrics": metrics, "step": global_step, "update": update_count, "value_norm": ret_rms.state_dict()})
             print(f"[Final Eval] best   → {best_model_path}  (gap={best_mean_gap:.2f}%)")
         print(f"{sep}")
 
