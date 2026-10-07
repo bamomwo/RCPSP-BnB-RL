@@ -224,6 +224,7 @@ def make_policy_order_fn(
     instance: RCPSPInstance,
     model: BranchingTransformer,
     max_resources: int = 4,
+    resource_encoder: str = "legacy_flat",
     device: object = "cpu",
     predecessors=None,
 ) -> ReadyOrderFn:
@@ -237,6 +238,7 @@ def make_policy_order_fn(
         instance=instance,
         model=model,
         max_resources=max_resources,
+        resource_encoder=resource_encoder,
         device=device,
         predecessors=predecessors,
     )
@@ -286,6 +288,7 @@ def make_order_fn(kind: str, **kwargs) -> ReadyOrderFn:
             instance=kwargs["instance"],
             model=kwargs["model"],
             max_resources=int(kwargs.get("max_resources", 4)),
+            resource_encoder=str(kwargs.get("resource_encoder", "legacy_flat")),
             device=kwargs.get("device", "cpu"),
             predecessors=kwargs.get("predecessors"),
         )

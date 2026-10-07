@@ -1,10 +1,10 @@
 {
   "max_nodes": null,
   "branching_order": "policy",
-  "time_limit_s": 1,
+  "time_limit_s": 60,
   "policy_path": "models/policy_ppo_step15035191.pt",
   "policy_device": "cpu",
-  "policy_max_resources": 4,
+  "policy_resource_encoder": "set",
   "search_strategy": "ubs",
   "lbs_initial_lower_bound": null,
   "dominance": "set_based",

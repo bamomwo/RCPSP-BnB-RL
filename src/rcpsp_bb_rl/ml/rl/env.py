@@ -21,6 +21,10 @@ from rcpsp_bb_rl.ml.il.featurize import (
     critic_features,
     global_features,
     instance_static_features,
+    candidate_set_features,
+    global_set_features,
+    resource_set_features,
+    candidate_resource_features,
 )
 
 
@@ -67,12 +71,16 @@ class BranchingEnv:
         self,
         instance_source: RCPSPInstance | Path | str,
         max_resources: int = 4,
+        resource_encoder: str = "legacy_flat",
         time_limit_s: float = 60.0,
         dominance: object = "set_based",
         lb_spec: object = DEFAULT_LOWER_BOUND_ID,
     ) -> None:
         self.instance_source = instance_source
         self.max_resources = max_resources
+        self.resource_encoder = str(resource_encoder).strip().lower()
+        if self.resource_encoder not in {"legacy_flat", "set"}:
+            raise ValueError("resource_encoder must be 'legacy_flat' or 'set'")
         self.time_limit_s = time_limit_s
         self.dominance_spec = normalize_dominance_spec(dominance)
         self.lb_spec = lb_spec
@@ -147,18 +155,21 @@ class BranchingEnv:
         # Build tensors via numpy: torch.tensor() on nested Python lists walks
         # every element to infer shape/dtype (slow); np.asarray + from_numpy is
         # the fast path to the identical tensor. Values are unchanged.
-        glob = torch.from_numpy(
-            np.asarray(
-                global_features(ctx, self.max_resources, depth=node.depth),
-                dtype=np.float32,
-            )
-        )
-        cand = torch.from_numpy(
-            np.asarray(
-                [candidate_features(ctx, rid, self.max_resources) for rid in ready_sorted],
-                dtype=np.float32,
-            )
-        )
+        # New policies use a variable-length resource set. Keep the legacy
+        # fixed-width observation path available for old checkpoints/configs.
+        use_resource_set = bool(getattr(self, "resource_encoder", "legacy_flat") == "set")
+        if use_resource_set:
+            glob_values = global_set_features(ctx, depth=node.depth)
+            cand_values = [candidate_set_features(ctx, rid) for rid in ready_sorted]
+            resource_values = resource_set_features(ctx)
+            interaction_values = [candidate_resource_features(ctx, rid) for rid in ready_sorted]
+        else:
+            glob_values = global_features(ctx, self.max_resources, depth=node.depth)
+            cand_values = [candidate_features(ctx, rid, self.max_resources) for rid in ready_sorted]
+            resource_values = None
+            interaction_values = None
+        glob = torch.from_numpy(np.asarray(glob_values, dtype=np.float32))
+        cand = torch.from_numpy(np.asarray(cand_values, dtype=np.float32))
         mask = torch.from_numpy(
             np.fromiter(
                 (earliest_starts.get(rid) is not None for rid in ready_sorted),
@@ -169,13 +180,22 @@ class BranchingEnv:
         critic = torch.from_numpy(
             np.asarray(self._critic_features(node, incumbent, ctx_step), dtype=np.float32)
         )
-        return {
+        observation = {
             "global_feats": glob,
             "candidate_feats": cand,
             "ready_ids": torch.tensor(ready_sorted, dtype=torch.long),
             "action_mask": mask,
             "critic_feats": critic,
         }
+        if resource_values is not None:
+            observation["resource_feats"] = torch.from_numpy(
+                np.asarray(resource_values, dtype=np.float32)
+            )
+            observation["candidate_resource_feats"] = torch.from_numpy(
+                np.asarray(interaction_values, dtype=np.float32)
+            )
+            observation["resource_mask"] = torch.ones(len(resource_values), dtype=torch.bool)
+        return observation
 
     def _critic_features(
         self,

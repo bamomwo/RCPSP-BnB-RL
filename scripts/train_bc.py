@@ -15,8 +15,13 @@ if str(SRC_PATH) not in sys.path:
 from rcpsp_bb_rl.data.parsing import RCPSPInstance, load_instance  # noqa: E402
 from rcpsp_bb_rl.ml.il.featurize import (  # noqa: E402
     featurize_states,
+    featurize_states_resource_set,
     global_feature_dim,
     candidate_feature_dim,
+    set_global_feature_dim,
+    set_candidate_feature_dim,
+    set_resource_feature_dim,
+    set_interaction_feature_dim,
 )
 from rcpsp_bb_rl.ml.il.generate_trajectories import TrajectoryRecord, _load_jsonl  # noqa: E402
 from rcpsp_bb_rl.ml.models import BranchingTransformer, save_policy_checkpoint  # noqa: E402
@@ -34,6 +39,7 @@ DEFAULT_CONFIG: Dict = {
     "pattern": "*.jsonl",
     "val_frac": 0.1,
     "max_resources": 4,
+    "resource_encoder": "set",
     # Model
     "d_model": 64,
     "n_heads": 4,
@@ -187,6 +193,50 @@ def collate_fn(
     }
 
 
+def collate_set_fn(
+    batch: List[Tuple[TrajectoryRecord, RCPSPInstance]],
+) -> Optional[Dict[str, object]]:
+    """Collate variable-resource states while retaining per-state resource sets."""
+    from collections import defaultdict
+    inst_map: Dict[int, RCPSPInstance] = {}
+    rec_map: Dict[int, List[TrajectoryRecord]] = defaultdict(list)
+    for rec, inst in batch:
+        key = id(inst)
+        inst_map[key] = inst
+        rec_map[key].append(rec)
+
+    all_cand: List[List[float]] = []
+    all_glob: List[List[float]] = []
+    all_lengths: List[int] = []
+    all_targets: List[int] = []
+    all_depths: List[int] = []
+    all_resources: List[torch.Tensor] = []
+    all_interactions: List[torch.Tensor] = []
+    for key, recs in rec_map.items():
+        result = featurize_states_resource_set(recs, inst_map[key])
+        lengths = result["lengths"]
+        if not isinstance(lengths, torch.Tensor) or lengths.numel() == 0:
+            continue
+        all_cand.extend(result["candidate_feats"].tolist())
+        all_glob.extend(result["global_feats"].tolist())
+        all_lengths.extend(lengths.tolist())
+        all_targets.extend(result["targets"].tolist())
+        all_depths.extend(result["depths"].tolist())
+        all_resources.extend(result["resource_feats"])
+        all_interactions.extend(result["candidate_resource_feats"])
+    if not all_lengths:
+        return None
+    return {
+        "candidate_feats": torch.tensor(all_cand, dtype=torch.float32),
+        "global_feats": torch.tensor(all_glob, dtype=torch.float32),
+        "lengths": torch.tensor(all_lengths, dtype=torch.long),
+        "targets": torch.tensor(all_targets, dtype=torch.long),
+        "depths": torch.tensor(all_depths, dtype=torch.long),
+        "resource_feats": all_resources,
+        "candidate_resource_feats": all_interactions,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -245,8 +295,9 @@ def make_loaders(
 
     train_ds = InstanceTrajectoryDataset(train_pairs)
     val_ds = InstanceTrajectoryDataset(val_pairs) if val_pairs else None
-    max_resources = int(config["max_resources"])
-    collate = lambda batch: collate_fn(batch, max_resources)
+    use_set = str(config.get("resource_encoder", "legacy_flat")).lower() == "set"
+    max_resources = int(config.get("max_resources", 4))
+    collate = collate_set_fn if use_set else lambda batch: collate_fn(batch, max_resources)
     train_loader = DataLoader(
         train_ds, batch_size=int(config["batch_size"]),
         shuffle=True, collate_fn=collate,
@@ -278,14 +329,26 @@ def evaluate(
             # for the transformer we need one global vector per state, not per candidate.
             # Reconstruct per-state global by taking the first row of each state's block.
             offsets = [0] + torch.cumsum(lengths, dim=0).tolist()[:-1]
-            glob_per_state = glob[offsets]  # [B, Fg]
+            # Legacy collation repeats global features per candidate; the set
+            # collation stores one global row per state.
+            if "resource_feats" in batch:
+                glob_per_state = glob
+            else:
+                glob_per_state = glob[offsets]  # [B, Fg]
 
             logits_list = []
             offset = 0
             for i, length in enumerate(lengths.tolist()):
                 c = cand[offset: offset + length]          # [R, Fc]
                 g = glob_per_state[i]                      # [Fg]
-                logits_i, _ = model(c, g)
+                if "resource_feats" in batch:
+                    logits_i, _ = model(
+                        c, g,
+                        resource_feats=batch["resource_feats"][i].to(device),
+                        candidate_resource_feats=batch["candidate_resource_feats"][i].to(device),
+                    )
+                else:
+                    logits_i, _ = model(c, g)
                 logits_list.append(logits_i)
                 offset += length
 
@@ -317,9 +380,10 @@ def main() -> None:
     print("Loading dataset...")
     train_loader, val_loader = make_loaders(config)
 
-    max_resources = int(config["max_resources"])
-    global_dim = global_feature_dim(max_resources)
-    candidate_dim = candidate_feature_dim(max_resources)
+    use_set = str(config.get("resource_encoder", "legacy_flat")).lower() == "set"
+    max_resources = int(config.get("max_resources", 4))
+    global_dim = set_global_feature_dim() if use_set else global_feature_dim(max_resources)
+    candidate_dim = set_candidate_feature_dim() if use_set else candidate_feature_dim(max_resources)
     print(f"Feature dims — global: {global_dim}, candidate: {candidate_dim}")
 
     model = BranchingTransformer(
@@ -330,6 +394,8 @@ def main() -> None:
         n_layers=int(config["n_layers"]),
         ffn_dim=int(config["ffn_dim"]),
         dropout=float(config["dropout"]),
+        resource_feature_dim=set_resource_feature_dim() if use_set else 0,
+        interaction_feature_dim=set_interaction_feature_dim() if use_set else 0,
     ).to(device)
     print(f"Model params: {sum(p.numel() for p in model.parameters()):,}")
 
@@ -362,14 +428,24 @@ def main() -> None:
 
             # One global vector per state (first row of each candidate block)
             offsets = [0] + torch.cumsum(lengths, dim=0).tolist()[:-1]
-            glob_per_state = glob[offsets]
+            if "resource_feats" in batch:
+                glob_per_state = glob
+            else:
+                glob_per_state = glob[offsets]
 
             logits_list = []
             offset = 0
             for i, length in enumerate(lengths.tolist()):
                 c = cand[offset: offset + length]
                 g = glob_per_state[i]
-                logits_i, _ = model(c, g)
+                if "resource_feats" in batch:
+                    logits_i, _ = model(
+                        c, g,
+                        resource_feats=batch["resource_feats"][i].to(device),
+                        candidate_resource_feats=batch["candidate_resource_feats"][i].to(device),
+                    )
+                else:
+                    logits_i, _ = model(c, g)
                 logits_list.append(logits_i)
                 offset += length
 

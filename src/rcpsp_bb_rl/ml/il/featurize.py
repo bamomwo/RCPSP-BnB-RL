@@ -458,6 +458,209 @@ def candidate_feature_dim(max_resources: int) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Variable-resource (set encoder) features
+# ---------------------------------------------------------------------------
+#
+# The original feature functions above are intentionally kept intact for old
+# checkpoints.  New policies use the functions below: resource-specific data
+# is emitted as a variable-length resource set and candidate/resource
+# interactions, so no resource is silently discarded when an instance has more
+# resources than the legacy ``max_resources`` value.
+
+SET_RESOURCE_FEATURE_NAMES = [
+    "is_real_resource",
+    "capacity_norm",
+    "usage_frac",
+    "available_frac",
+    "remaining_energy_norm",
+    "energy_pressure",
+]
+SET_INTERACTION_FEATURE_NAMES = [
+    "demand_frac",
+    "conflict_load_norm",
+    "has_demand",
+    "remaining_after_demand_frac",
+]
+
+
+def set_global_feature_dim() -> int:
+    """Width of the fixed, resource-agnostic global feature vector."""
+    # Search progress (7), all-resource summaries (6), remaining work (4).
+    return 17
+
+
+def set_candidate_feature_dim() -> int:
+    """Width of the fixed, resource-agnostic candidate feature vector."""
+    # Intrinsic aggregates (3), precedence (7), feasibility (7), contention (1).
+    return 18
+
+
+def set_resource_feature_dim() -> int:
+    return len(SET_RESOURCE_FEATURE_NAMES)
+
+
+def set_interaction_feature_dim() -> int:
+    return len(SET_INTERACTION_FEATURE_NAMES)
+
+
+def resource_set_features(ctx: NodeContext) -> List[List[float]]:
+    """Return one feature vector for every resource in the instance.
+
+    The resource order is not used by the model; all rows are processed with
+    shared weights and pooled/attended downstream.  Values are normalised by
+    the instance duration scale and each resource's capacity.
+    """
+    S = ctx.sum_durations
+    n_res = ctx.num_res
+    total_energy = [
+        float(sum(
+            ctx.instance.activities[a].duration
+            * ctx.instance.activities[a].resources[r]
+            for a in ctx.instance.activities
+        ))
+        for r in range(n_res)
+    ]
+    # A precedence-only instance legitimately has no renewable resources. The
+    # neural encoder still needs a nonempty token axis, so represent it by one
+    # sentinel token. ``is_real_resource`` tells the model it is a placeholder,
+    # rather than a zero-capacity resource.
+    if n_res == 0:
+        return [[0.0] * set_resource_feature_dim()]
+
+    out: List[List[float]] = []
+    for r in range(n_res):
+        cap = float(ctx.caps[r]) if ctx.caps[r] > 0 else 1.0
+        used = float(ctx.res_used[r])
+        pressure = total_energy[r] / (cap * S)
+        out.append([
+            1.0,
+            cap / S,
+            min(1.0, max(0.0, used / cap)),
+            min(1.0, max(0.0, (cap - used) / cap)),
+            float(ctx.rem_energy[r]) / (cap * S),
+            pressure,
+        ])
+    return out
+
+
+def candidate_resource_features(ctx: NodeContext, act_id: int) -> List[List[float]]:
+    """Return one interaction vector between a candidate and every resource."""
+    S = ctx.sum_durations
+    act = ctx.instance.activities[act_id]
+    raw_conflict = ctx.conflict_load.get(act_id, [0.0] * ctx.num_res)
+    if ctx.num_res == 0:
+        return [[0.0] * set_interaction_feature_dim()]
+
+    out: List[List[float]] = []
+    for r in range(ctx.num_res):
+        cap = float(ctx.caps[r]) if ctx.caps[r] > 0 else 1.0
+        demand = float(act.resources[r])
+        out.append([
+            demand / cap,
+            float(raw_conflict[r]) if r < len(raw_conflict) else 0.0,
+            1.0 if demand > 0 else 0.0,
+            (cap - float(ctx.res_used[r]) - demand) / cap,
+        ])
+    return out
+
+
+def global_set_features(ctx: NodeContext, depth: int = 0) -> List[float]:
+    """Build the fixed-width global features used by variable-resource models."""
+    S = ctx.sum_durations
+    N = float(ctx.num_acts) or 1.0
+    n_sched = float(len(ctx.scheduled))
+    n_unsched = float(len(ctx.unscheduled))
+    lb_gap = max(0.0, ctx.lower_bound - ctx.makespan_so_far) / S
+    if ctx.incumbent is not None and ctx.lower_bound > 0:
+        inc_gap = max(0.0, ctx.incumbent - ctx.lower_bound) / ctx.lower_bound
+    else:
+        inc_gap = 0.0
+
+    resources = resource_set_features(ctx)
+    # Row 0 is the sentinel/real-resource indicator; summary statistics use
+    # only the physical resource attributes that follow it.
+    caps = [row[1] for row in resources]
+    usages = [row[2] for row in resources]
+    pressure = [row[5] for row in resources]
+    n_res = float(ctx.num_res)
+    if resources:
+        resource_summary = [
+            min(1.0, n_res / N),
+            float(sum(caps) / len(caps)),
+            float(max(caps)),
+            float(sum(usages) / len(usages)),
+            float(max(usages)),
+            float(max(pressure)),
+        ]
+    else:
+        resource_summary = [0.0] * 6
+
+    rem_durs = [ctx.instance.activities[a].duration for a in ctx.unscheduled]
+    remaining = [
+        sum(rem_durs) / S if rem_durs else 0.0,
+        (sum(rem_durs) / len(rem_durs)) / S if rem_durs else 0.0,
+        max(rem_durs) / S if rem_durs else 0.0,
+        float(len(ctx.ready)) / N,
+    ]
+    return [
+        float(depth) / N,
+        n_sched / N,
+        n_unsched / N,
+        ctx.makespan_so_far / S,
+        ctx.lower_bound / S,
+        lb_gap,
+        inc_gap,
+        *resource_summary,
+        *remaining,
+    ]
+
+
+def candidate_set_features(ctx: NodeContext, act_id: int) -> List[float]:
+    """Build fixed-width candidate features with resource aggregates only."""
+    S = ctx.sum_durations
+    N = float(ctx.num_acts) or 1.0
+    act = ctx.instance.activities[act_id]
+    demands = [
+        float(act.resources[r]) / (float(ctx.caps[r]) if ctx.caps[r] > 0 else 1.0)
+        for r in range(ctx.num_res)
+    ]
+    res_intensity = max(demands, default=0.0)
+    total_load = sum(demands)
+    head = float(ctx.heads.get(act_id, 0))
+    tail = float(ctx.tails.get(act_id, 0))
+    dur = float(act.duration)
+    hdt = head + dur + tail
+    num_succ = float(len(act.successors)) / N
+    num_pred = float(ctx.num_preds.get(act_id, 0)) / N
+    succ_dur = float(ctx.succ_dur_sum.get(act_id, 0)) / S
+    est = ctx.earliest_starts.get(act_id)
+    if est is not None:
+        est_f = float(est)
+        est_norm = est_f / S
+        est_minus_head = max(0.0, est_f - head) / S
+        finish_norm = (est_f + dur) / S
+        slack_to_lb = max(0.0, ctx.lower_bound - (est_f + dur)) / S
+        ls = float(ctx.latest_starts.get(act_id, est_f))
+        ls_norm = ls / S
+        tw = max(0.0, ls - est_f) / S
+        is_urgent = 1.0 if tw < (1.0 / N) else 0.0
+    else:
+        est_norm, est_minus_head, finish_norm = -1.0, 0.0, -1.0
+        slack_to_lb, ls_norm, tw, is_urgent = 0.0, -1.0, 0.0, 1.0
+    n_ready = float(len(ctx.ready)) or 1.0
+    conflict_count_norm = ctx.conflict_counts.get(act_id, 0) / n_ready
+    return [
+        dur / S, res_intensity, total_load,
+        head / S, tail / S, hdt / S,
+        1.0 if int(hdt) >= ctx.cp_value else 0.0,
+        num_succ, num_pred, succ_dur,
+        est_norm, est_minus_head, finish_norm, slack_to_lb,
+        ls_norm, tw, is_urgent,
+        conflict_count_norm,
+    ]
+
+
+# ---------------------------------------------------------------------------
 # Critic runtime features  (one vector per node, fed ONLY into the value head)
 # ---------------------------------------------------------------------------
 #
@@ -776,6 +979,58 @@ def featurize_states(
         "lengths": torch.tensor(lengths, dtype=torch.long),
         "targets": torch.tensor(targets, dtype=torch.long),
         "depths": torch.tensor(depths, dtype=torch.long),
+    }
+
+
+def featurize_states_resource_set(
+    records: Sequence[TrajectoryRecord],
+    instance: RCPSPInstance,
+) -> Dict[str, object]:
+    """Featurise teacher states for the variable-resource policy.
+
+    Candidate and global features have fixed widths. Resource features and
+    candidate/resource interactions retain the instance's complete resource
+    dimension and are returned one tensor per state because both the number of
+    candidates and resources vary independently.
+    """
+    cand_feats: List[List[float]] = []
+    glob_feats: List[List[float]] = []
+    lengths: List[int] = []
+    targets: List[int] = []
+    depths: List[int] = []
+    resource_batches: List[torch.Tensor] = []
+    interaction_batches: List[torch.Tensor] = []
+
+    for rec in records:
+        ready_sorted = rec.ready
+        if not ready_sorted:
+            continue
+        try:
+            target_idx = ready_sorted.index(rec.action_task)
+        except ValueError:
+            continue
+        ctx = _ctx_from_record(rec, instance)
+        depth = int(rec.raw.get("depth", 0))
+        lengths.append(len(ready_sorted))
+        targets.append(target_idx)
+        depths.append(depth)
+        glob_feats.append(global_set_features(ctx, depth=depth))
+        resource_batches.append(torch.tensor(resource_set_features(ctx), dtype=torch.float32))
+        interaction_batches.append(torch.tensor(
+            [candidate_resource_features(ctx, act_id) for act_id in ready_sorted],
+            dtype=torch.float32,
+        ))
+        for act_id in ready_sorted:
+            cand_feats.append(candidate_set_features(ctx, act_id))
+
+    return {
+        "candidate_feats": torch.tensor(cand_feats, dtype=torch.float32),
+        "global_feats": torch.tensor(glob_feats, dtype=torch.float32),
+        "lengths": torch.tensor(lengths, dtype=torch.long),
+        "targets": torch.tensor(targets, dtype=torch.long),
+        "depths": torch.tensor(depths, dtype=torch.long),
+        "resource_feats": resource_batches,
+        "candidate_resource_feats": interaction_batches,
     }
 
 

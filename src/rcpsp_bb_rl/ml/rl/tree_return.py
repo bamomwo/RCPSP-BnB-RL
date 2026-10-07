@@ -16,11 +16,30 @@ open (closed=False). The training loop decides what to do with them.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Mapping, Optional
 
 # A per-node reward function: maps one node dict to its immediate reward r(n).
 RewardFn = Callable[[Mapping[str, object]], float]
+
+
+def validate_incumbent_bonus_config(
+    *, beta1: float, beta2: float, gamma_bonus: float,
+) -> None:
+    """Validate the independently tunable incumbent-reward channels.
+
+    ``beta1`` controls first-incumbent quality and ``beta2`` controls later
+    relative makespan improvements. The bonus backup remains undiscounted so
+    each incumbent event is credited consistently through its ancestors.
+    """
+    if not math.isfinite(beta1) or not math.isfinite(beta2) or beta1 < 0 or beta2 < 0:
+        raise ValueError("beta1 and beta2 must be finite and non-negative.")
+    if gamma_bonus != 1.0:
+        raise ValueError(
+            "tree_gamma_bonus must be 1.0 so incumbent rewards "
+            "remain undiscounted."
+        )
 
 
 def make_cost_reward_fn(*, alpha: float) -> RewardFn:

@@ -41,6 +41,7 @@ OPTIONAL_CONFIG_KEYS = {
     "policy_path",
     "policy_device",
     "policy_max_resources",
+    "policy_resource_encoder",
     "random_seed",
     "dominance",
     "progress_every",
@@ -243,6 +244,7 @@ def validate_and_resolve(
     Optional[str],
     str,
     int,
+    str,
     object,
     object,
     str,
@@ -278,6 +280,7 @@ def validate_and_resolve(
 
     policy_device = str(cfg.get("policy_device", "cpu"))
     policy_max_resources = int(cfg.get("policy_max_resources", 4))
+    policy_resource_encoder = str(cfg.get("policy_resource_encoder", "legacy_flat"))
     if policy_max_resources <= 0:
         raise ValueError("policy_max_resources must be > 0.")
     if branch_order == "policy" and not policy_path:
@@ -354,6 +357,7 @@ def validate_and_resolve(
         (None if policy_path is None else str(policy_path)),
         policy_device,
         policy_max_resources,
+        policy_resource_encoder,
         lb_spec,
         dominance_spec,
         search_strategy,
@@ -448,6 +452,7 @@ def main() -> None:
         policy_path,
         policy_device,
         policy_max_resources,
+        policy_resource_encoder,
         lb_spec,
         dominance_spec,
         search_strategy,
@@ -478,6 +483,10 @@ def main() -> None:
 
         device = resolve_policy_device(policy_device)
         policy_model = load_policy_checkpoint(policy_path, device=device)
+        if policy_resource_encoder == "set" and not getattr(policy_model, "resource_set_enabled", False):
+            raise ValueError("policy_resource_encoder='set' requires a resource-set checkpoint")
+        if policy_resource_encoder == "legacy_flat" and getattr(policy_model, "resource_set_enabled", False):
+            policy_resource_encoder = "set"
 
     rows: List[Dict[str, object]] = []
     for idx, path in enumerate(paths, start=1):
@@ -490,6 +499,7 @@ def main() -> None:
                 instance=instance,
                 model=policy_model,
                 max_resources=policy_max_resources,
+                resource_encoder=policy_resource_encoder,
                 device=device,
                 predecessors=order_context_solver.predecessors,
             )

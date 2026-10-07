@@ -12,10 +12,12 @@ the certified external lower bound, that equality proves the schedule optimal.
 
 Example
 -------
-python3 scripts/run_bnb_2.py \
+python3 scripts/run_bnb_deb.py \
     --config config/run_bnb.json \
     --root data/eval/J60 \
     --baseline-json data/baseline/j60_sm_merged.json \
+    --debug --checkpoint-nodes 10000 --prefix-depth 3 \
+    --debug-jsonl results/policy_external_lb_debug.jsonl \
     --only-unproven \
     --skip-missing-bounds \
     --output-path results/policy_external_lb_j60.txt
@@ -25,12 +27,14 @@ from __future__ import annotations
 
 import argparse
 import csv
+import io
 import json
 import re
 import statistics
 import sys
 import time
-from dataclasses import dataclass
+from contextlib import ExitStack, redirect_stdout
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -51,7 +55,9 @@ from rcpsp_bb_rl.bnb.lower_bounds import (  # noqa: E402
     lower_bound,
     normalize_lower_bound_spec,
 )
-from rcpsp_bb_rl.bnb.solver import BnBSolver, SolverResult  # noqa: E402
+from rcpsp_bb_rl.bnb.solver import (  # noqa: E402
+    BnBSolver, DebugCheckpoint, DebugPrefix, SolverResult,
+)
 from rcpsp_bb_rl.data.dataset import list_instance_paths  # noqa: E402
 from rcpsp_bb_rl.data.parsing import RCPSPInstance, load_instance  # noqa: E402
 
@@ -204,6 +210,13 @@ def _load_json(path: Path) -> Dict[str, Any]:
     return data
 
 
+def _positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return parsed
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run upper-bound B&B with a per-instance external LB floor.",
@@ -230,7 +243,22 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dominance", default=None)
     parser.add_argument("--output-path", default=None)
     parser.add_argument("--emit-csv", default=None)
-    parser.add_argument("--debug", action="store_true")
+    parser.add_argument(
+        "--debug", action="store_true",
+        help="Print live frontier/prefix checkpoints and the full-tree debug report.",
+    )
+    parser.add_argument(
+        "--checkpoint-nodes", type=_positive_int, default=10000,
+        help="With --debug, snapshot after every N expanded nodes, plus improvements and termination.",
+    )
+    parser.add_argument(
+        "--prefix-depth", type=_positive_int, default=3,
+        help="With --debug, track the first N decisions having multiple ordered candidates.",
+    )
+    parser.add_argument(
+        "--debug-jsonl", default=None,
+        help="With --debug, write flushed metadata/checkpoint records (overwrites this file).",
+    )
     parser.add_argument("--show-schedule", action="store_true")
     parser.add_argument(
         "--only-unproven",
@@ -242,7 +270,10 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Skip matched records with no certified external LB instead of failing.",
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.debug_jsonl and not args.debug:
+        parser.error("--debug-jsonl requires --debug")
+    return args
 
 
 def _resolve_patterns(config: Dict[str, Any]) -> Sequence[str]:
@@ -348,13 +379,84 @@ def _render_table(headers: List[str], rows: List[List[str]]) -> List[str]:
     ]
 
 
+def _format_prefix(prefix: Optional[DebugPrefix]) -> str:
+    if prefix is None:
+        return "-"
+    if not prefix:
+        return "[] (no non-trivial choice yet)"
+    return "[" + ", ".join(
+        f"act {choice.activity}@{choice.start} (rank {choice.rank}/{choice.candidate_count}, "
+        f"decision {choice.decision_node_id})" for choice in prefix
+    ) + "]"
+
+
+def _checkpoint_lines(instance_name: str, cp: DebugCheckpoint) -> List[str]:
+    def number(value: object) -> str:
+        return "-" if value is None else f"{value:g}"
+
+    def distribution(values: Dict[str, object]) -> str:
+        return " / ".join(number(values[key]) for key in ("min", "p25", "median", "p75", "max"))
+
+    def proportion(count: Optional[int], percentage: Optional[float]) -> str:
+        return f"{_fmt_int(count)} ({_fmt_gap(percentage)})"
+
+    lines = [
+        "",
+        "=" * 100,
+        f"[debug {instance_name}] {cp.reason} nodes={cp.nodes_expanded:,} "
+        f"elapsed={cp.elapsed_s:.3f}s incumbent={_fmt_int(cp.incumbent)}"
+        + (f" termination={cp.termination}" if cp.termination else ""),
+        "-" * 100,
+        f"  Since last improvement: nodes={_fmt_int(cp.nodes_since_improvement)} "
+        f"seconds={number(cp.seconds_since_improvement)}",
+        f"  Frontier size={cp.frontier_size}; LB min/p25/median/p75/max:",
+        f"    internal : {distribution(cp.internal_lb)}",
+        f"    effective: {distribution(cp.effective_lb)}",
+        f"    LB < incumbent : {proportion(cp.below_incumbent, cp.below_incumbent_pct)}",
+        f"    LB >= incumbent: {proportion(cp.at_or_above_incumbent, cp.at_or_above_incumbent_pct)} (queued prune)",
+        f"    internal <= external {_fmt_int(cp.external_lower_bound)}: "
+        f"{proportion(cp.internal_at_or_below_external, cp.internal_at_or_below_external_pct)}",
+        f"    proof burden: {_fmt_int(cp.proof_burden)}",
+        f"  Last expanded: node={_fmt_int(cp.last_expanded_node_id)} "
+        f"depth={_fmt_int(cp.last_expanded_depth)} prefix={_format_prefix(cp.last_expanded_prefix)}",
+        f"  Next queued prefix: {_format_prefix(cp.next_pending_prefix)}",
+        f"  Interval ({cp.interval_elapsed_s:.3f}s): "
+        + ", ".join(f"{key}={count}" for key, count in cp.interval.items()),
+        f"    expanded/s={number(cp.nodes_per_second)}; "
+        f"LB-pruned/visited={_fmt_gap(cp.lb_pruned_pct_of_visited)}; "
+        f"dominance-pruned/bounded-children={_fmt_gap(cp.dominance_pruned_pct_of_bounded_children)}",
+    ]
+    if cp.reason == "incumbent":
+        lines.append(f"  Incumbent path: depth={cp.incumbent_depth} prefix={_format_prefix(cp.incumbent_prefix)}")
+
+    # Full groups are exported to JSONL; keep console checkpoints readable.
+    for label, groups, total in (
+        ("Recent expansions by prefix", cp.recent_expansions_by_prefix, cp.interval["expanded"]),
+        ("Pending frontier by first branch", cp.frontier_by_first_branch, cp.frontier_size),
+    ):
+        lines.append(f"  {label}:")
+        if not groups:
+            lines.append("    (none)")
+        for group in groups[:5]:
+            lines.append(f"    {group.count} ({100 * group.count / total:.2f}%): {_format_prefix(group.prefix)}")
+        if len(groups) > 5:
+            remainder = sum(group.count for group in groups[5:])
+            lines.append(f"    other: {remainder} ({100 * remainder / total:.2f}%), {len(groups) - 5} groups")
+    lines.append("")
+    return lines
+
+
 def main() -> None:
-    args = parse_args()
+    with ExitStack() as outputs:
+        _run(parse_args(), outputs)
+
+
+def _run(args: argparse.Namespace, outputs: ExitStack) -> None:
     config = _load_json(Path(args.config))
     strategy = str(config.get("search_strategy", "ubs")).strip().lower()
     if strategy != "ubs":
         raise ValueError(
-            "run_bnb_2.py implements upper-bound search only; "
+            "run_bnb_deb.py implements upper-bound search only; "
             "config search_strategy must be 'ubs'."
         )
 
@@ -420,6 +522,7 @@ def main() -> None:
     policy_model = None
     policy_device = None
     policy_max_resources = int(config.get("policy_max_resources", 4))
+    policy_resource_encoder = str(config.get("policy_resource_encoder", "legacy_flat"))
     if branch_order == "policy":
         policy_path = config.get("policy_path")
         if not policy_path:
@@ -432,8 +535,35 @@ def main() -> None:
             torch.set_num_threads(1)
         policy_device = _resolve_device(requested_device)
         policy_model = load_policy_checkpoint(str(policy_path), device=policy_device)
+        if policy_resource_encoder == "set" and not getattr(policy_model, "resource_set_enabled", False):
+            raise ValueError("policy_resource_encoder='set' requires a resource-set checkpoint")
+        if policy_resource_encoder == "legacy_flat" and getattr(policy_model, "resource_set_enabled", False):
+            policy_resource_encoder = "set"
 
     rows: List[Dict[str, object]] = []
+    debug_lines: List[str] = []
+    debug_jsonl = None
+    if args.debug_jsonl:
+        destination = Path(args.debug_jsonl)
+        # Avoid replacing a run input or another report with a diagnostics log.
+        protected = [args.config, args.baseline_json, config.get("policy_path")]
+        protected.extend(str(path) for path in paths)
+        protected.extend([args.output_path or config.get("output_path"),
+                          args.emit_csv or config.get("emit_csv")])
+        if destination.resolve() in {Path(str(path)).resolve() for path in protected if path}:
+            raise ValueError("--debug-jsonl must differ from input and output report paths.")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        debug_jsonl = outputs.enter_context(destination.open("w", encoding="utf-8"))
+
+    def write_debug_json(record: Dict[str, object]) -> None:
+        if debug_jsonl is not None:
+            debug_jsonl.write(json.dumps(record) + "\n")
+            debug_jsonl.flush()
+
+    def emit_debug(lines: List[str]) -> None:
+        debug_lines.extend(lines)
+        print("\n".join(lines), flush=True)
+
     progress_every = max(0, int(config.get("progress_every", 1)))
     random_seed = int(config.get("random_seed", 0))
 
@@ -462,6 +592,7 @@ def main() -> None:
                 instance=instance,
                 model=policy_model,
                 max_resources=policy_max_resources,
+                resource_encoder=policy_resource_encoder,
                 device=policy_device,
                 predecessors=solver.predecessors,
             )
@@ -480,6 +611,32 @@ def main() -> None:
         elif branch_order == "random":
             order_fn = make_order_fn("random", seed=random_seed)
 
+        if args.debug:
+            emit_debug([
+                f"DEBUG: {path.name}; checkpoint interval={args.checkpoint_nodes}, prefix depth={args.prefix_depth}",
+                "  Full-tree storage; historical set-based dominance is retained.",
+                "  Frontier = queued DFS nodes after expansion (includes nodes awaiting LB pruning).",
+                "  Prefixes skip single-candidate decisions; ranks are before feasibility/dominance filtering.",
+                "  Interval counters reset at every emitted checkpoint, including incumbent events.",
+                "  Empty-frontier percentages / comparisons before the first incumbent are unavailable (-).",
+                "  LB statistics describe pending nodes, not the sizes or quality of their subtrees.",
+            ])
+            write_debug_json({
+                "type": "metadata", "instance": path.name, "instance_path": str(path),
+                "baseline_json": str(baseline.path), "config": config,
+                "branching_order": branch_order, "lower_bound": format_lower_bound_spec(lb_spec),
+                "dominance": format_dominance_spec(dominance), "memory_bounded": False,
+                "max_nodes": max_nodes, "time_limit_s": time_limit_s,
+                "external_lower_bound": external_lb, "internal_root_lb": internal_root_lb,
+                "checkpoint_nodes": args.checkpoint_nodes, "prefix_depth": args.prefix_depth,
+                "snapshot_boundary": "after complete expansion / incumbent update / termination",
+                "prefix_definition": "first multi-candidate decisions before feasibility/dominance filtering",
+            })
+
+        def report_checkpoint(checkpoint: DebugCheckpoint) -> None:
+            emit_debug(_checkpoint_lines(path.name, checkpoint))
+            write_debug_json({"type": "checkpoint", "instance": path.name, **asdict(checkpoint)})
+
         started = time.perf_counter()
         result = solver.solve(
             max_nodes=max_nodes,
@@ -489,6 +646,9 @@ def main() -> None:
             dominance=dominance,
             debug=args.debug,
             external_lower_bound=external_lb,
+            debug_checkpoint_nodes=args.checkpoint_nodes if args.debug else None,
+            debug_prefix_depth=args.prefix_depth,
+            debug_checkpoint_callback=report_checkpoint if args.debug else None,
         )
         elapsed = time.perf_counter() - started
 
@@ -554,7 +714,15 @@ def main() -> None:
         if args.debug:
             from run_bnb import print_debug_report
 
-            print_debug_report(path.name, result)
+            with io.StringIO() as buffer:
+                with redirect_stdout(buffer):
+                    print_debug_report(path.name, result)
+                emit_debug(buffer.getvalue().splitlines())
+            write_debug_json({
+                "type": "summary", "instance": path.name, "termination": result.done_reason,
+                "best_makespan": best,
+                "incumbent_history": [asdict(event) for event in result.debug_info.incumbent_history],
+            })
         if progress_every and (position % progress_every == 0 or position == len(selected)):
             print(f"[{position}/{len(selected)}] processed {path.name}", file=sys.stderr)
 
@@ -580,7 +748,7 @@ def main() -> None:
         for row in rows
     ]
 
-    rendered: List[str] = []
+    rendered: List[str] = list(debug_lines)
 
     def emit(line: str = "") -> None:
         rendered.append(line)

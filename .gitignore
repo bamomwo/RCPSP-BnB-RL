@@ -5,15 +5,15 @@
 __pycache__/
 
 /data/1ktrain
-# Deprecated estimator data, implementation, and config (kept locally).
+# Estimator data and its standalone training config are kept local. The
+# estimator package itself is tracked because PPO imports it for dynamic
+# node-cost scaling and oracle-record fallback.
 /data/estimator/
-/src/rcpsp_bb_rl/ml/estimator/
 /config/train_estimator.json
 /data/eval/J30/J30_10/
 /data/eval/J30/J30_87/
 /data/eval/J30/J30_100/
-/data/baseline/
-/data/oracles/
+
 
 models/*
 !models/best/

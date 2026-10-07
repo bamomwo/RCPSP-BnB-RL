@@ -14,6 +14,10 @@ from rcpsp_bb_rl.ml.il.featurize import (
     NodeContext,
     candidate_features,
     global_features,
+    candidate_set_features,
+    global_set_features,
+    resource_set_features,
+    candidate_resource_features,
 )
 from rcpsp_bb_rl.ml.action_order import policy_ranked_indices
 from rcpsp_bb_rl.ml.models.policy import BranchingTransformer
@@ -104,7 +108,19 @@ def _maybe_script_model(
         dummy_glob = torch.zeros(glob_dim, dtype=torch.float32, device=device)
         dummy_mask = torch.ones(2, dtype=torch.bool, device=device)
         with torch.inference_mode():
-            compiled(dummy_cand, dummy_glob, dummy_mask)
+            if getattr(model, "resource_set_enabled", False):
+                compiled(
+                    dummy_cand, dummy_glob, dummy_mask,
+                    resource_feats=torch.zeros(
+                        3, int(model.resource_feature_dim), device=device
+                    ),
+                    candidate_resource_feats=torch.zeros(
+                        2, 3, int(model.interaction_feature_dim), device=device
+                    ),
+                    resource_mask=torch.ones(3, dtype=torch.bool, device=device),
+                )
+            else:
+                compiled(dummy_cand, dummy_glob, dummy_mask)
     except Exception as exc:  # noqa: BLE001 - if warmup fails, don't trust the graph
         print(f"[policy] TorchScript warmup failed ({exc}); using eager model.")
         return model
@@ -116,6 +132,7 @@ def make_policy_order_fn(
     instance: RCPSPInstance,
     model: BranchingTransformer,
     max_resources: int = 4,
+    resource_encoder: str = "legacy_flat",
     device: torch.device | str = "cpu",
     predecessors: Optional[Dict] = None,
 ) -> callable:
@@ -127,6 +144,11 @@ def make_policy_order_fn(
     the transformer, and returns the ready set sorted by descending logit.
     """
     device = torch.device(device)
+    resource_encoder = str(resource_encoder).strip().lower()
+    if resource_encoder not in {"legacy_flat", "set"}:
+        raise ValueError("resource_encoder must be 'legacy_flat' or 'set'")
+    if getattr(model, "resource_set_enabled", False):
+        resource_encoder = "set"
     model = model.to(device)
     model.eval()
     model = _maybe_script_model(model, device)
@@ -152,13 +174,24 @@ def make_policy_order_fn(
         # Build tensors via numpy: torch.tensor() on nested Python lists walks
         # every element to infer shape/dtype (slow); np.asarray + from_numpy is
         # the fast path to the identical tensor. Values are unchanged.
-        glob_np = np.asarray(
-            global_features(ctx, max_resources, depth=node.depth), dtype=np.float32
-        )
-        cand_np = np.asarray(
-            [candidate_features(ctx, rid, max_resources) for rid in ready_sorted],
-            dtype=np.float32,
-        )
+        if str(resource_encoder).strip().lower() == "set":
+            glob_np = np.asarray(global_set_features(ctx, depth=node.depth), dtype=np.float32)
+            cand_np = np.asarray(
+                [candidate_set_features(ctx, rid) for rid in ready_sorted], dtype=np.float32
+            )
+            resource_np = np.asarray(resource_set_features(ctx), dtype=np.float32)
+            interaction_np = np.asarray(
+                [candidate_resource_features(ctx, rid) for rid in ready_sorted], dtype=np.float32
+            )
+        else:
+            glob_np = np.asarray(
+                global_features(ctx, max_resources, depth=node.depth), dtype=np.float32
+            )
+            cand_np = np.asarray(
+                [candidate_features(ctx, rid, max_resources) for rid in ready_sorted],
+                dtype=np.float32,
+            )
+            resource_np = interaction_np = None
         mask_np = np.fromiter(
             (ctx.earliest_starts.get(rid) is not None for rid in ready_sorted),
             dtype=bool,
@@ -170,7 +203,15 @@ def make_policy_order_fn(
         mask = torch.from_numpy(mask_np).to(device)
 
         with torch.inference_mode():
-            logits, _ = model(cand, glob, action_mask=mask)
+            if resource_np is None:
+                logits, _ = model(cand, glob, action_mask=mask)
+            else:
+                logits, _ = model(
+                    cand, glob, action_mask=mask,
+                    resource_feats=torch.from_numpy(resource_np).to(device),
+                    candidate_resource_feats=torch.from_numpy(interaction_np).to(device),
+                    resource_mask=torch.ones(resource_np.shape[0], dtype=torch.bool, device=device),
+                )
 
         ranked_indices = policy_ranked_indices(logits.cpu().tolist())
         return [ready_sorted[index] for index in ranked_indices]

@@ -84,16 +84,32 @@ class BranchingTransformer(nn.Module):
         ffn_dim: int = 128,
         dropout: float = 0.1,
         critic_feature_dim: int = 0,
+        resource_feature_dim: int = 0,
+        interaction_feature_dim: int = 0,
     ) -> None:
         super().__init__()
         assert d_model % n_heads == 0, f"d_model={d_model} must be divisible by n_heads={n_heads}"
 
         self.d_model = d_model
         self.critic_feature_dim = critic_feature_dim
+        self.resource_feature_dim = int(resource_feature_dim)
+        self.interaction_feature_dim = int(interaction_feature_dim)
+        self.resource_set_enabled = (
+            self.resource_feature_dim > 0 and self.interaction_feature_dim > 0
+        )
 
         # Input projections
         self.cls_proj = nn.Linear(global_dim, d_model)
         self.cand_proj = nn.Linear(candidate_dim, d_model)
+
+        # Shared resource encoder: the same weights process every resource, so
+        # the representation is independent of resource count and order. The
+        # modules are defined even for legacy models so TorchScript sees a
+        # stable module schema; they are bypassed when resource_set_enabled is
+        # false.
+        self.resource_proj = nn.Linear(max(self.resource_feature_dim, 1), d_model)
+        self.interaction_proj = nn.Linear(max(self.interaction_feature_dim, 1), d_model)
+        self.resource_global_proj = nn.Linear(d_model, d_model)
 
         # Transformer encoder
         self.layers = nn.ModuleList([
@@ -127,6 +143,9 @@ class BranchingTransformer(nn.Module):
         global_feats: torch.Tensor,
         action_mask: Optional[torch.Tensor] = None,
         critic_feats: Optional[torch.Tensor] = None,
+        resource_feats: Optional[torch.Tensor] = None,
+        candidate_resource_feats: Optional[torch.Tensor] = None,
+        resource_mask: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Unbatched forward pass.
@@ -140,6 +159,25 @@ class BranchingTransformer(nn.Module):
         # Project inputs into d_model space
         cls_token = self.cls_proj(global_feats).unsqueeze(0)   # [1, d_model]
         cand_emb = self.cand_proj(candidate_feats)              # [R, d_model]
+
+        if self.resource_set_enabled:
+            if resource_feats is None or candidate_resource_feats is None:
+                raise ValueError("Resource-set policy requires resource and interaction features")
+            resource_emb = self.resource_proj(resource_feats)  # [M, D]
+            interaction_emb = self.interaction_proj(candidate_resource_feats)  # [R, M, D]
+            if resource_mask is None:
+                resource_mask = torch.ones(
+                    resource_emb.shape[0], dtype=torch.bool, device=resource_emb.device
+                )
+            if not bool(resource_mask.any()):
+                raise ValueError("Resource-set policy received an empty resource set")
+            pair_emb = resource_emb.unsqueeze(0) + interaction_emb
+            scores = (cand_emb.unsqueeze(1) * pair_emb).sum(dim=-1) / math.sqrt(self.d_model)
+            scores = scores.masked_fill(~resource_mask.unsqueeze(0), -1e9)
+            weights = torch.softmax(scores, dim=1)
+            cand_emb = cand_emb + (weights.unsqueeze(-1) * pair_emb).sum(dim=1)
+            pooled = resource_emb[resource_mask].mean(dim=0)
+            cls_token = cls_token + self.resource_global_proj(pooled).unsqueeze(0)
 
         # Build sequence: [CLS, cand_1, ..., cand_R]  →  [R+1, d_model]
         seq = torch.cat([cls_token, cand_emb], dim=0).unsqueeze(0)  # [1, R+1, d_model]
@@ -194,6 +232,9 @@ class BranchingTransformer(nn.Module):
         action_mask: torch.Tensor,
         critic_feats: Optional[torch.Tensor] = None,
         pad_mask: Optional[torch.Tensor] = None,
+        resource_feats: Optional[torch.Tensor] = None,
+        candidate_resource_feats: Optional[torch.Tensor] = None,
+        resource_mask: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Batched forward pass for GPU-optimized PPO updates.
@@ -208,6 +249,27 @@ class BranchingTransformer(nn.Module):
         # Project inputs into d_model space
         cls_tokens = self.cls_proj(global_feats)              # [B, d_model]
         cand_emb = self.cand_proj(candidate_feats)            # [B, R_max, d_model]
+
+        if self.resource_set_enabled:
+            if resource_feats is None or candidate_resource_feats is None:
+                raise ValueError("Resource-set policy requires resource and interaction features")
+            resource_emb = self.resource_proj(resource_feats)  # [B, M_max, D]
+            interaction_emb = self.interaction_proj(candidate_resource_feats)  # [B,R,M,D]
+            if resource_mask is None:
+                resource_mask = torch.ones(
+                    resource_emb.shape[:2], dtype=torch.bool, device=resource_emb.device
+                )
+            if not bool(resource_mask.any(dim=1).all()):
+                raise ValueError("Resource-set policy received an empty resource set")
+            pair_emb = resource_emb.unsqueeze(1) + interaction_emb
+            scores = torch.einsum("brd,brmd->brm", cand_emb, pair_emb)
+            scores = scores / math.sqrt(self.d_model)
+            scores = scores.masked_fill(~resource_mask.unsqueeze(1), -1e9)
+            weights = torch.softmax(scores, dim=2)
+            cand_emb = cand_emb + (weights.unsqueeze(-1) * pair_emb).sum(dim=2)
+            denom = resource_mask.sum(dim=1, keepdim=True).clamp_min(1).to(resource_emb.dtype)
+            pooled = (resource_emb * resource_mask.unsqueeze(-1)).sum(dim=1) / denom
+            cls_tokens = cls_tokens + self.resource_global_proj(pooled)
 
         # Build sequence: [CLS, cand_1, ..., cand_R_max] per item
         seq = torch.cat([cls_tokens.unsqueeze(1), cand_emb], dim=1)  # [B, R_max+1, d_model]
@@ -346,6 +408,11 @@ def save_policy_checkpoint(
             "ffn_dim": model.layers[0].ffn[0].out_features,
             "dropout": 0.0,  # not stored in module; caller may override
             "critic_feature_dim": model.critic_feature_dim,
+            "resource_feature_dim": model.resource_feature_dim,
+            "interaction_feature_dim": model.interaction_feature_dim,
+            "feature_schema": (
+                "resource_set_v1" if model.resource_set_enabled else "legacy_flat_v1"
+            ),
         },
     }
     if extra:
@@ -389,6 +456,9 @@ def load_policy_checkpoint(
     if critic_feature_dim is None:
         critic_feature_dim = int(cfg.get("critic_feature_dim", 0))
 
+    resource_feature_dim = int(cfg.get("resource_feature_dim", 0))
+    interaction_feature_dim = int(cfg.get("interaction_feature_dim", 0))
+
     model = BranchingTransformer(
         global_dim=global_dim,
         candidate_dim=candidate_dim,
@@ -398,6 +468,8 @@ def load_policy_checkpoint(
         ffn_dim=ffn_dim,
         dropout=dropout,
         critic_feature_dim=critic_feature_dim,
+        resource_feature_dim=resource_feature_dim,
+        interaction_feature_dim=interaction_feature_dim,
     ).to(device)
 
     # Drop checkpoint weights whose shape no longer matches (e.g. resized value head).

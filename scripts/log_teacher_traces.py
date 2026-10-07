@@ -15,6 +15,8 @@ from __future__ import annotations
 import argparse
 import sys
 import traceback
+import json
+import re
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -37,6 +39,8 @@ def _process_one(
     inst_path: Path,
     output_dir: Path,
     time_limit: Optional[float],
+    known_makespan: Optional[int],
+    cp_sat_workers: Optional[int],
 ) -> Tuple[str, str]:
     """
     Solve and trace one instance.
@@ -49,12 +53,52 @@ def _process_one(
 
     try:
         instance = load_instance(inst_path)
-        start_times = solve_optimal_schedule(instance, time_limit_s=time_limit)
+        start_times = solve_optimal_schedule(
+            instance,
+            time_limit_s=time_limit,
+            known_makespan=known_makespan,
+            num_search_workers=cp_sat_workers,
+        )
+        if known_makespan is not None:
+            actual_makespan = max(
+                start_times[a] + instance.activities[a].duration
+                for a in start_times
+            )
+            if actual_makespan != known_makespan:
+                raise RuntimeError(
+                    f"schedule makespan {actual_makespan} differs from known "
+                    f"makespan {known_makespan}"
+                )
         records = generate_trace(instance, start_times, instance_name=inst_path.name)
         write_trace(records, out_path)
         return "ok", str(inst_path.name)
     except Exception as exc:
         return "fail", f"{inst_path.name}: {exc}\n{traceback.format_exc()}"
+
+
+def _baseline_key(path: Path) -> Tuple[int, int]:
+    """Map PSPLIB training filenames to (parameter, instance) baseline keys."""
+    stem = path.stem.lower()
+    m = re.match(r"j(?:60|120)(\d+)_(\d+)$", stem)
+    if m:
+        return int(m.group(1)), int(m.group(2))
+    m = re.match(r"x(\d+)_(\d+)$", stem)
+    if m:
+        return int(m.group(1)), int(m.group(2))
+    m = re.match(r"j90_(\d+)$", stem)
+    if m:
+        flat = int(m.group(1))
+        return (flat - 1) // 10 + 1, (flat - 1) % 10 + 1
+    raise ValueError(f"Unrecognized benchmark filename: {path.name}")
+
+
+def _load_baseline(path: Path) -> dict[Tuple[int, int], int]:
+    data = json.loads(path.read_text())
+    result = {}
+    for row in data.get("solutions", []):
+        if row.get("is_proven_optimal"):
+            result[(int(row["parameter"]), int(row["instance"]))] = int(row["optimal_makespan"])
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -93,6 +137,19 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="CP-SAT time limit per instance in seconds (None = no limit).",
     )
+    parser.add_argument(
+        "--known-makespan",
+        type=int,
+        default=None,
+        help="Known optimal makespan; constrain CP-SAT to this value.",
+    )
+    parser.add_argument(
+        "--cp-sat-workers",
+        type=int,
+        default=None,
+        help="Parallel search workers inside each CP-SAT solve (default: OR-Tools default).",
+    )
+    parser.add_argument("--baseline", default=None, help="Baseline JSON with proven optimal makespans.")
     parser.add_argument(
         "--workers",
         type=int,
@@ -134,6 +191,9 @@ def _collect_paths(args: argparse.Namespace) -> List[Path]:
 def main() -> None:
     args = parse_args()
 
+    if args.baseline and args.known_makespan is not None:
+        raise ValueError("Use either --baseline or --known-makespan, not both")
+
     out_dir = (
         Path(args.output_dir)
         if args.output_dir
@@ -144,6 +204,27 @@ def main() -> None:
     inst_paths = _collect_paths(args)
     if args.limit is not None:
         inst_paths = inst_paths[: args.limit]
+
+    if args.baseline:
+        baseline = _load_baseline(Path(args.baseline))
+        filtered = []
+        missing = 0
+        for p in inst_paths:
+            try:
+                key = _baseline_key(p)
+            except ValueError as exc:
+                print(f"Baseline skip: {exc}")
+                missing += 1
+                continue
+            if key not in baseline:
+                missing += 1
+            else:
+                filtered.append((p, baseline[key]))
+        print(f"Baseline: {len(filtered)} proven matches | {missing} missing/unproven")
+        inst_paths = [p for p, _ in filtered]
+        known_by_path = {p: m for p, m in filtered}
+    else:
+        known_by_path = {p: args.known_makespan for p in inst_paths}
 
     # Pre-filter skips in the main process to avoid spawning workers needlessly.
     if args.skip_existing:
@@ -170,7 +251,9 @@ def main() -> None:
     if args.workers <= 1:
         # Single-process path — easier to debug.
         for idx, inst_path in enumerate(pending, 1):
-            status, msg = _process_one(inst_path, out_dir, args.time_limit)
+            status, msg = _process_one(
+                inst_path, out_dir, args.time_limit, known_by_path[inst_path], args.cp_sat_workers
+            )
             if status == "ok":
                 n_ok += 1
                 print(f"[{idx}/{len(pending)}] ok  {msg}")
@@ -182,7 +265,9 @@ def main() -> None:
     else:
         with ProcessPoolExecutor(max_workers=args.workers) as pool:
             futures = {
-                pool.submit(_process_one, p, out_dir, args.time_limit): p
+                pool.submit(
+                    _process_one, p, out_dir, args.time_limit, known_by_path[p], args.cp_sat_workers
+                ): p
                 for p in pending
             }
             completed = 0
