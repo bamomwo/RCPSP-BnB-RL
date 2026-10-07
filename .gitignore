@@ -23,6 +23,8 @@ models/*
 results/
 znotes/
 
+config/run_bnb_nu.json
+scripts/run_bnb_nu.py
 
 tests/
 scripts/verify_policy_speedup.py

@@ -1,8 +1,8 @@
 {
   "max_nodes": null,
   "branching_order": "policy",
-  "time_limit_s": 60,
-  "policy_path": "models/policy_ppo_step15035191.pt",
+  "time_limit_s": 1,
+  "policy_path": "models/policy_ppo_step3664212.pt",
   "policy_device": "cpu",
   "policy_resource_encoder": "set",
   "search_strategy": "ubs",
