@@ -1,10 +1,11 @@
 """
 GPU-optimized PPO fine-tuning for the RCPSP branching policy.
 
-The policy samples one complete Plackett-Luce ranking at each branch point and
-PPO scores that ranking as a compound action. The update phase is BATCHED:
-observations are padded to a common sequence length and processed in one forward
-pass per minibatch.
+The policy samples one activity at each branch point. The solver explores that
+activity first, then the remaining activities in ascending activity-ID order.
+PPO scores only the sampled activity. The update phase is BATCHED: observations
+are padded to a common sequence length and processed in one forward pass per
+minibatch. Evaluation retains the complete greedy policy ordering.
 
 Key differences from train_ppo.py:
   - PPO update uses model.forward_batch() instead of per-item forward()
@@ -22,12 +23,13 @@ import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
 
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torch.distributions import Categorical
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_PATH = PROJECT_ROOT / "src"
@@ -44,11 +46,6 @@ from rcpsp_bb_rl.ml.il.featurize import (  # noqa: E402
 )
 from rcpsp_bb_rl.ml.estimator import load_estimator_checkpoint, predict_difficulty  # noqa: E402
 from rcpsp_bb_rl.ml.rl import BranchingEnv  # noqa: E402
-from rcpsp_bb_rl.ml.rl.ranking_policy import (  # noqa: E402
-    RankingAction,
-    make_ranking_action,
-    ranking_log_probs_entropy,
-)
 from rcpsp_bb_rl.ml.rl.tree_return import (  # noqa: E402
     compute_episode_advantages_decoupled,
     make_cost_reward_fn,
@@ -108,16 +105,17 @@ class ActorCritic(nn.Module):
             resource_feats, candidate_resource_feats, resource_mask,
         )
 
-    def get_ranking_and_value(
+    def get_action_and_value(
         self,
         obs: Dict[str, torch.Tensor],
         device: torch.device,
-    ) -> Tuple[RankingAction, torch.Tensor]:
+        action: Optional[torch.Tensor] = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
-        Sample a complete Plackett-Luce ranking during rollout collection.
+        Sample or score one activity, returning action, log_prob, entropy, value.
 
-        The ranking is one compound PPO action. All selections are made from
-        this state before the complete activity order is sent to the DFS solver.
+        BranchingEnv.step(action) supplies the fixed activity-ID tail; its
+        ordering is independent of the logits and is not part of the PPO action.
         """
         cand = obs["candidate_feats"].to(device)
         glob = obs["global_feats"].to(device)
@@ -131,8 +129,10 @@ class ActorCritic(nn.Module):
                   "resource_mask": obs.get("resource_mask")}
         kwargs = {k: v.to(device) for k, v in kwargs.items() if v is not None}
         logits, value = self.model(cand, glob, mask, critic, **kwargs)
-        ranking_action = make_ranking_action(logits, mask, sample=True)
-        return ranking_action, value
+        dist = Categorical(logits=logits.masked_fill(~mask, -1e9))
+        if action is None:
+            action = dist.sample()
+        return action, dist.log_prob(action), dist.entropy(), value
 
 
 # ---------------------------------------------------------------------------
@@ -198,18 +198,19 @@ def batch_observations(
     return cand_batch, glob_batch, mask_batch, critic_batch, pad_mask, seq_lens, resource_batch, interaction_batch, resource_mask_batch
 
 
-def compute_ranking_log_probs_entropy(
+def compute_log_probs_entropy(
     logits_batch: torch.Tensor,
+    actions: torch.Tensor,
     feasible_mask_batch: torch.Tensor,
-    rankings: Sequence[Sequence[int]],
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> Tuple[torch.Tensor, torch.Tensor]:
     """
-    Compute complete-ranking likelihoods and autoregressive entropy.
+    Replay categorical activity selections in a padded minibatch.
 
-    This wrapper keeps the training script's PPO helper boundary explicit while
-    delegating the Plackett-Luce math to the shared rollout/replay implementation.
+    The mask excludes both infeasible candidates and padding. No tail-order
+    likelihood or entropy enters the PPO objective.
     """
-    return ranking_log_probs_entropy(logits_batch, feasible_mask_batch, rankings)
+    dist = Categorical(logits=logits_batch.masked_fill(~feasible_mask_batch, -1e9))
+    return dist.log_prob(actions), dist.entropy()
 
 
 # ---------------------------------------------------------------------------
@@ -221,7 +222,7 @@ class RolloutBuffer:
 
     def __init__(self) -> None:
         self.obs: List[Dict[str, torch.Tensor]] = []
-        self.rankings: List[Tuple[int, ...]] = []
+        self.actions: List[int] = []
         self.log_probs: List[float] = []
         self.values: List[float] = []
         self.dones: List[bool] = []
@@ -234,7 +235,7 @@ class RolloutBuffer:
     def add(
         self,
         obs: Dict[str, torch.Tensor],
-        ranking: Sequence[int],
+        action: int,
         log_prob: float,
         value: float,
         done: bool,
@@ -245,7 +246,7 @@ class RolloutBuffer:
         feasible_count: int = 0,
     ) -> None:
         self.obs.append(obs)
-        self.rankings.append(tuple(int(index) for index in ranking))
+        self.actions.append(int(action))
         self.log_probs.append(log_prob)
         self.values.append(value)
         self.dones.append(done)
@@ -279,7 +280,7 @@ class StagedEpisode:
     at full length would dominate RAM. Only the capped subset is retained.
     """
     obs: List[Dict[str, torch.Tensor]] = field(default_factory=list)
-    rankings: List[Tuple[int, ...]] = field(default_factory=list)
+    actions: List[int] = field(default_factory=list)
     log_probs: List[float] = field(default_factory=list)
     values: List[float] = field(default_factory=list)
     dones: List[bool] = field(default_factory=list)
@@ -1049,7 +1050,8 @@ def main() -> None:
         print(f"  evaluation every {eval_every_updates} PPO update(s)")
     else:
         print(f"  evaluation every {eval_every_steps:,} environment steps (after a PPO update)")
-    print("  action_order=plackett_luce_full_ranking  ppo_action=complete_feasible_order")
+    print("  action_order=sampled_first+activity_id_tail  ppo_action=single_activity")
+    print("  eval_action_order=greedy_policy_ranking")
     cap_desc = "off" if episode_transition_cap is None else str(episode_transition_cap)
     print(f"  episode_cap={cap_desc}  stratify={stratify_time_bands}x{stratify_depth_bands} (time x rel-depth)  incumbent_window={incumbent_window}")
     vf_desc = f"huber(delta={huber_delta})" if vf_loss_type == "huber" else "mse"
@@ -1086,15 +1088,14 @@ def main() -> None:
 
         while True:
             with torch.no_grad():
-                ranking_action, value_t = ac.get_ranking_and_value(obs, device)
+                action_t, log_prob_t, _, value_t = ac.get_action_and_value(obs, device)
 
-            action_order = ranking_action.solver_order_indices
-            action = action_order[0]
-            step_out = env.step(action, action_order_indices=action_order)
+            action = int(action_t.item())
+            step_out = env.step(action)
 
             staged.obs.append(obs)
-            staged.rankings.append(tuple(ranking_action.feasible_order_indices))
-            staged.log_probs.append(ranking_action.log_prob.item())
+            staged.actions.append(action)
+            staged.log_probs.append(log_prob_t.item())
             staged.values.append(value_t.item())
             staged.dones.append(step_out.done)
             staged.terminateds.append(bool(step_out.info.get("terminated", False)))
@@ -1256,7 +1257,7 @@ def main() -> None:
         for i in kept_idx:
             buffer.add(
                 obs=staged.obs[i],
-                ranking=staged.rankings[i],
+                action=staged.actions[i],
                 log_prob=staged.log_probs[i],
                 value=staged.values[i],
                 done=staged.dones[i],
@@ -1406,14 +1407,14 @@ def main() -> None:
         progress = min(global_step / total_env_steps, 1.0)
         ent_coef_now = ent_coef_start + (ent_coef_end - ent_coef_start) * progress
 
-        total_pg_loss = total_vf_loss = total_ent = total_ent_per_choice = 0.0
+        total_pg_loss = total_vf_loss = total_ent = 0.0
         total_kl = 0.0
         n_kl_samples = 0
         update_count += 1
         early_stop = False
         initial_logprob_error = float("nan")
-        mean_ranking_length = float(
-            np.mean([len(buffer.rankings[i]) for i in valid_idx])
+        mean_feasible_count = float(
+            np.mean([buffer.feasible_counts[i] for i in valid_idx])
         )
 
         # ---- KL-stop diagnostics (logging only, no effect on the update) ----
@@ -1440,7 +1441,9 @@ def main() -> None:
                 mb_log_probs_old = torch.tensor(
                     [buffer.log_probs[i] for i in mb_idx], dtype=torch.float32, device=device
                 )
-                mb_rankings = [buffer.rankings[i] for i in mb_idx]
+                mb_actions = torch.tensor(
+                    [buffer.actions[i] for i in mb_idx], dtype=torch.long, device=device
+                )
                 mb_advantages = advantages[mb_idx].to(device)
                 mb_returns = returns[mb_idx].to(device)
 
@@ -1455,13 +1458,9 @@ def main() -> None:
                     resource_b, interaction_b, resource_mask_b,
                 )
 
-                # Complete Plackett-Luce action likelihood and entropy.
-                (
-                    mb_log_probs_new,
-                    mb_entropies_t,
-                    mb_entropy_per_choice_t,
-                ) = compute_ranking_log_probs_entropy(
-                    logits_b, mask_b, mb_rankings
+                # One categorical action per branching state; the tail is fixed.
+                mb_log_probs_new, mb_entropies_t = compute_log_probs_entropy(
+                    logits_b, mb_actions, mask_b
                 )
 
                 # Before the first optimizer step, collection and batched replay
@@ -1473,7 +1472,7 @@ def main() -> None:
                     )
                     if not np.isfinite(initial_logprob_error) or initial_logprob_error > 1e-3:
                         raise RuntimeError(
-                            "Rollout/replay ranking log-probability mismatch before update: "
+                            "Rollout/replay action log-probability mismatch before update: "
                             f"max_abs_error={initial_logprob_error:.3e}"
                         )
 
@@ -1506,7 +1505,6 @@ def main() -> None:
                 total_pg_loss += pg_loss.item()
                 total_vf_loss += vf_loss.item()
                 total_ent += (-entropy_loss.item())
-                total_ent_per_choice += mb_entropy_per_choice_t.mean().item()
 
                 with torch.no_grad():
                     approx_kl = ((ratio - 1) - log_ratio).mean().item()
@@ -1544,8 +1542,7 @@ def main() -> None:
             f"ev={explained_var:+.3f}  "
             f"ret_std={ret_std:.4f}  "
             f"ent={total_ent/n_updates:.4f}  "
-            f"ent_pos={total_ent_per_choice/n_updates:.4f}  "
-            f"rank_len={mean_ranking_length:.2f}  "
+            f"feasible={mean_feasible_count:.2f}  "
             f"ent_coef={ent_coef_now:.4f}  "
             f"kl={mean_kl:.4f}  "
             f"max_kl={max_kl:.4f}  "
@@ -1563,12 +1560,7 @@ def main() -> None:
             writer.add_scalar("train/pg_loss", total_pg_loss / n_updates, global_step)
             writer.add_scalar("train/vf_loss", total_vf_loss / n_updates, global_step)
             writer.add_scalar("train/entropy", total_ent / n_updates, global_step)
-            writer.add_scalar(
-                "train/entropy_per_choice",
-                total_ent_per_choice / n_updates,
-                global_step,
-            )
-            writer.add_scalar("train/ranking_length", mean_ranking_length, global_step)
+            writer.add_scalar("train/feasible_candidates", mean_feasible_count, global_step)
             writer.add_scalar(
                 "train/initial_logprob_error", initial_logprob_error, global_step
             )

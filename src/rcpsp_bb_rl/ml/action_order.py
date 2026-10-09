@@ -25,11 +25,11 @@ def resolve_activity_order(
     selected_index: int,
     action_order_indices: Optional[Sequence[int]] = None,
 ) -> List[int]:
-    """Convert a candidate-index permutation into the solver's activity order."""
+    """Put the selected activity first, with an ID-sorted tail unless overridden."""
     chosen = ready_activities[selected_index]
     if action_order_indices is None:
         return [chosen] + [
-            activity for activity in ready_activities if activity != chosen
+            activity for activity in sorted(ready_activities) if activity != chosen
         ]
 
     order_indices = [int(index) for index in action_order_indices]

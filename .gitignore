@@ -26,7 +26,8 @@ znotes/
 config/run_bnb_nu.json
 scripts/run_bnb_nu.py
 
-tests/
+tests/*
+!tests/test_single_action_ppo.py
 scripts/verify_policy_speedup.py
 
 # Scripts kept locally but excluded from version control.

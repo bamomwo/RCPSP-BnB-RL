@@ -342,7 +342,7 @@ class BranchingEnv:
 
         When action_order_indices is supplied, it must be a complete permutation
         of candidate indices with action_index first. Otherwise the remaining
-        activities retain the legacy activity-ID order. The solver explores the
+        activities follow ascending activity-ID order. The solver explores the
         resulting order directly (via reverse push onto its DFS/LIFO stack).
         """
         if self._done or self._solver_gen is None:

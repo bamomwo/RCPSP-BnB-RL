@@ -20,7 +20,7 @@ src/rcpsp_bb_rl/
 scripts/
   log_teacher_traces.py   Generate optimal trajectories via CP-SAT
   train_bc.py             Train imitation learning policy
-  train_ppo.py            PPO fine-tuning from BC checkpoint
+  train_ppo_gpu.py        PPO fine-tuning from BC checkpoint
   run_bnb.py              Run and evaluate the B&B solver
 config/                   JSON configs for solver, BC training, PPO training
 data/
@@ -62,7 +62,7 @@ python scripts/train_bc.py --config config/train_bc.json
 Fine-tune with PPO:
 
 ```bash
-python scripts/train_ppo.py --config config/train_ppo.json
+python scripts/train_ppo_gpu.py --config config/train_ppo_gpu_single.json
 ```
 
 Run the solver with the learned policy:
@@ -77,7 +77,28 @@ python scripts/run_bnb.py --config config/run_bnb.json
 
 `config/train_bc.json` — BC training: trajectory directory, model architecture, learning rate, epochs.
 
-`config/train_ppo.json` — PPO training: BC checkpoint, reward coefficients, rollout and update settings.
+`config/train_ppo_gpu_single.json` — PPO training: categorical single-action PPO with the current reward, rollout, and update improvements.
+`config/train_ppo_gpu_oracle.json` — existing oracle configuration, with its original output paths. The trainer on this branch uses single-action PPO with either config.
+
+### PPO action and search order
+
+PPO samples one feasible activity from the policy's categorical distribution.
+During training, DFS explores that activity first and then the remaining ready
+activities in ascending activity-ID order. The buffer stores only the selected
+candidate index; PPO likelihood ratios and entropy refer to that single choice.
+The tail is deterministic and independent of policy logits.
+
+Evaluation continues to sort all ready activities by descending policy score,
+matching the historical single-action training/evaluation setup. Subtree rewards,
+value normalization, resource-set features, and stratified episode sampling use
+the current implementations. Training artifacts are written under
+`models/train-single-action-ppo/` by the supplied config.
+
+Run the action and replay regression tests with:
+
+```bash
+python -m unittest discover -s tests -p 'test_single_action_ppo.py'
+```
 
 ### Evaluation during GPU PPO training
 
