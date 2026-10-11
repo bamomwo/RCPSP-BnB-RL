@@ -4,6 +4,9 @@
 *.pyc
 __pycache__/
 
+# Generated provenance metadata for JSONL datasets is kept local.
+*.jsonl.meta.json
+
 /data/1ktrain
 # Estimator data and its standalone training config are kept local. The
 # estimator package itself is tracked because PPO imports it for dynamic
