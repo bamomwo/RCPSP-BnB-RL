@@ -31,6 +31,7 @@ scripts/run_bnb_nu.py
 
 tests/*
 !tests/test_single_action_ppo.py
+!tests/test_separate_actor_critic.py
 scripts/verify_policy_speedup.py
 
 # Scripts kept locally but excluded from version control.

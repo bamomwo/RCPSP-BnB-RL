@@ -20,7 +20,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 from scripts import train_ppo_gpu as ppo
 from rcpsp_bb_rl.data.parsing import load_instance
 from rcpsp_bb_rl.ml.action_order import resolve_activity_order
-from rcpsp_bb_rl.ml.models import BranchingTransformer
+from rcpsp_bb_rl.ml.models import BranchingTransformer, SeparateActorCritic
 from rcpsp_bb_rl.ml.rl import BranchingEnv
 
 
@@ -79,6 +79,7 @@ class SingleActionPPOTests(unittest.TestCase):
                     resource_feature_dim=2 if resource_set else 0,
                     interaction_feature_dim=3 if resource_set else 0,
                 )
+                model = SeparateActorCritic.from_shared(model)
                 actor = ppo.ActorCritic(model).eval()
                 buffer = ppo.RolloutBuffer()
                 entropies = []
@@ -125,12 +126,12 @@ class SingleActionPPOTests(unittest.TestCase):
                 # The replay must retain gradients through the policy and resource encoder.
                 loss = -(replay_lp * torch.tensor([1.0, -1.0, 0.0, 0.5])).mean()
                 loss.backward()
-                self.assertGreater(model.score_head.weight.grad.abs().sum().item(), 0.0)
+                self.assertGreater(actor.policy_model.score_head.weight.grad.abs().sum().item(), 0.0)
                 for parameter in model.parameters():
                     if parameter.grad is not None:
                         self.assertTrue(torch.isfinite(parameter.grad).all().item())
                 if resource_set:
-                    self.assertGreater(model.resource_proj.weight.grad.abs().sum().item(), 0.0)
+                    self.assertGreater(actor.policy_model.resource_proj.weight.grad.abs().sum().item(), 0.0)
 
     def test_default_tail_is_sorted_by_activity_id_even_for_unsorted_input(self) -> None:
         self.assertEqual(resolve_activity_order([30, 10, 20, 40], 2), [20, 10, 30, 40])
@@ -211,6 +212,10 @@ class SingleActionPPOTests(unittest.TestCase):
             self.assertGreater(checkpoint["value_norm"]["count"], 0)
             self.assertTrue(math.isfinite(checkpoint["value_norm"]["mean"]))
             self.assertEqual(checkpoint["eval_metrics"]["solved_frac"], 1.0)
+            self.assertEqual(checkpoint["actor_critic_architecture"], "separate_transformers_v1")
+            self.assertIn("critic_state", checkpoint)
+            self.assertTrue(checkpoint["config"]["policy_only"])
+            self.assertTrue(checkpoint["critic_config"]["value_only"])
             self.assertTrue(list((root / "checkpoints").glob("policy_ppo_step*.pt")))
 
 

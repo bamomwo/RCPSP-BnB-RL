@@ -79,6 +79,51 @@ python scripts/run_bnb.py --config config/run_bnb.json
 
 `config/train_ppo_gpu_single.json` — PPO training: categorical single-action PPO with the current reward, rollout, and update improvements.
 `config/train_ppo_gpu_oracle.json` — existing oracle configuration, with its original output paths. The trainer on this branch uses single-action PPO with either config.
+`config/train_ppo_gpu_separate_actor_critic.json` — PPO with independent actor and critic transformers, using the oracle training hyperparameters and the dataset paths present in this checkout.
+
+### Separate actor and critic experiment
+
+Run the separate architecture with:
+
+```bash
+python scripts/train_ppo_gpu.py --config config/train_ppo_gpu_separate_actor_critic.json --log
+```
+
+The PPO trainer on this branch always uses separate actor and critic networks.
+Both transformer trunks start as independent copies of the shared PPO initialization:
+the actor preserves the BC policy exactly, and the critic preserves the same
+initial value predictions as the shared baseline, including the newly expanded
+value head. Input projections, resource encoders, attention layers, normalization,
+and output heads share no parameters. Value-loss gradients update only the
+critic; policy and entropy gradients update only the actor. Gradient clipping is
+also independent, so critic gradient magnitude cannot shrink the actor update.
+The critic still supplies the baseline used to calculate policy advantages.
+
+With the supplied BC checkpoint, the actor has 74,433 parameters and the critic
+has 79,617, for 154,050 in total. Collection and updates run both transformers;
+evaluation runs only the actor. The additional training computation can affect
+how many search nodes fit into a time-limited training episode.
+
+For a matched shared baseline, run the shared trainer from the baseline branch
+with the same configuration and different `save_path` and `checkpoint_dir`
+values. Keep the BC checkpoint, seed, training/evaluation data, rewards,
+budgets, and PPO settings identical. The separate configuration uses
+`data/oracle/oracle_beta2_5.jsonl` and `data/eval/intrain/J30_10`; older configs
+may need their dataset paths updated before running the comparison.
+
+Separate checkpoints retain both networks and the value-normalization state.
+The existing `load_policy_checkpoint` and B&B runners load the deployment actor;
+`load_separate_actor_critic_checkpoint` restores both networks for further PPO
+training. As in the existing trainer, starting from a checkpoint initializes a
+new optimizer and new training counters rather than restoring an exact training
+session. Artifacts go to `models/train-separate-actor-critic/`.
+
+Run the architecture and PPO integration tests with:
+
+```bash
+python -m unittest discover -s tests -p 'test_separate_actor_critic.py'
+python -m unittest discover -s tests -p 'test_single_action_ppo.py'
+```
 
 ### PPO action and search order
 

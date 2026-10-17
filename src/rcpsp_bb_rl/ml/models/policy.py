@@ -72,6 +72,10 @@ class BranchingTransformer(nn.Module):
 
     CLS token (global features) + per-candidate embeddings → transformer encoder
     → logits [R] over candidates + value scalar from CLS output.
+
+    By default both output heads use one encoder. ``policy_only`` and
+    ``value_only`` omit the unused head when building independent PPO networks.
+    The omitted output is zero to preserve the inference return signature.
     """
 
     def __init__(
@@ -86,12 +90,20 @@ class BranchingTransformer(nn.Module):
         critic_feature_dim: int = 0,
         resource_feature_dim: int = 0,
         interaction_feature_dim: int = 0,
+        policy_only: bool = False,
+        value_only: bool = False,
     ) -> None:
         super().__init__()
         assert d_model % n_heads == 0, f"d_model={d_model} must be divisible by n_heads={n_heads}"
 
         self.d_model = d_model
         self.critic_feature_dim = critic_feature_dim
+        self.policy_only = bool(policy_only)
+        self.value_only = bool(value_only)
+        if self.policy_only and self.value_only:
+            raise ValueError("A transformer cannot be both policy-only and value-only")
+        if self.policy_only and critic_feature_dim:
+            raise ValueError("A policy-only transformer cannot consume critic features")
         self.resource_feature_dim = int(resource_feature_dim)
         self.interaction_feature_dim = int(interaction_feature_dim)
         self.resource_set_enabled = (
@@ -119,13 +131,17 @@ class BranchingTransformer(nn.Module):
         self.final_norm = nn.LayerNorm(d_model)
 
         # Scoring head: maps each candidate embedding → scalar logit
-        self.score_head = nn.Linear(d_model, 1)
+        self.score_head = nn.Identity() if self.value_only else nn.Linear(d_model, 1)
 
         # Value head: CLS token + optional critic features → scalar
-        self.value_head = nn.Sequential(
-            nn.Linear(d_model + critic_feature_dim, d_model),
-            nn.ReLU(),
-            nn.Linear(d_model, 1),
+        self.value_head: nn.Module = (
+            nn.Identity()
+            if self.policy_only
+            else nn.Sequential(
+                nn.Linear(d_model + critic_feature_dim, d_model),
+                nn.ReLU(),
+                nn.Linear(d_model, 1),
+            )
         )
 
         self._init_weights()
@@ -204,24 +220,31 @@ class BranchingTransformer(nn.Module):
         cand_out = x[1:]     # [R, d_model] — candidate representations
 
         # Score each candidate
-        logits = self.score_head(cand_out).squeeze(-1)  # [R]
+        if self.value_only:
+            logits = cand_out.new_zeros((R,))
+        else:
+            logits = self.score_head(cand_out).squeeze(-1)  # [R]
 
         # Mask infeasible candidates
         if action_mask is not None:
             logits = logits.masked_fill(~action_mask, -1e9)
 
-        # Value from CLS + optional critic features
-        if self.critic_feature_dim > 0:
-            if critic_feats is None:
-                critic_feats = torch.zeros(
-                    self.critic_feature_dim,
-                    dtype=cls_out.dtype,
-                    device=cls_out.device,
-                )
-            value_in = torch.cat([cls_out, critic_feats], dim=-1)  # [d_model + Fk]
+        # Value from CLS + optional critic features. A policy-only encoder
+        # retains the return signature but does not allocate a value head.
+        if self.policy_only:
+            value = cls_out.new_zeros(())
         else:
-            value_in = cls_out
-        value = self.value_head(value_in).squeeze(-1)  # scalar
+            if self.critic_feature_dim > 0:
+                if critic_feats is None:
+                    critic_feats = torch.zeros(
+                        self.critic_feature_dim,
+                        dtype=cls_out.dtype,
+                        device=cls_out.device,
+                    )
+                value_in = torch.cat([cls_out, critic_feats], dim=-1)  # [d_model + Fk]
+            else:
+                value_in = cls_out
+            value = self.value_head(value_in).squeeze(-1)  # scalar
 
         return logits, value
 
@@ -305,7 +328,10 @@ class BranchingTransformer(nn.Module):
         cand_out = x[:, 1:]  # [B, R_max, d_model]
 
         # Score each candidate
-        logits = self.score_head(cand_out).squeeze(-1)  # [B, R_max]
+        if self.value_only:
+            logits = cand_out.new_zeros((B, R_max))
+        else:
+            logits = self.score_head(cand_out).squeeze(-1)  # [B, R_max]
 
         # Mask infeasible and padded positions. Reuse attendable_mask (the same
         # source of truth as the attention mask) rather than action_mask alone:
@@ -315,16 +341,19 @@ class BranchingTransformer(nn.Module):
         logits = logits.masked_fill(~attendable_mask, -1e9)
 
         # State value from CLS token + critic features
-        if self.critic_feature_dim > 0:
-            if critic_feats is None:
-                critic_feats = torch.zeros(
-                    B, self.critic_feature_dim,
-                    dtype=cls_out.dtype, device=cls_out.device,
-                )
-            value_in = torch.cat([cls_out, critic_feats], dim=-1)  # [B, d_model+Fk]
+        if self.policy_only:
+            values = cls_out.new_zeros((B,))
         else:
-            value_in = cls_out
-        values = self.value_head(value_in).squeeze(-1)  # [B]
+            if self.critic_feature_dim > 0:
+                if critic_feats is None:
+                    critic_feats = torch.zeros(
+                        B, self.critic_feature_dim,
+                        dtype=cls_out.dtype, device=cls_out.device,
+                    )
+                value_in = torch.cat([cls_out, critic_feats], dim=-1)  # [B, d_model+Fk]
+            else:
+                value_in = cls_out
+            values = self.value_head(value_in).squeeze(-1)  # [B]
 
         return logits, values
 
@@ -388,8 +417,160 @@ class BranchingTransformer(nn.Module):
 
 
 # ---------------------------------------------------------------------------
+# Separate actor-critic model
+# ---------------------------------------------------------------------------
+
+class SeparateActorCritic(nn.Module):
+    """Actor-critic with independent transformer trunks.
+
+    The actor and critic use the same input schema, but have distinct
+    parameter objects.  Consequently, value-loss gradients cannot update the
+    actor representation.  The actor is a policy-only ``BranchingTransformer``
+    (no critic features); the critic is a value-enabled ``BranchingTransformer``.
+    """
+
+    def __init__(self, actor: BranchingTransformer, critic: BranchingTransformer) -> None:
+        super().__init__()
+        if not actor.policy_only:
+            raise ValueError("The separate actor must be policy-only")
+        if not critic.value_only or critic.critic_feature_dim <= 0:
+            raise ValueError("The separate critic must be value-only")
+        actor_schema = self._schema(actor)
+        critic_schema = self._schema(critic)
+        if actor_schema != critic_schema:
+            raise ValueError("Actor and critic transformer schemas must match")
+        if {p.data_ptr() for p in actor.parameters()} & {p.data_ptr() for p in critic.parameters()}:
+            raise ValueError("Actor and critic parameters must have independent storage")
+        self.actor = actor
+        self.critic = critic
+
+    @classmethod
+    def from_shared(
+        cls, model: BranchingTransformer, dropout: float | None = None,
+    ) -> SeparateActorCritic:
+        """Split a shared model without changing its initial logits or values.
+
+        Copy both trunks rather than randomly initializing the critic trunk:
+        the shared/separate ablation then starts with identical predictions.
+        Neither branch retains the unused output head of the other task.
+        """
+        if model.policy_only or model.value_only:
+            raise ValueError("Splitting requires a model with both actor and critic heads")
+        cfg = _policy_config(model)
+        cfg.pop("feature_schema")
+        if dropout is not None:
+            cfg["dropout"] = dropout
+        # These constructors allocate on CPU and all weights are overwritten.
+        # Preserve the rollout RNG stream for the shared/separate comparison.
+        with torch.random.fork_rng(devices=[]):
+            cfg.update(policy_only=True, critic_feature_dim=0)
+            actor = BranchingTransformer(**cfg)
+            cfg.update(
+                policy_only=False,
+                value_only=True,
+                critic_feature_dim=model.critic_feature_dim,
+            )
+            critic = BranchingTransformer(**cfg)
+        parameter = next(model.parameters())
+        actor.to(device=parameter.device, dtype=parameter.dtype)
+        critic.to(device=parameter.device, dtype=parameter.dtype)
+        state = model.state_dict()
+        actor.load_state_dict({k: state[k] for k in actor.state_dict()})
+        critic.load_state_dict({k: state[k] for k in critic.state_dict()})
+        result = cls(actor, critic)
+        result.train(model.training)
+        return result
+
+    @staticmethod
+    def _schema(model: BranchingTransformer) -> tuple:
+        return (
+            model.cls_proj.in_features,
+            model.cand_proj.in_features,
+            model.d_model,
+            model.layers[0].attn.num_heads,
+            len(model.layers),
+            model.layers[0].ffn[0].out_features,
+            model.resource_feature_dim,
+            model.interaction_feature_dim,
+        )
+
+    @property
+    def resource_set_enabled(self) -> bool:
+        return self.actor.resource_set_enabled
+
+    def forward(
+        self,
+        candidate_feats: torch.Tensor,
+        global_feats: torch.Tensor,
+        action_mask: Optional[torch.Tensor] = None,
+        critic_feats: Optional[torch.Tensor] = None,
+        resource_feats: Optional[torch.Tensor] = None,
+        candidate_resource_feats: Optional[torch.Tensor] = None,
+        resource_mask: Optional[torch.Tensor] = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        logits, _ = self.actor(
+            candidate_feats, global_feats, action_mask,
+            resource_feats=resource_feats,
+            candidate_resource_feats=candidate_resource_feats,
+            resource_mask=resource_mask,
+        )
+        _, value = self.critic(
+            candidate_feats, global_feats, action_mask, critic_feats,
+            resource_feats, candidate_resource_feats, resource_mask,
+        )
+        return logits, value
+
+    def forward_batch(
+        self,
+        candidate_feats: torch.Tensor,
+        global_feats: torch.Tensor,
+        action_mask: torch.Tensor,
+        critic_feats: Optional[torch.Tensor] = None,
+        pad_mask: Optional[torch.Tensor] = None,
+        resource_feats: Optional[torch.Tensor] = None,
+        candidate_resource_feats: Optional[torch.Tensor] = None,
+        resource_mask: Optional[torch.Tensor] = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        actor_logits, _ = self.actor.forward_batch(
+            candidate_feats, global_feats, action_mask,
+            critic_feats=None, pad_mask=pad_mask,
+            resource_feats=resource_feats,
+            candidate_resource_feats=candidate_resource_feats,
+            resource_mask=resource_mask,
+        )
+        _, critic_values = self.critic.forward_batch(
+            candidate_feats, global_feats, action_mask,
+            critic_feats=critic_feats, pad_mask=pad_mask,
+            resource_feats=resource_feats,
+            candidate_resource_feats=candidate_resource_feats,
+            resource_mask=resource_mask,
+        )
+        return actor_logits, critic_values
+
+
+# ---------------------------------------------------------------------------
 # Checkpoint helpers
 # ---------------------------------------------------------------------------
+
+def _policy_config(model: BranchingTransformer) -> dict:
+    return {
+        "global_dim": model.cls_proj.in_features,
+        "candidate_dim": model.cand_proj.in_features,
+        "d_model": model.d_model,
+        "n_heads": model.layers[0].attn.num_heads,
+        "n_layers": len(model.layers),
+        "ffn_dim": model.layers[0].ffn[0].out_features,
+        "dropout": model.layers[0].attn.dropout,
+        "critic_feature_dim": model.critic_feature_dim,
+        "policy_only": model.policy_only,
+        "value_only": model.value_only,
+        "resource_feature_dim": model.resource_feature_dim,
+        "interaction_feature_dim": model.interaction_feature_dim,
+        "feature_schema": (
+            "resource_set_v1" if model.resource_set_enabled else "legacy_flat_v1"
+        ),
+    }
+
 
 def save_policy_checkpoint(
     model: BranchingTransformer,
@@ -399,50 +580,44 @@ def save_policy_checkpoint(
     """Save a BranchingTransformer checkpoint."""
     payload = {
         "model_state": model.state_dict(),
-        "config": {
-            "global_dim": model.cls_proj.in_features,
-            "candidate_dim": model.cand_proj.in_features,
-            "d_model": model.d_model,
-            "n_heads": model.layers[0].attn.num_heads,
-            "n_layers": len(model.layers),
-            "ffn_dim": model.layers[0].ffn[0].out_features,
-            "dropout": 0.0,  # not stored in module; caller may override
-            "critic_feature_dim": model.critic_feature_dim,
-            "resource_feature_dim": model.resource_feature_dim,
-            "interaction_feature_dim": model.interaction_feature_dim,
-            "feature_schema": (
-                "resource_set_v1" if model.resource_set_enabled else "legacy_flat_v1"
-            ),
-        },
+        "config": _policy_config(model),
     }
     if extra:
         payload.update(extra)
     torch.save(payload, path)
 
 
-def load_policy_checkpoint(
+def save_separate_actor_critic_checkpoint(
+    model: SeparateActorCritic,
     path: str,
-    device: torch.device | str = "cpu",
-    dropout: float = 0.0,
+    extra: dict | None = None,
+) -> None:
+    """Save a deployment-compatible actor plus the separately trained critic.
+
+    ``model_state`` deliberately contains only the actor.  Existing B&B
+    runners can therefore load the checkpoint with ``load_policy_checkpoint``.
+    The critic and its architecture are retained for subsequent PPO loading.
+    """
+    actor = model.actor
+    payload = {
+        "model_state": actor.state_dict(),
+        "critic_state": model.critic.state_dict(),
+        "critic_config": _policy_config(model.critic),
+        "actor_critic_architecture": "separate_transformers_v1",
+        "config": _policy_config(actor),
+    }
+    if extra:
+        payload.update(extra)
+    torch.save(payload, path)
+
+
+def _model_from_state(
+    cfg: dict,
+    state: dict,
+    device: torch.device | str,
+    dropout: float,
     critic_feature_dim: int | None = None,
-    return_value_norm: bool = False,
-) -> BranchingTransformer | Tuple[BranchingTransformer, Optional[dict]]:
-    """
-    Load a BranchingTransformer from a checkpoint. If critic_feature_dim is given,
-    override the value-head width (for warm-starting RL from a BC checkpoint).
-
-    When ``return_value_norm`` is true, also return the optional PPO
-    value-normalizer state saved in the checkpoint. This lets PPO resume its
-    critic in the same normalized-return coordinate system without changing the
-    default model-only API used by inference and BC warm starts.
-    """
-    checkpoint = torch.load(path, map_location=device)
-    if "model_state" not in checkpoint:
-        raise ValueError(f"Checkpoint at {path} is missing 'model_state'")
-
-    cfg = checkpoint.get("config", {})
-    state = checkpoint["model_state"]
-
+) -> BranchingTransformer:
     # Recover architecture dims from saved weights if config is incomplete
     global_dim = cfg.get("global_dim") or state["cls_proj.weight"].shape[1]
     candidate_dim = cfg.get("candidate_dim") or state["cand_proj.weight"].shape[1]
@@ -470,6 +645,8 @@ def load_policy_checkpoint(
         critic_feature_dim=critic_feature_dim,
         resource_feature_dim=resource_feature_dim,
         interaction_feature_dim=interaction_feature_dim,
+        policy_only=bool(cfg.get("policy_only", False)),
+        value_only=bool(cfg.get("value_only", False)),
     ).to(device)
 
     # Drop checkpoint weights whose shape no longer matches (e.g. resized value head).
@@ -479,16 +656,88 @@ def load_policy_checkpoint(
         if k in model_state and model_state[k].shape == v.shape
     }
     dropped = [k for k in state if k not in filtered]
-    missing, unexpected = model.load_state_dict(filtered, strict=False)
+    model.load_state_dict(filtered, strict=False)
     if dropped:
         print(
             f"[load_policy_checkpoint] reinitialised {len(dropped)} param(s) "
             f"with changed shape (value-head resize): {dropped}"
         )
     model.eval()
+    return model
+
+
+def _checkpoint_value_norm(checkpoint: dict) -> Optional[dict]:
+    value_norm = checkpoint.get("value_norm")
+    if value_norm is not None and not isinstance(value_norm, dict):
+        raise ValueError("Checkpoint has an invalid 'value_norm' payload")
+    return value_norm
+
+
+def load_policy_checkpoint(
+    path: str,
+    device: torch.device | str = "cpu",
+    dropout: float = 0.0,
+    critic_feature_dim: int | None = None,
+    return_value_norm: bool = False,
+) -> BranchingTransformer | Tuple[BranchingTransformer, Optional[dict]]:
+    """Load a shared policy or only the actor of a separate PPO checkpoint.
+
+    ``critic_feature_dim`` can resize a shared model's value head for PPO.
+    Separate checkpoints expose only the deployment actor here; use
+    ``load_separate_actor_critic_checkpoint`` to restore both networks and the
+    critic's value-normalization state.
+    """
+    checkpoint = torch.load(path, map_location=device, weights_only=False)
+    if "model_state" not in checkpoint:
+        raise ValueError(f"Checkpoint at {path} is missing 'model_state'")
+    cfg = checkpoint.get("config", {})
+    if cfg.get("policy_only", False) and critic_feature_dim not in (None, 0):
+        raise ValueError("A policy-only checkpoint requires the separate actor-critic loader for PPO")
+    model = _model_from_state(cfg, checkpoint["model_state"], device, dropout, critic_feature_dim)
     if return_value_norm:
-        value_norm = checkpoint.get("value_norm")
-        if value_norm is not None and not isinstance(value_norm, dict):
-            raise ValueError(f"Checkpoint at {path} has an invalid 'value_norm' payload")
+        value_norm = None if model.policy_only else _checkpoint_value_norm(checkpoint)
+        return model, value_norm
+    return model
+
+
+def load_separate_actor_critic_checkpoint(
+    path: str,
+    device: torch.device | str = "cpu",
+    dropout: float = 0.0,
+    critic_feature_dim: int | None = None,
+    return_value_norm: bool = False,
+) -> SeparateActorCritic | Tuple[SeparateActorCritic, Optional[dict]]:
+    """Restore separate PPO networks, or split a BC/shared PPO initialization.
+
+    When starting from BC, value-head expansion is identical to the shared PPO
+    path. Both independent trunks then copy that model's initial weights, so
+    sharing is the architecture difference at the start of the experiment.
+    """
+    checkpoint = torch.load(path, map_location=device, weights_only=False)
+    if "model_state" not in checkpoint:
+        raise ValueError(f"Checkpoint at {path} is missing 'model_state'")
+    if checkpoint.get("actor_critic_architecture") == "separate_transformers_v1":
+        actor = _model_from_state(
+            checkpoint["config"], checkpoint["model_state"], device, dropout,
+        )
+        critic = _model_from_state(
+            checkpoint["critic_config"], checkpoint["critic_state"], device, dropout,
+            critic_feature_dim,
+        )
+        model = SeparateActorCritic(actor, critic)
+        saved_critic_dim = int(checkpoint["critic_config"]["critic_feature_dim"])
+    else:
+        shared = _model_from_state(
+            checkpoint.get("config", {}), checkpoint["model_state"], device, dropout,
+            critic_feature_dim,
+        )
+        model = SeparateActorCritic.from_shared(shared, dropout=dropout)
+        saved_critic_dim = int(checkpoint.get("config", {}).get("critic_feature_dim", 0))
+    model.eval()
+    if return_value_norm:
+        value_norm = (
+            _checkpoint_value_norm(checkpoint)
+            if model.critic.critic_feature_dim == saved_critic_dim else None
+        )
         return model, value_norm
     return model

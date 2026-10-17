@@ -38,7 +38,12 @@ if str(SRC_PATH) not in sys.path:
 
 from rcpsp_bb_rl.data.dataset import list_instance_paths  # noqa: E402
 from rcpsp_bb_rl.data.parsing import load_instance  # noqa: E402
-from rcpsp_bb_rl.ml.models import BranchingTransformer, load_policy_checkpoint, save_policy_checkpoint  # noqa: E402
+from rcpsp_bb_rl.ml.models import (  # noqa: E402
+    BranchingTransformer,
+    SeparateActorCritic,
+    load_separate_actor_critic_checkpoint,
+    save_separate_actor_critic_checkpoint,
+)
 from rcpsp_bb_rl.ml.il.featurize import (  # noqa: E402
     global_feature_dim, candidate_feature_dim, critic_feature_dim,
     set_global_feature_dim, set_candidate_feature_dim,
@@ -79,15 +84,32 @@ class EpisodeRecord:
 
 
 # ---------------------------------------------------------------------------
-# Actor-Critic wrapper (same as train_ppo.py)
+# Actor-Critic wrapper
 # ---------------------------------------------------------------------------
 
 class ActorCritic(nn.Module):
-    """Wraps BranchingTransformer for PPO (unbatched collection + batched update)."""
+    """PPO interface for independent actor and critic transformers."""
 
-    def __init__(self, model: BranchingTransformer) -> None:
+    def __init__(self, model: SeparateActorCritic) -> None:
         super().__init__()
         self.model = model
+
+    @property
+    def policy_model(self) -> BranchingTransformer:
+        return self.model.actor
+
+    @property
+    def critic_model(self) -> BranchingTransformer:
+        return self.model.critic
+
+    def clip_gradients(self, max_norm: float) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Clip separate networks independently to avoid norm-based coupling."""
+        actor_norm = nn.utils.clip_grad_norm_(self.model.actor.parameters(), max_norm)
+        critic_norm = nn.utils.clip_grad_norm_(self.model.critic.parameters(), max_norm)
+        return actor_norm, critic_norm
+
+    def save_checkpoint(self, path: str, extra: dict | None = None) -> None:
+        save_separate_actor_critic_checkpoint(self.model, path, extra)
 
     def forward(
         self,
@@ -887,7 +909,7 @@ def main() -> None:
     saved_value_norm: Optional[Dict[str, Any]] = None
     if config["bc_checkpoint"] is not None:
         print(f"Loading BC checkpoint: {config['bc_checkpoint']}")
-        loaded_checkpoint = load_policy_checkpoint(
+        loaded_checkpoint = load_separate_actor_critic_checkpoint(
             config["bc_checkpoint"], device=device, dropout=float(config["dropout"]),
             critic_feature_dim=critic_dim, return_value_norm=True,
         )
@@ -900,7 +922,7 @@ def main() -> None:
             )
     else:
         print("No BC checkpoint — initialising from scratch.")
-        base_model = BranchingTransformer(
+        initial_model = BranchingTransformer(
             global_dim=global_dim,
             candidate_dim=candidate_dim,
             d_model=int(config["d_model"]),
@@ -912,10 +934,16 @@ def main() -> None:
             resource_feature_dim=set_resource_feature_dim() if use_set_encoder else 0,
             interaction_feature_dim=set_interaction_feature_dim() if use_set_encoder else 0,
         )
+        base_model = SeparateActorCritic.from_shared(initial_model, dropout=float(config["dropout"]))
 
     ac = ActorCritic(base_model).to(device)
     optimizer = optim.AdamW(ac.parameters(), lr=float(config["lr"]))
+    print("Actor-critic architecture: separate")
     print(f"Model params: {sum(p.numel() for p in ac.parameters()):,}")
+    print(
+        f"  actor={sum(p.numel() for p in ac.policy_model.parameters()):,}  "
+        f"critic={sum(p.numel() for p in ac.critic_model.parameters()):,}  shared=0"
+    )
 
     # --- Output paths ---
     save_path = Path(config["save_path"])
@@ -1352,7 +1380,7 @@ def main() -> None:
         # coordinate system. Without this, returns would be normalized with
         # the new stats while the value loss still used old-coordinate outputs.
         renormalize_value_head(
-            ac.model,
+            ac.critic_model,
             optimizer,
             old_mean=old_ret_mean,
             old_std=old_ret_std,
@@ -1499,7 +1527,7 @@ def main() -> None:
 
                 optimizer.zero_grad()
                 loss.backward()
-                nn.utils.clip_grad_norm_(ac.parameters(), max_grad_norm)
+                ac.clip_gradients(max_grad_norm)
                 optimizer.step()
 
                 total_pg_loss += pg_loss.item()
@@ -1612,7 +1640,7 @@ def main() -> None:
             last_eval_update = update_count
             ac.eval()
             metrics = evaluate(
-                model=ac.model,
+                model=ac.policy_model,
                 instance_paths=eval_paths,
                 max_resources=max_resources,
                 resource_encoder=resource_encoder,
@@ -1646,12 +1674,12 @@ def main() -> None:
                 writer.add_scalar("eval/mean_nodes", metrics["mean_nodes"], global_step)
 
             ckpt_path = checkpoint_dir / f"policy_ppo_step{global_step}.pt"
-            save_policy_checkpoint(ac.model, str(ckpt_path), extra={"train_config": config, "eval_metrics": metrics, "step": global_step, "update": update_count, "value_norm": ret_rms.state_dict()})
+            ac.save_checkpoint(str(ckpt_path), extra={"train_config": config, "eval_metrics": metrics, "step": global_step, "update": update_count, "value_norm": ret_rms.state_dict()})
             print(f"[Checkpoint] saved  → {ckpt_path}")
 
             if is_best:
                 best_mean_gap = metrics["mean_gap"]
-                save_policy_checkpoint(ac.model, str(best_model_path), extra={"train_config": config, "eval_metrics": metrics, "step": global_step, "update": update_count, "value_norm": ret_rms.state_dict()})
+                ac.save_checkpoint(str(best_model_path), extra={"train_config": config, "eval_metrics": metrics, "step": global_step, "update": update_count, "value_norm": ret_rms.state_dict()})
                 print(f"[Checkpoint] best   → {best_model_path}  (gap={best_mean_gap:.2f}%)")
             print(f"{sep}\n")
 
@@ -1669,7 +1697,7 @@ def main() -> None:
     if eval_paths and optimal_makespans and update_count != last_eval_update:
         ac.eval()
         metrics = evaluate(
-            model=ac.model,
+            model=ac.policy_model,
             instance_paths=eval_paths,
             max_resources=max_resources,
             resource_encoder=resource_encoder,
@@ -1702,7 +1730,7 @@ def main() -> None:
 
         if is_best:
             best_mean_gap = metrics["mean_gap"]
-            save_policy_checkpoint(ac.model, str(best_model_path), extra={"train_config": config, "eval_metrics": metrics, "step": global_step, "update": update_count, "value_norm": ret_rms.state_dict()})
+            ac.save_checkpoint(str(best_model_path), extra={"train_config": config, "eval_metrics": metrics, "step": global_step, "update": update_count, "value_norm": ret_rms.state_dict()})
             print(f"[Final Eval] best   → {best_model_path}  (gap={best_mean_gap:.2f}%)")
         print(f"{sep}")
 
