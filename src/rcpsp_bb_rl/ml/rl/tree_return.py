@@ -10,14 +10,15 @@ Two-channel (decoupled) backup: cost channel (-alpha per expanded node,
 discountable) and incumbent-bonus channel (undiscounted). Total return = sum of
 both channels.
 
-Truncation: nodes whose subtree contains "pending" descendants are flagged as
-open (closed=False). The training loop decides what to do with them.
+Truncation: nodes whose subtree contains "pending" descendants remain open
+(closed=False). Optional frontier values can make their training targets
+available without claiming that the solver actually explored those subtrees.
 """
 
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Mapping, Optional
 
 # A per-node reward function: maps one node dict to its immediate reward r(n).
@@ -129,35 +130,69 @@ def make_node_reward_fn(
 
 @dataclass
 class TreeReturns:
-    """Result of subtree backup: G (returns), reward (per-node), closed (fully explored flag)."""
+    """Subtree returns and separate solver-closure/target-availability flags."""
     G: Dict[int, float]
     reward: Dict[int, float]
     closed: Dict[int, bool]
+    available: Dict[int, bool] = field(default_factory=dict)
+    bootstrapped: Dict[int, bool] = field(default_factory=dict)
+    bootstrap_contributions: Dict[int, float] = field(default_factory=dict)
 
 
 def compute_subtree_returns(
     tree: Mapping[str, object],
     reward_fn: RewardFn,
     gamma: float = 1.0,
+    *,
+    frontier_values: Optional[Mapping[int, float]] = None,
 ) -> TreeReturns:
     """
     Post-order backup of per-node rewards over the search tree.
     Processes nodes by decreasing depth (iterative, no recursion). O(N log N).
+
+    ``frontier_values`` contains raw remaining-subtree returns for pending
+    leaves. Each is added once, without an extra expansion reward. Only unit
+    discounting is supported for these combined cost-and-bonus estimates.
+    ``closed`` always describes observed solver closure; ``available`` also
+    accepts subtrees whose entire unresolved frontier has a supplied value.
     """
     nodes: List[Mapping[str, object]] = list(tree.get("nodes", []))  # type: ignore[arg-type]
+    boundary = dict(frontier_values or {})
+    if boundary and gamma != 1.0:
+        raise ValueError("Frontier bootstrapping requires gamma=1.0.")
+    if boundary:
+        nodes_by_id = {int(n["id"]): n for n in nodes}  # type: ignore[index]
+        parent_ids = {
+            int(n["parent_id"]) for n in nodes if n.get("parent_id") is not None
+        }
+        for nid, value in boundary.items():
+            node = nodes_by_id.get(nid)
+            if node is None:
+                raise ValueError(f"Frontier node {nid!r} does not exist in the tree.")
+            if node.get("status") != "pending" or nid in parent_ids:
+                raise ValueError(f"Frontier node {nid!r} must be a pending leaf.")
+            if not math.isfinite(value):
+                raise ValueError(f"Frontier value for node {nid!r} must be finite.")
 
     # Seed: each node's G starts at its own immediate reward; closed starts True
     # unless the node itself is an unexplored frontier node.
     G: Dict[int, float] = {}
     reward: Dict[int, float] = {}
     closed: Dict[int, bool] = {}
+    available: Dict[int, bool] = {}
+    bootstrapped: Dict[int, bool] = {}
+    bootstrap_contributions: Dict[int, float] = {}
     parent_of: Dict[int, Optional[int]] = {}
     for n in nodes:
         nid = int(n["id"])  # type: ignore[index]
         r = float(reward_fn(n))
         reward[nid] = r
-        G[nid] = r
+        contribution = float(boundary.get(nid, 0.0))
+        G[nid] = r + contribution
         closed[nid] = (n.get("status") != "pending")
+        available[nid] = closed[nid] or nid in boundary
+        bootstrapped[nid] = nid in boundary
+        bootstrap_contributions[nid] = contribution
         pid = n.get("parent_id")
         parent_of[nid] = None if pid is None else int(pid)  # type: ignore[arg-type]
 
@@ -172,8 +207,15 @@ def compute_subtree_returns(
         # A parent's subtree is closed only if every child subtree is closed
         # (and the parent itself is not pending, already in its seed).
         closed[pid] = closed[pid] and closed[nid]
+        available[pid] = available[pid] and available[nid]
+        bootstrapped[pid] = bootstrapped[pid] or bootstrapped[nid]
+        bootstrap_contributions[pid] += gamma * bootstrap_contributions[nid]
 
-    return TreeReturns(G=G, reward=reward, closed=closed)
+    return TreeReturns(
+        G=G, reward=reward, closed=closed, available=available,
+        bootstrapped=bootstrapped,
+        bootstrap_contributions=bootstrap_contributions,
+    )
 
 
 @dataclass
@@ -181,6 +223,9 @@ class TreeAdvantages:
     """Raw subtree-return targets aligned with the transition buffer."""
     returns: List[float]
     valid: List[bool]
+    closed: List[bool] = field(default_factory=list)
+    bootstrapped: List[bool] = field(default_factory=list)
+    bootstrap_contributions: List[float] = field(default_factory=list)
 
 
 def compute_tree_advantages(
@@ -207,6 +252,7 @@ def compute_tree_advantages(
     T = len(node_ids)
     returns: List[float] = [0.0] * T
     valid: List[bool] = [False] * T
+    closed: List[bool] = [False] * T
 
     for t in range(T):
         res = backups.get(episode_index[t])
@@ -215,9 +261,13 @@ def compute_tree_advantages(
             continue  # no tree / unknown node -> leave invalid
         g = res.G[nid]
         returns[t] = g
-        valid[t] = bool(res.closed.get(nid, False)) or keep_open
+        closed[t] = bool(res.closed.get(nid, False))
+        valid[t] = closed[t] or keep_open
 
-    return TreeAdvantages(returns=returns, valid=valid)
+    return TreeAdvantages(
+        returns=returns, valid=valid, closed=closed,
+        bootstrapped=[False] * T, bootstrap_contributions=[0.0] * T,
+    )
 
 
 def compute_episode_advantages(
@@ -248,20 +298,47 @@ def compute_episode_advantages_decoupled(
     gamma_cost: float = 1.0,
     gamma_bonus: float = 1.0,
     keep_open: bool = False,
+    frontier_values: Optional[Mapping[int, float]] = None,
 ) -> TreeAdvantages:
     """
     Decoupled two-channel backup: cost and bonus backed up separately with
     independent gammas, then summed. G(X) = G_cost(X) + G_bonus(X).
+
+    Optional frontier values predict the combined remaining return and require
+    both gammas to equal one and ``keep_open=False``. A target is valid only
+    after every pending descendant has a supplied boundary value. These
+    estimates never change the observed closure flags.
     """
     T = len(node_ids)
     returns: List[float] = [0.0] * T
     valid: List[bool] = [False] * T
+    closed: List[bool] = [False] * T
+    bootstrapped: List[bool] = [False] * T
+    bootstrap_contributions: List[float] = [0.0] * T
+    result = TreeAdvantages(
+        returns=returns, valid=valid, closed=closed,
+        bootstrapped=bootstrapped,
+        bootstrap_contributions=bootstrap_contributions,
+    )
+    if frontier_values:
+        if keep_open:
+            raise ValueError("Frontier bootstrapping requires keep_open=False.")
+        if gamma_cost != 1.0 or gamma_bonus != 1.0:
+            raise ValueError(
+                "Frontier bootstrapping requires gamma_cost=gamma_bonus=1.0."
+            )
 
     if tree is None:
+        if frontier_values:
+            raise ValueError("Frontier values require an observed tree.")
         # No tree (e.g. invalid-action episode) -> nothing usable.
-        return TreeAdvantages(returns=returns, valid=valid)
+        return result
 
-    cost_res = compute_subtree_returns(tree, cost_reward_fn, gamma_cost)
+    # Put each combined boundary value in one channel only. The bonus backup
+    # still contributes every observed incumbent reward exactly once.
+    cost_res = compute_subtree_returns(
+        tree, cost_reward_fn, gamma_cost, frontier_values=frontier_values,
+    )
     bonus_res = compute_subtree_returns(tree, bonus_reward_fn, gamma_bonus)
 
     for t in range(T):
@@ -270,6 +347,9 @@ def compute_episode_advantages_decoupled(
             continue  # unknown node -> leave invalid
         g = cost_res.G[nid] + bonus_res.G[nid]
         returns[t] = g
-        valid[t] = bool(cost_res.closed.get(nid, False)) or keep_open
+        closed[t] = bool(cost_res.closed.get(nid, False))
+        valid[t] = bool(cost_res.available.get(nid, False)) or keep_open
+        bootstrapped[t] = valid[t] and cost_res.bootstrapped.get(nid, False)
+        bootstrap_contributions[t] = cost_res.bootstrap_contributions.get(nid, 0.0)
 
-    return TreeAdvantages(returns=returns, valid=valid)
+    return result

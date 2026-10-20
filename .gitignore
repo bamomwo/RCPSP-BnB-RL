@@ -29,13 +29,12 @@ znotes/
 config/run_bnb_nu.json
 scripts/run_bnb_nu.py
 
-tests/*
-!tests/test_single_action_ppo.py
-!tests/test_separate_actor_critic.py
-scripts/verify_policy_speedup.py
+tests/
 
 # Scripts kept locally but excluded from version control.
 /scripts/build_estimator_dataset.py
 /scripts/debug_critic.py
 /scripts/extract_oracle_node_counts.py
 /scripts/train_estimator.py
+/scripts/visualize_bnb.py
+/scripts/verify_policy_speedup.py

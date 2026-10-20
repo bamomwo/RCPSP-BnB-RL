@@ -116,7 +116,8 @@ The existing `load_policy_checkpoint` and B&B runners load the deployment actor;
 `load_separate_actor_critic_checkpoint` restores both networks for further PPO
 training. As in the existing trainer, starting from a checkpoint initializes a
 new optimizer and new training counters rather than restoring an exact training
-session. Artifacts go to `models/train-separate-actor-critic/`.
+session. The supplied configuration now enables selective critic bootstrapping
+and writes artifacts to `models/train-critic-bootstrap/`.
 
 Run the architecture and PPO integration tests with:
 
@@ -143,6 +144,117 @@ Run the action and replay regression tests with:
 
 ```bash
 python -m unittest discover -s tests -p 'test_single_action_ppo.py'
+```
+
+### Selective critic bootstrapping
+
+`config/train_ppo_gpu_separate_actor_critic.json` sets
+`critic_bootstrap_min_completion: 0.8`. At truncation, the trainer estimates the
+remaining subtree return at pending nodes with at least this fraction of real
+activities scheduled. Identifiable zero-duration, zero-demand global dummy
+source/sink activities are excluded: for J30, the gate is 24/30 real tasks.
+Interior zero-duration activities still count. Set the option to `null` for a
+comparison without bootstrapping; configs that omit it retain the old behavior.
+
+The trainer reconstructs frontier observations with the final incumbent,
+frontier lower bound, feasible candidates, and node stagnation. It runs only
+the critic, without gradients or action sampling, and converts normalized values
+back to raw return units using the collection-time statistics. Boundary values
+are fixed before subsampling and throughout the PPO update. A fresh BC critic
+waits until the first PPO update; a restored PPO critic with value-normalization
+metadata can supply estimates immediately. This avoids using an untrained value
+head, but does not establish that one update is enough for accurate estimates.
+
+Each frontier value contributes once to ancestor targets, alongside every
+observed expansion cost and incumbent bonus. An ancestor becomes usable only
+when every unfinished descendant is covered; an uncovered shallow sibling still
+blocks it. Actual solver closure and the observed episode return are preserved.
+Pending nodes supply boundary values, not new actor transitions. Cheap residuals
+are resolved directly: bound-prunable and empty-ready nodes contribute zero,
+and eligible zero-feasible states contribute `-episode_alpha` conditional on
+being expanded with the final incumbent. An intervening incumbent improvement
+could instead cause bound pruning. Complete
+pending schedules receive conditional incumbent bonuses in DFS frontier order,
+so first-incumbent bonuses are not repeatedly counted among those schedules.
+
+Both `tree_gamma_cost` and `tree_gamma_bonus` must be `1.0`, and
+`tree_keep_open` must be `false`. The single critic predicts the combined cost
+and bonus return, so it cannot independently discount unknown reward channels.
+
+Console `[Bootstrap]` lines and TensorBoard `bootstrap/*` scalars report pending
+and eligible frontier counts, exact zeros, expansion/terminal estimates, neural estimates,
+uncovered nodes, recovered decisions by depth, their retention after sampling,
+and the fraction of retained targets using frontier contributions. Estimated
+values are not added to reported observed episode rewards.
+
+Completion is a heuristic for value reliability. The existing subsampler still
+drops forced-choice states from critic training, even though many eligible
+frontier states are forced; `bootstrap/critic_forced` reports this exposure.
+Final-context estimates also approximate future incumbent interactions between
+frontier branches. Check depth-specific value accuracy and accumulated ancestor
+error before interpreting training gains. Shallow-depth subsampling is applied
+after these complete-tree targets have been calculated.
+
+```bash
+python -m unittest discover -s tests -p 'test_critic_bootstrap*.py'
+```
+
+### Shallow-depth rollout subsampling
+
+The separate actor/critic configuration uses `shallow_depth_threshold: 0.5`
+and `shallow_priority_per_cell: 128`. A shallow state has strictly fewer than
+half of the real tasks scheduled when its action is taken. Identifiable dummy
+source/sink activities do not count; in J30, 0 through 14 of 30 real tasks
+scheduled is shallow. The completion cutoff transfers across instance sizes.
+
+After the full-tree backup, discard invalid targets and states with at most
+one feasible action. Let `K` be the smaller of the episode cap and the number
+of remaining decisions. Selection is without replacement, in this order:
+
+1. Include the union of the pre-first-incumbent prefix and the windows around
+   incumbent improvements. If this union alone fills or exceeds `K`, randomly
+   trim it to `K`, as before; no shallow additions are made.
+2. Using the original time-by-depth grid, top up the protected shallow
+   decisions in each occupied shallow cell to
+   `min(shallow_available_in_cell, shallow_priority_per_cell)`. Existing shallow
+   prefix/window decisions count toward that cell's allowance. Randomly draw
+   any additional decisions within each cell, without replacement. If these
+   additions exceed the remaining capacity, distribute that capacity across
+   their cells with the same stratified sampler.
+3. Spend the leftover capacity on all remaining decisions using the original
+   stratified method. Three episode-progress bands and four relative-depth
+   bands give up to 12 cells. Grid depth remains `solver_depth / n_activities`;
+   real-task completion is used only for shallow eligibility. Small cells are
+   retained in full and unused shares are redistributed. Random remainder
+   allocation uses the entire cap when enough decisions exist.
+
+There is no fixed shallow percentage. With six occupied shallow cells and a
+limit of 128 per cell, at most 768 additional shallow decisions are protected,
+fewer when event priorities already cover them or cells contain fewer choices.
+The ordinary stratified stage can still select more shallow states. For an
+illustrative episode with abundant decisions in all 12 cells, six shallow
+cells, no event priorities, and cap 8192, the shallow additions use 768 slots.
+The remaining 7424 slots split roughly equally between shallow and deeper
+cells: about 4480/8192, or 54.7%, of the final sample is shallow.
+
+Shallow additions use free capacity after event priorities. If they consume
+that capacity, no slots remain for the ordinary fill. Uncapped episodes and
+episodes that fit the cap keep every usable decision without extra sampling.
+`shallow_priority_per_cell: 0` disables the additions; configurations that omit
+the setting default to zero. Return targets are calculated before sampling;
+the retained state distribution determines their weight in the PPO losses.
+
+Console `[Subsample]` lines report the shallow count, sum of per-cell priority
+targets, available count, actual retained fraction, and selected cell counts.
+The priority target is not a guaranteed final shallow count when capacity is
+exhausted by event priorities.
+TensorBoard `subsample/shallow_*` and `subsample/cell/*` scalars record the
+same distribution. `included`, `shallow_added`, and `stratified` form a
+non-overlapping accounting of retained event priorities, additional shallow
+priority choices, and general choices; their counts sum to `kept`.
+
+```bash
+python -m unittest discover -s tests -p 'test_shallow_subsampling.py'
 ```
 
 ### Evaluation during GPU PPO training

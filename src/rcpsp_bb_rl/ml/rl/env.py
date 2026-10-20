@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
+import math
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence
 
@@ -55,6 +56,69 @@ class EpisodeStats:
     done_reason: str = "unknown"
 
 
+@dataclass
+class BootstrapFrontier:
+    """Boundary states for training targets, without changing solver closure.
+
+    Completion ratios cover every pending node. Observations contain only
+    eligible, nonterminal states with at least one feasible action. The other
+    collections describe contributions computable without a critic: exact zero
+    for already-prunable/dead states, conditional expansion cost for eligible
+    states with no feasible action, and incumbent bonus for complete schedules.
+    A complete schedule's bonus still depends on future incumbent chronology.
+    """
+
+    completion_ratios: Dict[int, float] = field(default_factory=dict)
+    observations: Dict[int, Dict[str, torch.Tensor]] = field(default_factory=dict)
+    zero_return_ids: List[int] = field(default_factory=list)
+    expansion_only_ids: List[int] = field(default_factory=list)
+    terminal_makespans: Dict[int, int] = field(default_factory=dict)
+
+
+def real_activity_ids(instance: RCPSPInstance) -> set[int]:
+    """Exclude identifiable global dummy endpoints, retaining interior tasks.
+
+    Input files have no dummy labels. A candidate must have zero duration and
+    resource demand, be the unique graph source/sink, and connect to every
+    activity in the corresponding direction. Ambiguous boundaries are retained;
+    in particular, ordinary zero-duration activities are not removed by type.
+    """
+    activities = instance.activities
+    all_ids = set(activities)
+    successors = {aid: set(a.successors) & all_ids for aid, a in activities.items()}
+    predecessors = {aid: set() for aid in all_ids}
+    for aid, children in successors.items():
+        for child in children:
+            predecessors[child].add(aid)
+
+    def reaches_all(start: int, adjacency: Dict[int, set[int]]) -> bool:
+        visited: set[int] = set()
+        pending = [start]
+        while pending:
+            aid = pending.pop()
+            if aid not in visited:
+                visited.add(aid)
+                pending.extend(adjacency[aid] - visited)
+        return visited == all_ids
+
+    real_ids = set(all_ids)
+    for adjacency, boundary in (
+        (successors, [aid for aid in all_ids if not predecessors[aid]]),
+        (predecessors, [aid for aid in all_ids if not successors[aid]]),
+    ):
+        if len(boundary) != 1:
+            continue
+        aid = boundary[0]
+        activity = activities[aid]
+        if (
+            activity.duration == 0
+            and not any(activity.resources)
+            and reaches_all(aid, adjacency)
+        ):
+            real_ids.discard(aid)
+    return real_ids
+
+
 # ---------------------------------------------------------------------------
 # Environment
 # ---------------------------------------------------------------------------
@@ -89,6 +153,7 @@ class BranchingEnv:
         self.instance: Optional[RCPSPInstance] = None
         self._episode_stats: EpisodeStats = EpisodeStats()
         self._n_activities: int = 0
+        self._real_activity_ids: set[int] = set()
         self._cp_lb: int = 0
         self._static_feats: Optional[List[float]] = None
         self._statics: Optional[InstanceStatics] = None
@@ -301,6 +366,7 @@ class BranchingEnv:
         self._done_reason = "unknown"
         self._result = None
         self._n_activities = len(self.instance.activities)
+        self._real_activity_ids = real_activity_ids(self.instance)
         self._cp_lb = int(lower_bound(
             self.instance,
             set(self.instance.activities.keys()),
@@ -352,7 +418,13 @@ class BranchingEnv:
         ctx = self._pending_ctx
         incumbent = self._pending_incumbent
         ready_sorted = sorted(node.ready)
-        info: Dict = {}
+        real_count = len(self._real_activity_ids)
+        info: Dict = {
+            "completion_ratio": (
+                len(self._real_activity_ids.intersection(node.scheduled)) / real_count
+                if real_count else 1.0
+            ),
+        }
 
         if action_index < 0 or action_index >= len(ready_sorted):
             info["done_reason"] = "invalid_action"
@@ -505,6 +577,70 @@ class BranchingEnv:
     def result(self) -> Optional[SolverResult]:
         """The full SolverResult of the finished episode (None until done)."""
         return self._result
+
+    def bootstrap_frontier(self, min_completion: float) -> BootstrapFrontier:
+        """Build final pending boundary observations for selective bootstrapping.
+
+        Eligibility uses scheduled real tasks divided by total real tasks.
+        Exact pruning/terminal cases are reported even below the threshold.
+        Feasibility is recomputed against the final incumbent, and critic
+        features use the final frontier lower bound and node-local stagnation.
+        No solver nodes are expanded, sampled, relabelled, or otherwise mutated.
+        """
+        if not math.isfinite(min_completion) or not 0.0 <= min_completion <= 1.0:
+            raise ValueError("min_completion must be a finite number in [0, 1]")
+        res = self._result
+        if res is None or not self._done or self.instance is None:
+            raise RuntimeError("bootstrap_frontier() requires a finished episode")
+
+        frontier = BootstrapFrontier()
+        real_ids = real_activity_ids(self.instance)
+        real_count = len(real_ids)
+        pending_nodes = [node for node in res.nodes if node.status == "pending"]
+        incumbent = res.best_makespan
+        for node in pending_nodes:
+            completion = (
+                len(real_ids.intersection(node.scheduled)) / real_count
+                if real_count else 1.0
+            )
+            frontier.completion_ratios[node.node_id] = completion
+            # Match the solver's terminal order: bound pruning comes first.
+            if incumbent is not None and node.lower_bound >= incumbent:
+                frontier.zero_return_ids.append(node.node_id)
+                continue
+            if not node.unscheduled:
+                frontier.terminal_makespans[node.node_id] = current_makespan(node.scheduled)
+                continue
+            if not node.ready:
+                frontier.zero_return_ids.append(node.node_id)
+                continue
+            if completion < min_completion:
+                continue
+
+            ctx = StepContext(
+                incumbent_before=incumbent,
+                incumbent_after=incumbent,
+                lb_pruned=0,
+                dom_pruned=0,
+                nodes_expanded=res.nodes_expanded,
+                proof_burden=res.final_proof_burden,
+                frontier_min_lb=res.final_frontier_min_lb,
+                stack_size=len(pending_nodes),
+                time_limit_s=self.time_limit_s,
+                stagnation_depth=node.stagnation_depth,
+                node_path_best_lb=node.path_best_lb,
+            )
+            # A previously cached earliest-start map may use an older incumbent.
+            # Use a shallow dataclass copy so neither cache nor solver state changes.
+            obs = self._observe(replace(node, est_map=None), incumbent, ctx)
+            if bool(obs["action_mask"].any()):
+                frontier.observations[node.node_id] = obs
+            else:
+                # Conditional on the final incumbent: the solver counts this
+                # as an expansion, unlike empty-ready pruning. Future incumbent
+                # tightening can instead cause bound pruning before expansion.
+                frontier.expansion_only_ids.append(node.node_id)
+        return frontier
 
     def search_tree(self) -> Optional[Dict[str, object]]:
         """

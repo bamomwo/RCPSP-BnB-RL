@@ -19,11 +19,14 @@
   "tree_gamma_cost": 1.0,
   "tree_gamma_bonus": 1.0,
   "tree_keep_open": false,
+  "critic_bootstrap_min_completion": 0.01,
   "min_batch_size": 65536,
   "min_episodes": 8,
   "episode_transition_cap": 8192,
   "stratify_time_bands": 3,
   "stratify_depth_bands": 4,
+  "shallow_depth_threshold": 0.5,
+  "shallow_priority_per_cell": 128,
   "incumbent_window": 50,
   "ent_coef_start": 0.002,
   "ent_coef_end": 0.0005,
@@ -50,8 +53,8 @@
   "eval_time_limit_s": 60.0,
   "eval_optimal_json": "data/baseline/j30_opt.json",
 
-  "save_path": "models/train-separate-actor-critic/policy_ppo.pt",
-  "checkpoint_dir": "models/train-separate-actor-critic/checkpoints",
+  "save_path": "models/cs/policy_ppo.pt",
+  "checkpoint_dir": "models/cs/checkpoints",
   "seed": 42,
   "device": "cuda"
 }

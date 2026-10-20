@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import random
 import sys
 import time
@@ -310,6 +311,9 @@ class StagedEpisode:
     node_ids: List[Optional[int]] = field(default_factory=list)
     parent_ids: List[Optional[int]] = field(default_factory=list)
     depths: List[int] = field(default_factory=list)
+    # Scheduled REAL tasks / total real tasks at the state where the action was
+    # taken. Older callers can omit this and use depth / n_activities instead.
+    completion_ratios: List[float] = field(default_factory=list)
     # Number of FEASIBLE candidates at each state (action_mask.sum()), not the
     # raw candidate count. What matters for the policy gradient is how many
     # actions were actually selectable — see subsample_episode.
@@ -332,6 +336,11 @@ class SubsampleReport:
     n_included: int
     n_kept: int
     cell_counts: Dict[Tuple[int, int], int] = field(default_factory=dict)
+    n_shallow_available: int = 0
+    n_shallow_priority_target: int = 0  # sum of per-cell targets before capacity limits
+    n_shallow_kept: int = 0
+    n_shallow_added: int = 0  # retained choices from explicit shallow-priority additions
+    n_stratified: int = 0    # choices from the ordinary time x depth fill
 
     def cells_str(self) -> str:
         if not self.cell_counts:
@@ -339,6 +348,66 @@ class SubsampleReport:
         return " ".join(
             f"t{t}d{d}:{n}" for (t, d), n in sorted(self.cell_counts.items()) if n
         )
+
+
+def validate_shallow_subsampling_config(
+    depth_threshold: Any, priority_per_cell: Any,
+) -> Tuple[float, int]:
+    """Validate the shallow cutoff and bounded priority-inclusion count."""
+    if (
+        isinstance(depth_threshold, bool)
+        or not isinstance(depth_threshold, (int, float))
+        or not math.isfinite(depth_threshold)
+        or not 0.0 <= depth_threshold <= 1.0
+    ):
+        raise ValueError("shallow_depth_threshold must be a finite number in [0, 1].")
+    if (
+        isinstance(priority_per_cell, bool)
+        or not isinstance(priority_per_cell, int)
+        or priority_per_cell < 0
+    ):
+        raise ValueError("shallow_priority_per_cell must be a non-negative integer.")
+    return float(depth_threshold), priority_per_cell
+
+
+def _sample_stratified_cells(
+    indices: List[int],
+    budget: int,
+    cell_of: Mapping[int, Tuple[int, int]],
+    rng: random.Random,
+) -> List[int]:
+    """Fill a budget evenly across occupied cells, recycling scarce shares.
+
+    Sampling is without replacement. When the budget is not divisible by the
+    number of cells, distribute the final slots over randomly selected cells.
+    """
+    if budget <= 0:
+        return []
+    if len(indices) <= budget:
+        return list(indices)
+    pending: Dict[Tuple[int, int], List[int]] = {}
+    for i in indices:
+        pending.setdefault(cell_of[i], []).append(i)
+    chosen: List[int] = []
+    while pending and budget:
+        share = budget // len(pending)
+        exhausted = [key for key, items in pending.items() if len(items) <= share]
+        if exhausted:
+            for key in exhausted:
+                items = pending.pop(key)
+                chosen.extend(items)
+                budget -= len(items)
+            continue
+        # Every cell has more than its equal share. Drawing share+1 from
+        # random remainder cells uses the complete budget without biasing
+        # the same time/depth cell on every episode.
+        extra = set(rng.sample(sorted(pending), budget % len(pending)))
+        for key, items in pending.items():
+            count = share + int(key in extra)
+            if count:
+                chosen.extend(rng.sample(items, count))
+        break
+    return chosen
 
 
 def subsample_episode(
@@ -351,12 +420,14 @@ def subsample_episode(
     depth_bands: int,
     incumbent_window: int,
     rng: random.Random,
+    shallow_depth_threshold: float = 0.5,
+    shallow_priority_per_cell: int = 0,
 ) -> Tuple[List[int], SubsampleReport]:
     """
     Choose which of an episode's transitions enter the PPO batch.
 
-    Returns (kept_indices_sorted, report). With cap=None every valid transition
-    is kept (legacy behaviour).
+    Returns (kept_indices_sorted, report). With cap=None every valid genuine
+    decision is kept. Selection never changes a transition's return target.
 
     Selection order:
 
@@ -371,22 +442,27 @@ def subsample_episode(
              value, so the softmax is uniform and the gradient is nonzero even
              though the solver skips every child and the ordering is irrelevant.
              These are worse than useless: pure noise with real magnitude.
-         Both cases are removed by requiring feasible_count > 1. Dropping them
-         from the value loss too is safe here because advantages come from the
-         tree backup, so V(X) is only ever consumed as the baseline for the
-         decision at X — and there is no decision at X.
-      2. Guaranteed inclusion, off-budget: the pre-first-incumbent prefix (the
-         opening dive — at most ~n_activities transitions, and the regime a
-         short-horizon eval scores most heavily) plus a window either side of
-         every incumbent improvement (where the bonus-channel advantage lives).
-      3. Stratify the remainder over episode-progress x relative-depth cells and
-         spend the leftover budget evenly across them, keeping all of an
-         underfull cell and redistributing its surplus.
+         Both cases are removed by requiring feasible_count > 1. This preserves
+         the existing joint actor/value sample pool; forced-state critic-only
+         supervision is a separate change.
+      2. Include the pre-first-incumbent prefix and incumbent windows as before.
+         If they alone exceed the cap, randomly trim their union to the cap.
+      3. Add bounded shallow priorities across the same time x depth cells.
+         In each cell, top up protected shallow decisions toward the target
+         shallow_priority_per_cell, counting overlaps with step 2 only once.
+         Shallow means real-task completion < shallow_depth_threshold. These
+         additions use free capacity and never displace incumbent priorities.
+      4. Fill the remaining capacity with the original episode-progress x
+         relative-depth stratified sample, recycling shares from scarce cells.
 
-    Both stratification axes are expressed as FRACTIONS (position within the
-    episode, depth / n_activities), so the sampler transfers unchanged to
-    instance families with different activity counts.
+    The grid retains solver depth / n_activities. Real-task completion is used
+    only to identify shallow decisions; older callers can omit it and fall back
+    to relative solver depth. There is no fixed shallow sample percentage.
+    All selections are without replacement and remain within the episode cap.
     """
+    shallow_depth_threshold, shallow_priority_per_cell = validate_shallow_subsampling_config(
+        shallow_depth_threshold, shallow_priority_per_cell,
+    )
     valid_idx = [i for i, ok in enumerate(valid_flags) if ok]
     report = SubsampleReport(
         n_valid=len(valid_idx), n_forced_dropped=0, n_included=0, n_kept=0
@@ -401,90 +477,95 @@ def subsample_episode(
         # Degenerate episode (every decision forced). Nothing to learn from.
         return [], report
 
-    if cap is None or len(candidates) <= cap:
-        report.n_kept = len(candidates)
-        return candidates, report
-
+    # Both axes use normalized coordinates so they transfer across task sizes.
+    n_steps = max(1, len(valid_flags), len(episode))
+    denom_depth = float(max(1, n_activities))
+    n_time = max(1, int(time_bands))
+    n_depth = max(1, int(depth_bands))
+    relative_depth = {
+        i: episode.depths[i] / denom_depth if i < len(episode.depths) else 0.0
+        for i in candidates
+    }
+    completion = {
+        i: (
+            episode.completion_ratios[i] if i < len(episode.completion_ratios)
+            else relative_depth[i]
+        ) for i in candidates
+    }
+    cell_of = {
+        i: (
+            min(n_time - 1, int(i / n_steps * n_time)),
+            min(n_depth - 1, int(max(0.0, relative_depth[i]) * n_depth)),
+        ) for i in candidates
+    }
     candidate_set = set(candidates)
+    shallow = {i for i in candidates if completion[i] < shallow_depth_threshold}
+    report.n_shallow_available = len(shallow)
+    sample_size = len(candidates) if cap is None else min(len(candidates), max(0, cap))
+    shallow_cells: Dict[Tuple[int, int], List[int]] = {}
+    for i in candidates:
+        if i in shallow:
+            shallow_cells.setdefault(cell_of[i], []).append(i)
+    report.n_shallow_priority_target = sum(
+        min(len(items), shallow_priority_per_cell) for items in shallow_cells.values()
+    )
 
-    # --- 2. Guaranteed inclusion (off-budget) ----------------------------
-    included: set = set()
+    # Event priorities are filtered by target validity and feasible choices.
+    prefix: set[int] = set()
+    windows: set[int] = set()
     if episode.first_incumbent_step is not None:
         for i in range(0, min(episode.first_incumbent_step + 1, len(episode))):
             if i in candidate_set:
-                included.add(i)
+                prefix.add(i)
     for step in episode.incumbent_steps:
         lo = max(0, step - incumbent_window)
         hi = min(len(episode), step + incumbent_window + 1)
         for i in range(lo, hi):
             if i in candidate_set:
-                included.add(i)
+                windows.add(i)
+    priority = prefix | windows
+    selected: set[int] = set()
+    shallow_added: set[int] = set()
 
-    # Inclusion alone can exceed the cap on episodes with many improvements.
-    # Trim to the cap rather than letting one episode dominate the batch, but
-    # keep the sample spread over the episode instead of truncating its tail.
-    if len(included) >= cap:
-        kept = sorted(rng.sample(sorted(included), cap))
-        report.n_included = len(kept)
-        report.n_kept = len(kept)
-        return kept, report
+    # An uncapped/small episode keeps every decision without consuming RNG.
+    if sample_size == len(candidates):
+        selected.update(candidates)
+    elif len(priority) >= sample_size:
+        # Preserve the original handling when incumbent-related inclusion alone
+        # fills the episode budget. Shallow additions do not evict these states.
+        selected.update(rng.sample(sorted(priority), sample_size))
+    else:
+        selected.update(priority)
+        if shallow_priority_per_cell:
+            # Like incumbent windows, shallow states join the inclusion set.
+            # Top up each occupied cell separately so one long shallow segment
+            # cannot supply every addition. Already-included states count toward
+            # their cell's allowance and are never duplicated.
+            extra_candidates: List[int] = []
+            for items in shallow_cells.values():
+                protected_count = sum(i in priority for i in items)
+                needed = max(0, min(len(items), shallow_priority_per_cell) - protected_count)
+                available = [i for i in items if i not in priority]
+                extra_candidates.extend(
+                    available if len(available) <= needed else rng.sample(available, needed)
+                )
+            shallow_added.update(_sample_stratified_cells(
+                extra_candidates, sample_size - len(selected), cell_of, rng,
+            ))
+            selected.update(shallow_added)
+        selected.update(_sample_stratified_cells(
+            [i for i in candidates if i not in selected],
+            sample_size - len(selected), cell_of, rng,
+        ))
 
-    report.n_included = len(included)
-    budget = cap - len(included)
-    remaining = [i for i in candidates if i not in included]
-    if not remaining:
-        kept = sorted(included)
-        report.n_kept = len(kept)
-        return kept, report
-
-    # --- 3. Stratify the remainder ---------------------------------------
-    n_steps = max(1, len(episode))
-    denom_depth = float(max(1, n_activities))
-    n_time = max(1, int(time_bands))
-    n_depth = max(1, int(depth_bands))
-
-    cells: Dict[Tuple[int, int], List[int]] = {}
-    for i in remaining:
-        t_band = min(n_time - 1, int(i / n_steps * n_time))
-        d_frac = episode.depths[i] / denom_depth
-        d_band = min(n_depth - 1, int(max(0.0, d_frac) * n_depth))
-        cells.setdefault((t_band, d_band), []).append(i)
-
-    # Water-filling: cells smaller than their share are taken whole and their
-    # unused budget is redistributed over the cells that still have surplus.
-    # Without this, a budget/12 quota would leave shallow-early cells (which
-    # hold only a handful of transitions) unable to absorb their share while
-    # deep-late cells stay truncated.
-    pending = dict(cells)
-    chosen: List[int] = []
-    while pending and budget > 0:
-        share = budget // len(pending)
-        if share == 0:
-            # Fewer budget slots than cells: give the remainder to a random
-            # subset of cells so no band is systematically starved.
-            for key in rng.sample(sorted(pending), budget):
-                chosen.append(rng.choice(pending[key]))
-            budget = 0
-            break
-        exhausted = [key for key, items in pending.items() if len(items) <= share]
-        if not exhausted:
-            for key, items in pending.items():
-                chosen.extend(rng.sample(items, share))
-                budget -= share
-            break
-        for key in exhausted:
-            items = pending.pop(key)
-            chosen.extend(items)
-            budget -= len(items)
-
-    kept = sorted(included | set(chosen))
+    kept = sorted(selected)
     report.n_kept = len(kept)
+    report.n_included = len(selected & priority)
+    report.n_shallow_kept = len(selected & shallow)
+    report.n_shallow_added = len(shallow_added)
+    report.n_stratified = report.n_kept - report.n_included - report.n_shallow_added
     for i in kept:
-        t_band = min(n_time - 1, int(i / n_steps * n_time))
-        d_band = min(
-            n_depth - 1, int(max(0.0, episode.depths[i] / denom_depth) * n_depth)
-        )
-        key = (t_band, d_band)
+        key = cell_of[i]
         report.cell_counts[key] = report.cell_counts.get(key, 0) + 1
     return kept, report
 
@@ -551,6 +632,140 @@ class RunningMeanStd:
 
 
 VALUE_NORM_EPS = 1e-8
+
+
+def validate_critic_bootstrap_config(
+    min_completion: Any, *, gamma_cost: float, gamma_bonus: float, keep_open: bool,
+) -> Optional[float]:
+    """A single combined value cannot supply separately discounted channels."""
+    if min_completion is None:
+        return None
+    if (
+        isinstance(min_completion, bool)
+        or not isinstance(min_completion, (int, float))
+        or not math.isfinite(min_completion)
+        or not 0.0 <= min_completion <= 1.0
+    ):
+        raise ValueError("critic_bootstrap_min_completion must be a number in [0, 1] or null.")
+    if gamma_cost != 1.0 or gamma_bonus != 1.0:
+        raise ValueError("Critic bootstrapping requires tree_gamma_cost = tree_gamma_bonus = 1.0.")
+    if keep_open:
+        raise ValueError("Critic bootstrapping requires tree_keep_open=false for frontier coverage checks.")
+    return float(min_completion)
+
+
+@torch.no_grad()
+def predict_frontier_returns(
+    ac: ActorCritic,
+    observations: Mapping[int, Dict[str, torch.Tensor]],
+    device: torch.device,
+    *,
+    value_mean: float,
+    value_std: float,
+    batch_size: int,
+) -> Dict[int, float]:
+    """Freeze raw boundary values without sampling actions or running the actor.
+
+    ``value_std`` includes VALUE_NORM_EPS, exactly as at collection time. The
+    returned Python floats cannot retain a gradient or change during PPO epochs.
+    """
+    if batch_size <= 0:
+        raise ValueError("Frontier prediction batch_size must be positive.")
+    if not (math.isfinite(value_mean) and math.isfinite(value_std) and value_std > 0):
+        raise ValueError("Frontier prediction requires finite value-normalization statistics.")
+    node_ids = sorted(observations, key=lambda nid: (len(observations[nid]["action_mask"]), nid))
+    values: Dict[int, float] = {}
+    was_training = ac.critic_model.training
+    ac.critic_model.eval()
+    try:
+        for start in range(0, len(node_ids), batch_size):
+            ids = node_ids[start:start + batch_size]
+            cand, glob, mask, critic, pad, _, resources, interactions, resource_mask = batch_observations(
+                [observations[nid] for nid in ids], device,
+            )
+            _, normalized = ac.critic_model.forward_batch(
+                cand, glob, mask, critic, pad, resources, interactions, resource_mask,
+            )
+            raw = normalized.to(dtype=torch.float64) * value_std + value_mean
+            if not torch.isfinite(raw).all().item():
+                raise ValueError("Critic produced a non-finite frontier return.")
+            values.update(zip(ids, raw.cpu().tolist()))
+    finally:
+        ac.critic_model.train(was_training)
+    return values
+
+
+@dataclass
+class FrontierTargets:
+    """Fixed remaining-return boundaries, separate from observed episode reward."""
+    values: Dict[int, float] = field(default_factory=dict)
+    metrics: Dict[str, float] = field(default_factory=dict)
+
+
+def build_frontier_targets(
+    env: BranchingEnv,
+    ac: ActorCritic,
+    device: torch.device,
+    *,
+    min_completion: float,
+    critic_ready: bool,
+    value_mean: float,
+    value_std: float,
+    batch_size: int,
+    alpha: float,
+    beta1: float,
+    beta2: float,
+    root_lb: float,
+) -> FrontierTargets:
+    """Resolve known zeros and estimate eligible unfinished subtrees.
+
+    Neural values use the final search context. Pending complete schedules are
+    evaluated in DFS stack order, updating a local incumbent so the first-bonus
+    event is not counted repeatedly. Intervening unexplored subtrees may still
+    improve that incumbent: these terminal bonuses remain conditional estimates.
+    Solver nodes, observed incumbent history and episode rewards are untouched.
+    """
+    frontier = env.bootstrap_frontier(min_completion)
+    values = dict.fromkeys(frontier.zero_return_ids, 0.0)
+    values.update(dict.fromkeys(frontier.expansion_only_ids, -alpha))
+    incumbent = env.result.best_makespan
+    for nid in sorted(frontier.terminal_makespans, reverse=True):
+        makespan = frontier.terminal_makespans[nid]
+        bonus = 0.0
+        if incumbent is None:
+            if makespan > 0:
+                bonus = beta1 * root_lb / makespan
+        elif makespan < incumbent and incumbent > 0:
+            bonus = beta2 * (incumbent - makespan) / incumbent
+        if incumbent is None or makespan < incumbent:
+            incumbent = makespan
+        values[nid] = bonus
+
+    critic_values = predict_frontier_returns(
+        ac, frontier.observations, device,
+        value_mean=value_mean, value_std=value_std, batch_size=batch_size,
+    ) if critic_ready else {}
+    values.update(critic_values)
+    metrics = {
+        "pending": len(frontier.completion_ratios),
+        "eligible": sum(ratio >= min_completion for ratio in frontier.completion_ratios.values()),
+        "exact_zero": len(frontier.zero_return_ids),
+        "expansion_estimates": len(frontier.expansion_only_ids),
+        "terminal_estimates": len(frontier.terminal_makespans),
+        "critic_estimates": len(critic_values),
+        "critic_forced": sum(
+            int(frontier.observations[nid]["action_mask"].sum()) == 1 for nid in critic_values
+        ),
+        "critic_ready": int(critic_ready),
+        "uncovered": len(frontier.completion_ratios) - len(values),
+    }
+    if critic_values:
+        raw_values = np.asarray(list(critic_values.values()), dtype=np.float64)
+        metrics.update(
+            critic_raw_mean=float(raw_values.mean()),
+            critic_raw_abs_max=float(np.abs(raw_values).max()),
+        )
+    return FrontierTargets(values=values, metrics=metrics)
 
 
 def renormalize_value_head(
@@ -757,6 +972,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "tree_gamma_cost": None,
     "tree_gamma_bonus": None,
     "tree_keep_open": False,
+    "critic_bootstrap_min_completion": None,  # real-task fraction; null disables bootstrap
     "min_batch_size": 4096,
     # Effective-sample-size controls. A PPO batch must contain data from at
     # least min_episodes DISTINCT instances before an update fires, and no
@@ -773,6 +989,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "stratify_time_bands": 3,         # episode-progress bands (early/mid/late)
     "stratify_depth_bands": 4,        # relative-depth bands (depth / n_activities)
     "incumbent_window": 25,           # transitions kept either side of an incumbent event
+    "shallow_depth_threshold": 0.5,   # strict real-task completion fraction
+    "shallow_priority_per_cell": 0,   # bounded shallow inclusion per grid cell; 0 disables
     "ent_coef_start": 0.01,
     "ent_coef_end": 0.001,
     "vf_coef": 0.5,
@@ -852,6 +1070,14 @@ def main() -> None:
     )
     validate_incumbent_bonus_config(
         beta1=beta1, beta2=beta2, gamma_bonus=tree_gamma_bonus,
+    )
+    bootstrap_min_completion = validate_critic_bootstrap_config(
+        config["critic_bootstrap_min_completion"],
+        gamma_cost=tree_gamma_cost, gamma_bonus=tree_gamma_bonus,
+        keep_open=bool(config["tree_keep_open"]),
+    )
+    shallow_depth_threshold, shallow_priority_per_cell = validate_shallow_subsampling_config(
+        config["shallow_depth_threshold"], config["shallow_priority_per_cell"],
     )
 
     # --- Optional log file ---
@@ -1047,6 +1273,10 @@ def main() -> None:
                 "[warn] checkpoint value_norm has no count; restored its mean/variance "
                 "but will estimate future statistics with a fresh count."
             )
+    # A BC checkpoint does not have a trained return predictor. Until the first
+    # PPO update, use observed targets and directly computed frontier residuals.
+    # A restored PPO value normalizer identifies an already trained critic.
+    restored_critic_ready = saved_value_norm is not None
 
     inst_order = list(range(len(instance_paths)))
     random.shuffle(inst_order)
@@ -1082,8 +1312,17 @@ def main() -> None:
     print("  eval_action_order=greedy_policy_ranking")
     cap_desc = "off" if episode_transition_cap is None else str(episode_transition_cap)
     print(f"  episode_cap={cap_desc}  stratify={stratify_time_bands}x{stratify_depth_bands} (time x rel-depth)  incumbent_window={incumbent_window}")
+    print(
+        f"  shallow_depth_threshold={shallow_depth_threshold:g} (real-task completion, strict <)  "
+        f"shallow_priority_per_cell={shallow_priority_per_cell}"
+    )
     vf_desc = f"huber(delta={huber_delta})" if vf_loss_type == "huber" else "mse"
     print(f"  vf_loss={vf_desc}  vf_coef={vf_coef}")
+    if bootstrap_min_completion is not None:
+        print(
+            f"  critic_bootstrap_min_completion={bootstrap_min_completion:g} (real tasks)  "
+            f"critic_ready={'restored' if restored_critic_ready else 'after first PPO update'}"
+        )
     if oracle_path is not None:
         print(f"  reward_scale=ORACLE   alpha=clip(c_target/N_ref, {alpha_min:g}, {alpha_max:g})  "
               f"c_target={c_target}  beta1={beta1}  beta2={beta2}")
@@ -1130,6 +1369,7 @@ def main() -> None:
             staged.node_ids.append(step_out.info.get("node_id"))
             staged.parent_ids.append(step_out.info.get("parent_id"))
             staged.depths.append(int(step_out.info.get("depth", 0)))
+            staged.completion_ratios.append(float(step_out.info["completion_ratio"]))
             # Feasible-candidate count, NOT the raw candidate count: masked
             # (infeasible) candidates get probability exactly 0, so only the
             # feasible count determines whether this state has a real choice.
@@ -1247,6 +1487,17 @@ def main() -> None:
         # ---- Compute subtree returns on the FULL episode ----
         # The subtree backup is run before subsampling: a node's return is
         # defined by its entire subtree, so filtering first would corrupt it.
+        frontier_targets = FrontierTargets()
+        if bootstrap_min_completion is not None and env.result is not None:
+            frontier_targets = build_frontier_targets(
+                env, ac, device,
+                min_completion=bootstrap_min_completion,
+                critic_ready=restored_critic_ready or update_count > 0,
+                value_mean=ret_rms.mean, value_std=ret_rms.std + VALUE_NORM_EPS,
+                batch_size=target_mb_size, alpha=episode_alpha,
+                beta1=beta1, beta2=beta2,
+                root_lb=float(episode_tree["root_lb"]),
+            )
         ta = compute_episode_advantages_decoupled(
             tree=episode_tree,
             node_ids=staged.node_ids,
@@ -1255,6 +1506,7 @@ def main() -> None:
             gamma_cost=tree_gamma_cost,
             gamma_bonus=tree_gamma_bonus,
             keep_open=tree_keep_open,
+            frontier_values=frontier_targets.values,
         )
 
         # ---- Stratified subsample, then commit to the buffer ----
@@ -1267,8 +1519,53 @@ def main() -> None:
             depth_bands=stratify_depth_bands,
             incumbent_window=incumbent_window,
             rng=subsample_rng,
+            shallow_depth_threshold=shallow_depth_threshold,
+            shallow_priority_per_cell=shallow_priority_per_cell,
         )
         n_valid_ep = len(kept_idx)
+
+        if bootstrap_min_completion is not None:
+            # Count recovered genuine actor decisions before and after sampling;
+            # forced states still follow the existing subsampler's rules.
+            recovered = [
+                i for i, valid in enumerate(ta.valid)
+                if valid and not ta.closed[i] and staged.feasible_counts[i] > 1
+            ]
+            recovered_set = set(recovered)
+            recovered_kept = sum(i in recovered_set for i in kept_idx)
+            closed_kept = sum(ta.closed[i] for i in kept_idx)
+            depth_counts: Dict[int, int] = {}
+            for i in recovered:
+                depth = staged.depths[i]
+                depth_counts[depth] = depth_counts.get(depth, 0) + 1
+            metrics = frontier_targets.metrics
+            metrics.update(
+                recovered_decisions=len(recovered), recovered_kept=recovered_kept,
+                closed_kept=closed_kept,
+                boundary_target_fraction=recovered_kept / max(1, n_valid_ep),
+            )
+            if recovered:
+                metrics["recovered_boundary_abs_mean"] = float(np.mean([
+                    abs(ta.bootstrap_contributions[i]) for i in recovered
+                ]))
+            depths = " ".join(f"{depth}:{count}" for depth, count in sorted(depth_counts.items())) or "-"
+            print(
+                f"[Bootstrap] pending={int(metrics.get('pending', 0))}  "
+                f"eligible={int(metrics.get('eligible', 0))}  "
+                f"exact_zero={int(metrics.get('exact_zero', 0))}  "
+                f"expansion={int(metrics.get('expansion_estimates', 0))}  "
+                f"terminal={int(metrics.get('terminal_estimates', 0))}  "
+                f"critic={int(metrics.get('critic_estimates', 0))}  "
+                f"uncovered={int(metrics.get('uncovered', 0))}  "
+                f"recovered={len(recovered)}  kept={recovered_kept}/{n_valid_ep}  "
+                f"critic_ready={int(restored_critic_ready or update_count > 0)}  "
+                f"recovered_depths=[{depths}]"
+            )
+            if writer is not None:
+                for name, value in metrics.items():
+                    writer.add_scalar(f"bootstrap/{name}", value, global_step)
+                for depth, count in depth_counts.items():
+                    writer.add_scalar(f"bootstrap/recovered_depth/{depth}", count, global_step)
 
         if n_valid_ep == 0:
             print(f"[Accumulate] no usable transitions (valid={sub_report.n_valid}, "
@@ -1300,6 +1597,11 @@ def main() -> None:
         print(
             f"[Subsample] valid={sub_report.n_valid}  forced_dropped={sub_report.n_forced_dropped}  "
             f"included={sub_report.n_included}  kept={sub_report.n_kept}  "
+            f"shallow_kept={sub_report.n_shallow_kept}  "
+            f"shallow_priority_target={sub_report.n_shallow_priority_target}  "
+            f"shallow_available={sub_report.n_shallow_available}  "
+            f"shallow_fraction={sub_report.n_shallow_kept / max(1, sub_report.n_kept):.3f}  "
+            f"shallow_added={sub_report.n_shallow_added}  stratified={sub_report.n_stratified}  "
             f"cells=[{sub_report.cells_str()}]"
         )
 
@@ -1326,6 +1628,18 @@ def main() -> None:
             writer.add_scalar(
                 "subsample/forced_dropped", sub_report.n_forced_dropped, global_step
             )
+            writer.add_scalar("subsample/shallow_available", sub_report.n_shallow_available, global_step)
+            writer.add_scalar(
+                "subsample/shallow_priority_target", sub_report.n_shallow_priority_target, global_step,
+            )
+            writer.add_scalar("subsample/shallow_kept", sub_report.n_shallow_kept, global_step)
+            writer.add_scalar(
+                "subsample/shallow_fraction", sub_report.n_shallow_kept / max(1, sub_report.n_kept), global_step,
+            )
+            writer.add_scalar("subsample/shallow_added", sub_report.n_shallow_added, global_step)
+            writer.add_scalar("subsample/stratified", sub_report.n_stratified, global_step)
+            for (time_band, depth_band), count in sub_report.cell_counts.items():
+                writer.add_scalar(f"subsample/cell/t{time_band}d{depth_band}", count, global_step)
 
         # ---- Check if we have enough data for a PPO update ----
         # BOTH conditions must hold. The transition count alone let a single
