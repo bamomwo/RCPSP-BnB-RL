@@ -1,18 +1,14 @@
 .DS_Store
-.claude
 
-*.pyc
+
+# Python bytecode caches.
+*.py[co]
 __pycache__/
 
 # Generated provenance metadata for JSONL datasets is kept local.
 *.jsonl.meta.json
 
 /data/1ktrain
-# Estimator data and its standalone training config are kept local. The
-# estimator package itself is tracked because PPO imports it for dynamic
-# node-cost scaling and oracle-record fallback.
-/data/estimator/
-/config/train_estimator.json
 /data/eval/J30/J30_10/
 /data/eval/J30/J30_87/
 /data/eval/J30/J30_100/
@@ -20,11 +16,11 @@ __pycache__/
 
 models/*
 !models/best/
-!models/estimator/
 !models/policy_bc.pt
 
 results/
 znotes/
+zfigures/
 
 config/run_bnb_nu.json
 scripts/run_bnb_nu.py
@@ -32,9 +28,4 @@ scripts/run_bnb_nu.py
 tests/
 
 # Scripts kept locally but excluded from version control.
-/scripts/build_estimator_dataset.py
-/scripts/debug_critic.py
-/scripts/extract_oracle_node_counts.py
-/scripts/train_estimator.py
 /scripts/visualize_bnb.py
-/scripts/verify_policy_speedup.py

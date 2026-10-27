@@ -11,7 +11,7 @@ We train a transformer-based branching policy in two stages: supervised imitatio
 ## Layout
 
 ```
-src/rcpsp_bb_rl/
+src/rcpsp_bnb_rl/
   bnb/        B&B core: solver, branching, lower bounds, dominance, search strategy
   ml/
     models/   BranchingTransformer (policy + value heads)
@@ -20,37 +20,22 @@ src/rcpsp_bb_rl/
 scripts/
   log_teacher_traces.py   Generate optimal trajectories via CP-SAT
   train_bc.py             Train imitation learning policy
-  train_ppo_gpu.py        PPO fine-tuning from BC checkpoint
+  train_ppo.py        PPO fine-tuning from BC checkpoint
   run_bnb.py              Run and evaluate the B&B solver
 config/                   JSON configs for solver, BC training, PPO training
 data/
-  train/                  Training instances (1kNetRes, keepopt)
+  train/                  Training instances and CP-SAT traces (including Traj-Opt)
   eval/                   Held-out evaluation sets (J30, J60, J90, J120)
-  trajectories/           CP-SAT teacher traces (JSONL)
 models/                   Saved checkpoints
 ```
 
-## Dependencies
-
-Create and activate a virtual environment:
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-```
-
-Install dependencies:
-
-```bash
-pip install torch numpy ortools
-```
 
 ## Quickstart
 
 Generate teacher trajectories from training instances:
 
 ```bash
-python scripts/log_teacher_traces.py --root data/train/1kNetRes --pattern "*.rcp" --output-dir data/trajectories/1kNetRes
+python scripts/log_teacher_traces.py --root data/train/1kNetRes --pattern "*.rcp" --output-dir data/train/Traj-Opt/1kNetRes
 ```
 
 Train the imitation learning policy:
@@ -62,14 +47,19 @@ python scripts/train_bc.py --config config/train_bc.json
 Fine-tune with PPO:
 
 ```bash
-python scripts/train_ppo_gpu.py --config config/train_ppo_gpu_single.json
+python scripts/train_ppo.py --config config/train_ppo.json
 ```
 
 Run the solver with the learned policy:
 
 ```bash
-python scripts/run_bnb.py --config config/run_bnb.json
+python scripts/run_bnb.py --config config/run_bnb.json --root data/eval/intrain/J30_10
 ```
+
+The supplied BC config refers to an older `data/train/trajectories/trainM`
+layout; set its trajectory and instance directories to matching paths before
+running it. The separate PPO config loads the existing `models/policy_bc.pt`
+checkpoint and uses the data directories supplied in this checkout.
 
 ## Configuration
 
@@ -77,16 +67,19 @@ python scripts/run_bnb.py --config config/run_bnb.json
 
 `config/train_bc.json` — BC training: trajectory directory, model architecture, learning rate, epochs.
 
-`config/train_ppo_gpu_single.json` — PPO training: categorical single-action PPO with the current reward, rollout, and update improvements.
-`config/train_ppo_gpu_oracle.json` — existing oracle configuration, with its original output paths. The trainer on this branch uses single-action PPO with either config.
-`config/train_ppo_gpu_separate_actor_critic.json` — PPO with independent actor and critic transformers, using the oracle training hyperparameters and the dataset paths present in this checkout.
+`config/train_ppo.json` — PPO with independent actor and critic transformers, 120-second training episodes, selective bootstrap at `critic_bootstrap_min_completion: 0.01`, and output under `models/cs/`.
+
+The node-expansion cost uses the configured fixed `alpha` for every instance.
+Critic returns use running mean/variance normalization, with the value head
+rescaled when those statistics change to preserve its raw predictions. Actor
+advantages are standardized over the valid rollout batch before PPO updates.
 
 ### Separate actor and critic experiment
 
 Run the separate architecture with:
 
 ```bash
-python scripts/train_ppo_gpu.py --config config/train_ppo_gpu_separate_actor_critic.json --log
+python scripts/train_ppo.py --config config/train_ppo.json --log
 ```
 
 The PPO trainer on this branch always uses separate actor and critic networks.
@@ -108,23 +101,25 @@ For a matched shared baseline, run the shared trainer from the baseline branch
 with the same configuration and different `save_path` and `checkpoint_dir`
 values. Keep the BC checkpoint, seed, training/evaluation data, rewards,
 budgets, and PPO settings identical. The separate configuration uses
-`data/oracle/oracle_beta2_5.jsonl` and `data/eval/intrain/J30_10`; older configs
-may need their dataset paths updated before running the comparison.
+`data/train/1kNetRes` for training and `data/eval/intrain/J30_10` for evaluation.
 
 Separate checkpoints retain both networks and the value-normalization state.
 The existing `load_policy_checkpoint` and B&B runners load the deployment actor;
 `load_separate_actor_critic_checkpoint` restores both networks for further PPO
 training. As in the existing trainer, starting from a checkpoint initializes a
 new optimizer and new training counters rather than restoring an exact training
-session. The supplied configuration now enables selective critic bootstrapping
-and writes artifacts to `models/train-critic-bootstrap/`.
+session. The supplied configuration enables selective critic bootstrapping and
+writes artifacts to `models/cs/`.
 
 Run the architecture and PPO integration tests with:
 
 ```bash
-python -m unittest discover -s tests -p 'test_separate_actor_critic.py'
-python -m unittest discover -s tests -p 'test_single_action_ppo.py'
+PYTHONPATH=src python -m unittest discover -s tests -p 'test_separate_actor_critic.py'
+PYTHONPATH=src python -m unittest discover -s tests -p 'test_single_action_ppo.py'
 ```
+
+The test files are local, ignored artifacts in this checkout; run these commands
+when that local test directory is available.
 
 ### PPO action and search order
 
@@ -138,23 +133,23 @@ Evaluation continues to sort all ready activities by descending policy score,
 matching the historical single-action training/evaluation setup. Subtree rewards,
 value normalization, resource-set features, and stratified episode sampling use
 the current implementations. Training artifacts are written under
-`models/train-single-action-ppo/` by the supplied config.
+`models/cs/` by `config/train_ppo.json`.
 
 Run the action and replay regression tests with:
 
 ```bash
-python -m unittest discover -s tests -p 'test_single_action_ppo.py'
+PYTHONPATH=src python -m unittest discover -s tests -p 'test_single_action_ppo.py'
 ```
 
 ### Selective critic bootstrapping
 
-`config/train_ppo_gpu_separate_actor_critic.json` sets
-`critic_bootstrap_min_completion: 0.8`. At truncation, the trainer estimates the
+`config/train_ppo.json` sets
+`critic_bootstrap_min_completion: 0.01`. At truncation, the trainer estimates the
 remaining subtree return at pending nodes with at least this fraction of real
 activities scheduled. Identifiable zero-duration, zero-demand global dummy
-source/sink activities are excluded: for J30, the gate is 24/30 real tasks.
-Interior zero-duration activities still count. Set the option to `null` for a
-comparison without bootstrapping; configs that omit it retain the old behavior.
+source/sink activities are excluded: for J30, the gate is the first of 30 real
+tasks. Interior zero-duration activities still count. Set the option to `null`
+for a comparison without bootstrapping; configs that omit it disable bootstrapping.
 
 The trainer reconstructs frontier observations with the final incumbent,
 frontier lower bound, feasible candidates, and node stagnation. It runs only
@@ -171,7 +166,7 @@ when every unfinished descendant is covered; an uncovered shallow sibling still
 blocks it. Actual solver closure and the observed episode return are preserved.
 Pending nodes supply boundary values, not new actor transitions. Cheap residuals
 are resolved directly: bound-prunable and empty-ready nodes contribute zero,
-and eligible zero-feasible states contribute `-episode_alpha` conditional on
+and eligible zero-feasible states contribute `-alpha` conditional on
 being expanded with the final incumbent. An intervening incumbent improvement
 could instead cause bound pruning. Complete
 pending schedules receive conditional incumbent bonuses in DFS frontier order,
@@ -196,7 +191,7 @@ error before interpreting training gains. Shallow-depth subsampling is applied
 after these complete-tree targets have been calculated.
 
 ```bash
-python -m unittest discover -s tests -p 'test_critic_bootstrap*.py'
+PYTHONPATH=src python -m unittest discover -s tests -p 'test_critic_bootstrap*.py'
 ```
 
 ### Shallow-depth rollout subsampling
@@ -254,18 +249,18 @@ non-overlapping accounting of retained event priorities, additional shallow
 priority choices, and general choices; their counts sum to `kept`.
 
 ```bash
-python -m unittest discover -s tests -p 'test_shallow_subsampling.py'
+PYTHONPATH=src python -m unittest discover -s tests -p 'test_shallow_subsampling.py'
 ```
 
 ### Evaluation during GPU PPO training
 
-In `scripts/train_ppo_gpu.py`, set `eval_every_updates` to a positive integer
+In `scripts/train_ppo.py`, set `eval_every_updates` to a positive integer
 to evaluate and save a checkpoint after that many complete PPO updates. This
 setting overrides `eval_every_steps`; omitting it or using `null` keeps
 evaluation based on environment steps, checked after each PPO update.
 
-`config/train_ppo_gpu_oracle.json` uses `eval_every_updates: 1` for the
-600-second training episodes. Each evaluation still uses its own
+`config/train_ppo.json` uses `eval_every_updates: 1` for the
+120-second training episodes. Each evaluation still uses its own
 `eval_time_limit_s` budget. Evaluation JSON records and checkpoint metadata
 include both `step` and `update`; the best model is selected by mean gap.
 The final evaluation is skipped when the latest policy was already evaluated,
@@ -273,20 +268,13 @@ including when training ends with a partially collected batch and no new update.
 
 ### Incumbent rewards in PPO
 
-`scripts/train_ppo_gpu.py` uses the fixed root lower bound `L` to score an
-incumbent of makespan `C` as `Q(C) = L / C`. The first incumbent earns
-`beta1 * Q(first)`; each later incumbent earns
-`beta2 * (Q(new) - Q(previous))`. `beta1` and `beta2` are independent,
-finite, non-negative weights. `tree_gamma_bonus = 1.0` keeps quality gains
-undiscounted, and intermediate incumbents cannot inflate the improvement
-channel: its cumulative value is `beta2 * (Q(final) - Q(first))`. For example,
-with `L = 80`, `beta1 = 1`, and `beta2 = 2`, the histories `100` and
-`160 -> 125 -> 100` earn total incumbent rewards `0.8` and `0.8 + 2*(0.8 -
-0.5) = 1.1`, respectively. This lets training choose between first-incumbent
-quality and later refinement according to the configured objective. Separate
-first/incumbent-improvement logs are retained.
-
-Both `config/train_ppo_gpu.json` and `config/train_ppo_gpu_oracle.json` already
-use these settings. Node-cost rewards retain their existing scaling and
-discount. The new bonuses apply to subsequent PPO training; existing
-checkpoints are not changed by updating the reward code.
+`scripts/train_ppo.py` scores an incumbent of makespan `C` using the fixed
+root lower bound `L`. The first incumbent earns `beta1 * L / C`; each later
+incumbent earns `beta2 * (previous_makespan - C) / previous_makespan`.
+`beta1` and `beta2` are independent, finite, non-negative weights, and
+`tree_gamma_bonus = 1.0` keeps these gains undiscounted. The improvement reward
+depends on the chronology of incumbent updates and does not telescope. For
+example, with `L = 80`, `beta1 = 1`, and `beta2 = 2`, a history of `100` earns
+`0.8`; `160 -> 125 -> 100` earns
+`0.5 + 2*(35/160) + 2*(25/125) = 1.3375`. The separate config uses
+`beta1 = 1`, `beta2 = 5`, and unit cost/bonus discounts.

@@ -8,6 +8,7 @@ Features:
   - Parallel workers (--workers N)
   - Skip instances whose output file already exists (--skip-existing)
   - Optional per-instance CP-SAT time limit (--time-limit)
+  - Optional human-readable schedule output (--show-schedule)
   - Progress reporting with success / failure / skipped counts
 """
 from __future__ import annotations
@@ -26,9 +27,16 @@ SRC_PATH = PROJECT_ROOT / "src"
 if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
-from rcpsp_bb_rl.data.dataset import list_instance_paths  # noqa: E402
-from rcpsp_bb_rl.data.parsing import load_instance  # noqa: E402
-from rcpsp_bb_rl.ml.il.teacher import generate_trace, solve_optimal_schedule, write_trace  # noqa: E402
+from rcpsp_bnb_rl.data.dataset import list_instance_paths  # noqa: E402
+from rcpsp_bnb_rl.data.parsing import load_instance  # noqa: E402
+from rcpsp_bnb_rl.ml.il.teacher import generate_trace, solve_optimal_schedule, write_trace  # noqa: E402
+
+
+def _format_schedule(start_times: dict[int, int]) -> str:
+    """Format only the activity order of a CP-SAT schedule."""
+    ordered = sorted(start_times.items(), key=lambda item: (int(item[1]), int(item[0])))
+    activity_order = [int(act_id) for act_id, _ in ordered]
+    return f"Schedule: {activity_order}"
 
 
 # ---------------------------------------------------------------------------
@@ -41,6 +49,7 @@ def _process_one(
     time_limit: Optional[float],
     known_makespan: Optional[int],
     cp_sat_workers: Optional[int],
+    show_schedule: bool = False,
 ) -> Tuple[str, str]:
     """
     Solve and trace one instance.
@@ -48,7 +57,7 @@ def _process_one(
     Returns (status, message) where status is "ok", "skip", or "fail".
     """
     out_path = output_dir / f"{inst_path.stem}.jsonl"
-    if out_path.exists():
+    if out_path.exists() and not show_schedule:
         return "skip", str(inst_path.name)
 
     try:
@@ -71,6 +80,8 @@ def _process_one(
                 )
         records = generate_trace(instance, start_times, instance_name=inst_path.name)
         write_trace(records, out_path)
+        if show_schedule:
+            return "ok", f"{inst_path.name}\n{_format_schedule(start_times)}"
         return "ok", str(inst_path.name)
     except Exception as exc:
         return "fail", f"{inst_path.name}: {exc}\n{traceback.format_exc()}"
@@ -148,6 +159,11 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=None,
         help="Parallel search workers inside each CP-SAT solve (default: OR-Tools default).",
+    )
+    parser.add_argument(
+        "--show-schedule",
+        action="store_true",
+        help="Print activity IDs ordered by start time, breaking ties by activity ID.",
     )
     parser.add_argument("--baseline", default=None, help="Baseline JSON with proven optimal makespans.")
     parser.add_argument(
@@ -227,7 +243,9 @@ def main() -> None:
         known_by_path = {p: args.known_makespan for p in inst_paths}
 
     # Pre-filter skips in the main process to avoid spawning workers needlessly.
-    if args.skip_existing:
+    # Showing a schedule requires solving the instance, even if a trajectory
+    # with the same name already exists.
+    if args.skip_existing and not args.show_schedule:
         pending = [p for p in inst_paths if not (out_dir / f"{p.stem}.jsonl").exists()]
         n_skipped_upfront = len(inst_paths) - len(pending)
     else:
@@ -252,7 +270,12 @@ def main() -> None:
         # Single-process path — easier to debug.
         for idx, inst_path in enumerate(pending, 1):
             status, msg = _process_one(
-                inst_path, out_dir, args.time_limit, known_by_path[inst_path], args.cp_sat_workers
+                inst_path,
+                out_dir,
+                args.time_limit,
+                known_by_path[inst_path],
+                args.cp_sat_workers,
+                args.show_schedule,
             )
             if status == "ok":
                 n_ok += 1
@@ -266,7 +289,13 @@ def main() -> None:
         with ProcessPoolExecutor(max_workers=args.workers) as pool:
             futures = {
                 pool.submit(
-                    _process_one, p, out_dir, args.time_limit, known_by_path[p], args.cp_sat_workers
+                    _process_one,
+                    p,
+                    out_dir,
+                    args.time_limit,
+                    known_by_path[p],
+                    args.cp_sat_workers,
+                    args.show_schedule,
                 ): p
                 for p in pending
             }
@@ -276,6 +305,8 @@ def main() -> None:
                 status, msg = future.result()
                 if status == "ok":
                     n_ok += 1
+                    if args.show_schedule:
+                        print(f"ok  {msg}")
                 elif status == "skip":
                     n_skip += 1
                 else:

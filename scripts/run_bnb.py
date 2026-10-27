@@ -12,19 +12,19 @@ SRC_PATH = PROJECT_ROOT / "src"
 if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
-from rcpsp_bb_rl.bnb.branching_order import make_order_fn  # noqa: E402
-from rcpsp_bb_rl.bnb.branching import SerialBranchingScheme  # noqa: E402
-from rcpsp_bb_rl.bnb.lower_bounds import (  # noqa: E402
+from rcpsp_bnb_rl.bnb.branching_order import make_order_fn  # noqa: E402
+from rcpsp_bnb_rl.bnb.branching import SerialBranchingScheme  # noqa: E402
+from rcpsp_bnb_rl.bnb.lower_bounds import (  # noqa: E402
     DEFAULT_LOWER_BOUND_ID,
     format_lower_bound_spec,
     list_lower_bound_ids,
     normalize_lower_bound_spec,
 )
-from rcpsp_bb_rl.bnb.dominance import format_dominance_spec, normalize_dominance_spec  # noqa: E402
-from rcpsp_bb_rl.bnb.solver import BnBSolver, SolverResult  # noqa: E402
-from rcpsp_bb_rl.bnb.search_strategy import build_search_strategy  # noqa: E402
-from rcpsp_bb_rl.data.dataset import list_instance_paths  # noqa: E402
-from rcpsp_bb_rl.data.parsing import load_instance  # noqa: E402
+from rcpsp_bnb_rl.bnb.dominance import format_dominance_spec, normalize_dominance_spec  # noqa: E402
+from rcpsp_bnb_rl.bnb.solver import BnBSolver, SolverResult  # noqa: E402
+from rcpsp_bnb_rl.bnb.search_strategy import build_search_strategy  # noqa: E402
+from rcpsp_bnb_rl.data.dataset import list_instance_paths  # noqa: E402
+from rcpsp_bnb_rl.data.parsing import load_instance  # noqa: E402
 
 REQUIRED_CONFIG_KEYS: set = set()
 
@@ -133,8 +133,7 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help=(
             "Optional path to write a machine-readable labels CSV "
-            "(instance, nodes, solved, done_reason, makespan, lowerbound). "
-            "Used to build the search-effort estimator dataset."
+            "(instance, nodes, solved, done_reason, makespan, lowerbound)."
         ),
     )
     return parser.parse_args()
@@ -474,7 +473,7 @@ def main() -> None:
     if use_policy:
         import torch
 
-        from rcpsp_bb_rl.ml.models import load_policy_checkpoint
+        from rcpsp_bnb_rl.ml.models import load_policy_checkpoint
 
         # Tiny CPU model, one forward per node: latency-bound, so the default
         # intra-op thread pool only adds dispatch overhead. Pin single-threaded.

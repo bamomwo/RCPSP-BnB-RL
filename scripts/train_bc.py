@@ -12,8 +12,8 @@ SRC_PATH = PROJECT_ROOT / "src"
 if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
-from rcpsp_bb_rl.data.parsing import RCPSPInstance, load_instance  # noqa: E402
-from rcpsp_bb_rl.ml.il.featurize import (  # noqa: E402
+from rcpsp_bnb_rl.data.parsing import RCPSPInstance, load_instance  # noqa: E402
+from rcpsp_bnb_rl.ml.il.featurize import (  # noqa: E402
     featurize_states,
     featurize_states_resource_set,
     global_feature_dim,
@@ -23,8 +23,8 @@ from rcpsp_bb_rl.ml.il.featurize import (  # noqa: E402
     set_resource_feature_dim,
     set_interaction_feature_dim,
 )
-from rcpsp_bb_rl.ml.il.generate_trajectories import TrajectoryRecord, _load_jsonl  # noqa: E402
-from rcpsp_bb_rl.ml.models import BranchingTransformer, save_policy_checkpoint  # noqa: E402
+from rcpsp_bnb_rl.ml.il.generate_trajectories import TrajectoryRecord, _load_jsonl  # noqa: E402
+from rcpsp_bnb_rl.ml.models import BranchingTransformer, save_policy_checkpoint  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
