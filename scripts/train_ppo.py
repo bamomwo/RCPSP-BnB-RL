@@ -865,8 +865,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "ent_coef_start": 0.01,
     "ent_coef_end": 0.001,
     "vf_coef": 0.5,
-    "vf_loss_type": "huber",   # "mse" | "huber" — huber is robust to shallow-hard outliers
-    "huber_delta": 1.0,        # in log-node units: 1.0 ~ one e-fold of tree size
+    "vf_loss_type": "mse",     # "mse" | "huber"; targets are exact closed-subtree log sizes
+    "huber_delta": 1.0,        # huber only, in log-node units (1.0 ~ one e-fold of tree size)
     "actor_lr": 5e-5,            # conservative fine-tuning rate for the BC-initialized actor
     "critic_lr": 3e-4,
     "critic_warmup_updates": 16, # updates with the actor frozen while the critic calibrates
@@ -1534,10 +1534,9 @@ def main() -> None:
                     resource_feats=resource_b, candidate_resource_feats=interaction_b,
                     resource_mask=resource_mask_b,
                 )
-                # huber_delta is in log units (1.0 ~ one e-fold of tree size):
-                # errors within delta are quadratic, beyond it linear. Targets
-                # are already clamped; the prediction is left unclamped here so
-                # a saturated critic keeps a gradient back into range.
+                # Log-space regression. Targets are already clamped; the
+                # prediction is left unclamped so a saturated critic keeps a
+                # gradient back into range.
                 if vf_loss_type == "huber":
                     vf_elem = nn.functional.huber_loss(
                         values_b, mb_returns, delta=huber_delta, reduction="none",
