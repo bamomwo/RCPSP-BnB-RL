@@ -33,6 +33,10 @@ from rcpsp_bnb_rl.ml.il.featurize import (
 # Data containers
 # ---------------------------------------------------------------------------
 
+# Solver done reasons that leave pending nodes on the stack (episode truncated,
+# not terminated). The frontier of such an episode is bootstrapped.
+TRUNCATION_REASONS = frozenset({"time_limit", "node_limit"})
+
 @dataclass
 class StepOutput:
     observation: Dict[str, torch.Tensor]
@@ -134,16 +138,24 @@ class BranchingEnv:
         instance_source: RCPSPInstance | Path | str,
         max_resources: int = 4,
         resource_encoder: str = "legacy_flat",
-        time_limit_s: float = 60.0,
+        time_limit_s: Optional[float] = 60.0,
         dominance: object = "set_based",
         lb_spec: object = DEFAULT_LOWER_BOUND_ID,
+        max_nodes: Optional[int] = None,
     ) -> None:
         self.instance_source = instance_source
         self.max_resources = max_resources
         self.resource_encoder = str(resource_encoder).strip().lower()
         if self.resource_encoder not in {"legacy_flat", "set"}:
             raise ValueError("resource_encoder must be 'legacy_flat' or 'set'")
+        # Node budget is the machine-independent episode horizon; the wall-clock
+        # limit is a safety ceiling. Either stopping the search is a truncation.
+        if max_nodes is not None and (isinstance(max_nodes, bool) or int(max_nodes) <= 0):
+            raise ValueError("max_nodes must be a positive integer or None")
+        if time_limit_s is None and max_nodes is None:
+            raise ValueError("BranchingEnv needs a time_limit_s or a max_nodes horizon")
         self.time_limit_s = time_limit_s
+        self.max_nodes = None if max_nodes is None else int(max_nodes)
         self.dominance_spec = normalize_dominance_spec(dominance)
         self.lb_spec = lb_spec
 
@@ -299,6 +311,7 @@ class BranchingEnv:
                     lb_spec=self.lb_spec,
                     dominance=self.dominance_spec,
                     time_limit_s=self.time_limit_s,
+                    max_nodes=self.max_nodes,
                 )
                 to_env.put(("done", result))
             except Exception as exc:
@@ -513,7 +526,7 @@ class BranchingEnv:
 
         info.update({
             "done_reason": done_reason,
-            "terminated": done and done_reason != "time_limit",
+            "terminated": done and done_reason not in TRUNCATION_REASONS,
             "steps": self._steps,
             "node_id": node.node_id,
             "parent_id": node.parent_id,

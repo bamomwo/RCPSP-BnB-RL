@@ -872,7 +872,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "critic_warmup_updates": 16, # updates with the actor frozen while the critic calibrates
     "max_grad_norm": 0.5,
     "target_kl": 0.02,
-    "time_limit_s": 60.0,
+    "time_limit_s": 300.0,      # wall-clock safety ceiling for a training episode
+    "max_nodes": 20000,         # node budget: the machine-independent training horizon
     # Eval
     "eval_every_steps": 20_000,
     "eval_every_updates": None,  # positive integer overrides eval_every_steps
@@ -1075,7 +1076,14 @@ def main() -> None:
     huber_delta = float(config["huber_delta"])
     max_grad_norm = float(config["max_grad_norm"])
     target_kl = config.get("target_kl")
-    time_limit_s = float(config["time_limit_s"])
+    time_limit_s = None if config["time_limit_s"] is None else float(config["time_limit_s"])
+    max_nodes = config["max_nodes"]
+    if max_nodes is not None and (
+        isinstance(max_nodes, bool) or not isinstance(max_nodes, int) or max_nodes <= 0
+    ):
+        raise ValueError("max_nodes must be a positive integer or null.")
+    if time_limit_s is None and max_nodes is None:
+        raise ValueError("Set time_limit_s and/or max_nodes for training episodes.")
     dominance = str(config["dominance"])
 
     # --- Environment and state ---
@@ -1085,6 +1093,7 @@ def main() -> None:
         resource_encoder=resource_encoder,
         time_limit_s=time_limit_s,
         dominance=dominance,
+        max_nodes=max_nodes,
     )
 
     buffer = RolloutBuffer()
@@ -1140,6 +1149,10 @@ def main() -> None:
     vf_desc = f"huber(delta={huber_delta})" if vf_loss_type == "huber" else "mse"
     print(f"  vf_loss={vf_desc}  vf_coef={vf_coef}")
     print("  reward=-1 per expanded node  critic=log-node space, trained on closed subtrees only  frontier_bootstrap=every pending node")
+    print(
+        f"  episode_horizon: max_nodes={max_nodes}  time_limit_s={time_limit_s} (ceiling)  "
+        f"eval_time_limit_s={float(config['eval_time_limit_s'])} (wall clock)"
+    )
     print(f"{'='*80}")
     print(f"[Episode 1] start  {current_instance_path.name}\n")
 
@@ -1158,6 +1171,7 @@ def main() -> None:
         ac.eval()
         staged = StagedEpisode()
         episode_tree = None
+        t_episode_start = time.perf_counter()
 
         while True:
             with torch.no_grad():
@@ -1195,6 +1209,7 @@ def main() -> None:
         # ---- Episode summary ----
         ep_return = -float(stats.nodes_expanded)  # unit expansion reward: G(root)
         elapsed = time.perf_counter() - t_start
+        ep_wall = max(1e-9, time.perf_counter() - t_episode_start)
         print(
             f"[Episode {episode_count}] Done  "
             f"Instance={current_instance_path.name}  "
@@ -1204,6 +1219,7 @@ def main() -> None:
             f"Best_Ms={stats.best_makespan}  "
             f"Inc_Improves={stats.incumbent_improvements}  "
             f"G_root={ep_return:+.0f}  "
+            f"wall={ep_wall:.0f}s  nodes/s={stats.nodes_expanded / ep_wall:.0f}  "
             f"elapsed={elapsed:.0f}s"
         )
         print()
@@ -1213,6 +1229,8 @@ def main() -> None:
             writer.add_scalar("episode/nodes_expanded", stats.nodes_expanded, global_step)
             writer.add_scalar("episode/incumbent_improvements", stats.incumbent_improvements, global_step)
             writer.add_scalar("episode/steps", episode_steps, global_step)
+            writer.add_scalar("episode/wall_s", ep_wall, global_step)
+            writer.add_scalar("episode/nodes_per_s", stats.nodes_expanded / ep_wall, global_step)
             if stats.best_makespan is not None:
                 writer.add_scalar("episode/best_makespan", stats.best_makespan, global_step)
 

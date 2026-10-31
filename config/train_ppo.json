@@ -12,7 +12,7 @@
   "ffn_dim": 128,
   "dropout": 0.0,
 
-  "total_env_steps": 60000000,
+  "total_env_steps": 20000000,
   "ppo_epochs": 4,
   "target_mb_size": 4096,
   "clip_eps": 0.2,
@@ -37,7 +37,8 @@
   "critic_warmup_updates": 16,
   "max_grad_norm": 0.5,
   "target_kl": 0.03,
-  "time_limit_s": 120.0,
+  "time_limit_s": 300.0,
+  "max_nodes": 20000,
 
   "eval_every_updates": 1,
   "eval_root": "data/eval/intrain/J30_10",
