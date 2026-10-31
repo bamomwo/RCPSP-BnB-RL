@@ -26,8 +26,17 @@ def log_value_to_raw(v_log: torch.Tensor) -> torch.Tensor:
 
 
 def raw_return_to_log(y_raw: torch.Tensor) -> torch.Tensor:
-    """Y_log = -ln(1 + max(0, -Y_raw)): the critic regression target."""
-    return -torch.log1p(torch.clamp(-y_raw, min=0.0))
+    """Y_log = clamp(-ln(1 + max(0, -Y_raw)), -15, 0): the critic regression target.
+
+    The floor matches log_value_to_raw's clamp, so a saturated prediction and a
+    saturated target compare as equal instead of producing a false advantage.
+    """
+    return (-torch.log1p(torch.clamp(-y_raw, min=0.0))).clamp(min=LOG_VALUE_MIN)
+
+
+def clamp_log_value(v_log: torch.Tensor) -> torch.Tensor:
+    """Critic prediction on the same [LOG_VALUE_MIN, 0] range as its targets."""
+    return v_log.clamp(LOG_VALUE_MIN, 0.0)
 
 
 # ---------------------------------------------------------------------------

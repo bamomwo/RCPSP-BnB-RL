@@ -6,12 +6,14 @@ solution leaves cost nothing, so G(root) = -(nodes expanded).
 
 Tree-GAE (post-order lambda-return backup, raw node units):
     delta(v) = r(v) + gamma * sum_c V(c) - V(v)
-    A(v)     = delta(v) + gamma * lambda * sum_c A(c)
+    A(v)     = delta(v) + gamma * sum_c lambda_c * A(c)
     Y(v)     = V(v) + A(v)
 with V = 0 for pruned/solution leaves and V = supplied boundary value for
-pending (truncated) leaves. Every expanded node receives a target whether or
-not its subtree closed; ``closed`` is kept as a diagnostic only. At lambda = 1
-the recursion telescopes to the Monte Carlo return: A(v) = G(v) - V(v).
+pending (truncated) leaves. lambda_c = 1 when child c's subtree is closed
+(its return is observed exactly, so Y(c) = G(c) with no critic blending) and
+lambda_c = lambda on open branches. Every expanded node receives a target
+whether or not its subtree closed. At lambda = 1 the recursion telescopes to
+the Monte Carlo return everywhere: A(v) = G(v) - V(v).
 
 ``compute_subtree_returns`` is the plain Monte Carlo backup G(v), kept as the
 reference that the lambda = 1 Tree-GAE must reproduce.
@@ -135,7 +137,7 @@ class TransitionTargets:
     returns: List[float]
     values: List[float]
     valid: List[bool]   # transition's node is an expanded node of the tree
-    closed: List[bool]  # diagnostic: subtree had no pending descendant
+    closed: List[bool]  # subtree had no pending descendant: return is exact
 
 
 @dataclass
@@ -145,7 +147,7 @@ class TreeGAE:
     deltas: Dict[int, float]       # 1-step tree TD residual, expanded nodes only
     advantages: Dict[int, float]   # A(v), expanded nodes only
     returns: Dict[int, float]      # Y(v) = V(v) + A(v), expanded nodes only
-    closed: Dict[int, bool]        # diagnostic: no pending descendant
+    closed: Dict[int, bool]        # no pending descendant: Y(v) is the exact G(v)
 
     def for_transitions(self, node_ids: Sequence[Optional[int]]) -> TransitionTargets:
         """Align per-node quantities with the transitions that branched at them."""
@@ -182,6 +184,9 @@ def compute_tree_gae(
     0 / -1 for prunable / expansion-only states). Pruned and solution leaves
     are worth 0. A missing value is an error: Tree-GAE needs full coverage of
     every child to form a parent's residual.
+
+    Closed children are folded with lambda = 1 so their observed return enters
+    the parent exactly; critic error only reaches a parent through open branches.
     """
     if not math.isfinite(gamma) or not 0.0 < gamma <= 1.0:
         raise ValueError("gamma must be in (0, 1].")
@@ -230,7 +235,7 @@ def compute_tree_gae(
         nid = int(n["id"])  # type: ignore[index]
         if status_of[nid] == "expanded":
             delta = EXPANSION_REWARD + gamma * child_value_sum[nid] - V[nid]
-            adv = delta + gamma * lam * child_adv_sum[nid]
+            adv = delta + gamma * child_adv_sum[nid]
             deltas[nid] = delta
             advantages[nid] = adv
             returns[nid] = V[nid] + adv
@@ -239,8 +244,9 @@ def compute_tree_gae(
         pid = parent_of[nid]
         if pid is None:
             continue
+        # closed[nid] is final here: every descendant is deeper and already folded.
         child_value_sum[pid] += V[nid]
-        child_adv_sum[pid] += adv
+        child_adv_sum[pid] += (1.0 if closed[nid] else lam) * adv
         closed[pid] = closed[pid] and closed[nid]
 
     return TreeGAE(

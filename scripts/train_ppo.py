@@ -39,9 +39,11 @@ from rcpsp_bnb_rl.data.dataset import list_instance_paths  # noqa: E402
 from rcpsp_bnb_rl.data.parsing import load_instance  # noqa: E402
 from rcpsp_bnb_rl.ml.action_order import selected_first_policy_order  # noqa: E402
 from rcpsp_bnb_rl.ml.models import (  # noqa: E402
+    LOG_VALUE_MIN,
     BranchingTransformer,
     SeparateActorCritic,
     load_separate_actor_critic_checkpoint,
+    clamp_log_value,
     log_value_to_raw,
     raw_return_to_log,
     save_separate_actor_critic_checkpoint,
@@ -238,6 +240,7 @@ class RolloutBuffer:
         self.depths: List[int] = []
         self.feasible_counts: List[int] = []
         self.actor_valid: List[bool] = []   # feasible_count > 1: policy-gradient eligible
+        self.closed: List[bool] = []        # subtree closed: Y_log is exact, critic trains on it
         self.advantages: List[float] = []   # per-episode normalized actor advantages
         self.returns: List[float] = []      # log-space critic targets Y_log
 
@@ -254,6 +257,7 @@ class RolloutBuffer:
         depth: int = 0,
         feasible_count: int = 0,
         actor_valid: bool = False,
+        closed: bool = False,
         advantage: float = 0.0,
         return_log: float = 0.0,
     ) -> None:
@@ -268,6 +272,7 @@ class RolloutBuffer:
         self.depths.append(depth)
         self.feasible_counts.append(feasible_count)
         self.actor_valid.append(bool(actor_valid))
+        self.closed.append(bool(closed))
         self.advantages.append(float(advantage))
         self.returns.append(float(return_log))
 
@@ -622,7 +627,7 @@ class EpisodeTargets:
     values_raw: List[float]   # V_old in node units
     returns_raw: List[float]  # lambda-return Y_raw = V_old + A_raw
     valid: List[bool]         # transition's node is an expanded tree node
-    closed: List[bool]        # diagnostic: subtree had no pending descendant
+    closed: List[bool]        # subtree had no pending descendant: Y is exact
 
 
 def compute_episode_targets(
@@ -639,7 +644,9 @@ def compute_episode_targets(
 
     advantage_space="log" uses A = Y_log - V_log = ln((1+|V_raw|)/(1+|Y_raw|)),
     positive when the subtree closed in fewer nodes than predicted and O(1) at
-    every depth. "raw" keeps A_raw = Y_raw - V_raw in node units.
+    every depth. Both sides are clamped to [LOG_VALUE_MIN, 0] first, so two
+    saturated quantities give A = 0 rather than a spurious penalty. "raw" keeps
+    A_raw = Y_raw - V_raw in node units.
     """
     values_raw_t = log_value_to_raw(torch.tensor(values_log, dtype=torch.float64))
     values_raw = {
@@ -651,9 +658,9 @@ def compute_episode_targets(
     tt = gae.for_transitions(node_ids)
     returns_raw = torch.tensor(tt.returns, dtype=torch.float64)
     v_raw = torch.tensor(tt.values, dtype=torch.float64)
-    returns_log = raw_return_to_log(returns_raw)
+    returns_log = raw_return_to_log(returns_raw)  # clamped to LOG_VALUE_MIN
     if advantage_space == "log":
-        advantages = returns_log - raw_return_to_log(v_raw)
+        advantages = returns_log - clamp_log_value(torch.tensor(values_log, dtype=torch.float64))
     else:
         advantages = returns_raw - v_raw
     return EpisodeTargets(
@@ -1132,7 +1139,7 @@ def main() -> None:
     )
     vf_desc = f"huber(delta={huber_delta})" if vf_loss_type == "huber" else "mse"
     print(f"  vf_loss={vf_desc}  vf_coef={vf_coef}")
-    print("  reward=-1 per expanded node  critic=log-node space  frontier_bootstrap=every pending node")
+    print("  reward=-1 per expanded node  critic=log-node space, trained on closed subtrees only  frontier_bootstrap=every pending node")
     print(f"{'='*80}")
     print(f"[Episode 1] start  {current_instance_path.name}\n")
 
@@ -1261,11 +1268,17 @@ def main() -> None:
             closed_kept=closed_kept, open_kept=open_kept,
             open_fraction=open_kept / max(1, n_valid_ep), **adv_stats,
         )
+        target_clamped = sum(targets.returns_log[i] <= LOG_VALUE_MIN + 1e-6 for i in kept_idx)
+        metrics["target_clamped_kept"] = target_clamped
         if root_t is not None:
+            root_v, root_y = targets.values_raw[root_t], targets.returns_raw[root_t]
             metrics.update(
-                root_value_raw=targets.values_raw[root_t],
-                root_return_raw=targets.returns_raw[root_t],
+                root_value_raw=root_v,
+                root_return_raw=root_y,
                 root_advantage=targets.advantages[root_t],
+                # |V|/|Y| at the root: ~1 means a calibrated critic. On exhausted
+                # episodes Y is the exact node count, so this is predicted/actual.
+                root_value_ratio=abs(root_v) / max(abs(root_y), 1.0),
             )
         print(
             f"[TreeGAE] pending={int(metrics.get('pending', 0))}  "
@@ -1273,9 +1286,11 @@ def main() -> None:
             f"expansion={int(metrics.get('expansion_estimates', 0))}  "
             f"critic={int(metrics.get('critic_estimates', 0))}  "
             f"open_kept={open_kept}/{n_valid_ep}  "
+            f"target_clamped={target_clamped}  "
             f"root(V={metrics.get('root_value_raw', float('nan')):.0f}, "
             f"Y={metrics.get('root_return_raw', float('nan')):.0f}, "
-            f"A={metrics.get('root_advantage', float('nan')):+.3f})  "
+            f"A={metrics.get('root_advantage', float('nan')):+.3f}, "
+            f"ratio={metrics.get('root_value_ratio', float('nan')):.2f})  "
             f"adv(mean={adv_stats['adv_mean']:+.3f}, std={adv_stats['adv_std']:.3f}, "
             f"absmax={adv_stats['adv_abs_max']:.3f})"
         )
@@ -1309,6 +1324,7 @@ def main() -> None:
                 depth=staged.depths[i],
                 feasible_count=staged.feasible_counts[i],
                 actor_valid=i in actor_set,
+                closed=targets.closed[i],
                 advantage=normalized_adv.get(i, 0.0),
                 return_log=targets.returns_log[i],
             )
@@ -1382,17 +1398,24 @@ def main() -> None:
         returns = torch.tensor(buffer.returns, dtype=torch.float32)
         advantages = torch.tensor(buffer.advantages, dtype=torch.float32)
         actor_valid = torch.tensor(buffer.actor_valid, dtype=torch.bool)
+        # The critic regresses only on closed subtrees, whose targets are the
+        # exact observed node counts. Open-spine targets contain the critic's
+        # own frontier bootstraps and would make the regression self-referential.
+        critic_valid = torch.tensor(buffer.closed, dtype=torch.bool)
         values_old = torch.tensor(buffer.values, dtype=torch.float32)
         n_actor = int(actor_valid.sum().item())
+        n_critic = int(critic_valid.sum().item())
         indices = np.arange(n_total)
 
-        # Critic diagnostics in log space over every kept transition.
-        var_returns = returns.var()
+        # Critic diagnostics in log space over the closed (trained-on) transitions.
+        returns_c = returns[critic_valid]
+        values_c = values_old[critic_valid]
+        var_returns = returns_c.var() if n_critic > 1 else torch.tensor(0.0)
         explained_var = (
             float("nan") if var_returns.item() == 0.0
-            else (1.0 - (returns - values_old).var() / var_returns).item()
+            else (1.0 - (returns_c - values_c).var() / var_returns).item()
         )
-        ret_std = returns.std().item()
+        ret_std = returns_c.std().item() if n_critic > 1 else float("nan")
 
         # ---- BATCHED PPO UPDATE (the GPU-optimized part) ----
         # Sort valid indices by candidate-set size (R) for bucket batching.
@@ -1410,8 +1433,8 @@ def main() -> None:
         if update_count == 0 and critic_warmup_updates > 0:
             bias_delta = calibrate_value_head_bias(
                 ac.critic_model,
-                current_mean_log_value=float(values_old.mean().item()),
-                target_mean_log_value=float(returns.mean().item()),
+                current_mean_log_value=float(values_c.mean().item()),
+                target_mean_log_value=float(returns_c.mean().item()),
             )
             print(
                 f"[Warmup] calibrated critic output bias by {bias_delta:+.3f}: "
@@ -1478,6 +1501,8 @@ def main() -> None:
                 # value loss uses every transition (forced states included).
                 mb_actor = actor_valid[mb_idx].to(device=device, dtype=torch.float32)
                 mb_n_actor = mb_actor.sum().clamp(min=1.0)
+                mb_critic = critic_valid[mb_idx].to(device=device, dtype=torch.float32)
+                mb_n_critic = mb_critic.sum().clamp(min=1.0)
 
                 # Batched forward pass
                 mb_obs_list = [buffer.obs[i] for i in mb_idx]
@@ -1485,18 +1510,23 @@ def main() -> None:
                     mb_obs_list, device
                 )
 
-                # ---- Critic: every kept transition, log-node space ----
+                # ---- Critic: closed subtrees only, log-node space ----
                 _, values_b = ac.critic_model.forward_batch(
                     cand_b, glob_b, mask_b, critic_feats=critic_b, pad_mask=pad_b,
                     resource_feats=resource_b, candidate_resource_feats=interaction_b,
                     resource_mask=resource_mask_b,
                 )
                 # huber_delta is in log units (1.0 ~ one e-fold of tree size):
-                # errors within delta are quadratic, beyond it linear.
+                # errors within delta are quadratic, beyond it linear. Targets
+                # are already clamped; the prediction is left unclamped here so
+                # a saturated critic keeps a gradient back into range.
                 if vf_loss_type == "huber":
-                    vf_loss = nn.functional.huber_loss(values_b, mb_returns, delta=huber_delta)
+                    vf_elem = nn.functional.huber_loss(
+                        values_b, mb_returns, delta=huber_delta, reduction="none",
+                    )
                 else:
-                    vf_loss = nn.functional.mse_loss(values_b, mb_returns)
+                    vf_elem = nn.functional.mse_loss(values_b, mb_returns, reduction="none")
+                vf_loss = (vf_elem * mb_critic).sum() / mb_n_critic
 
                 critic_optimizer.zero_grad()
                 (vf_coef * vf_loss).backward()
@@ -1584,7 +1614,7 @@ def main() -> None:
             f"steps={global_step}  "
             f"episodes_in_batch={len(episode_records)}  "
             f"instances={n_distinct_instances}  "
-            f"kept={n_total}  actor={n_actor}  "
+            f"kept={n_total}  actor={n_actor}  critic={n_critic}  "
             f"pg={pg_avg:+.4f}  "
             f"vf={vf_avg:.4f}  "
             f"ev={explained_var:+.3f}  "
@@ -1643,6 +1673,8 @@ def main() -> None:
             writer.add_scalar("train/batch_instances", n_distinct_instances, global_step)
             writer.add_scalar("train/batch_size", n_total, global_step)
             writer.add_scalar("train/batch_actor_size", n_actor, global_step)
+            writer.add_scalar("train/batch_critic_size", n_critic, global_step)
+            writer.add_scalar("train/critic_fraction", n_critic / max(n_total, 1), global_step)
 
         # ---- Clear accumulation state for next cycle ----
         buffer.clear()
