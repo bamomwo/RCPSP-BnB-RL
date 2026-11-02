@@ -22,7 +22,7 @@ import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 import torch
@@ -241,6 +241,7 @@ class RolloutBuffer:
         self.feasible_counts: List[int] = []
         self.actor_valid: List[bool] = []   # feasible_count > 1: policy-gradient eligible
         self.closed: List[bool] = []        # subtree closed: Y_log is exact, critic trains on it
+        self.depth_bands: List[int] = []    # relative-depth band (depth / n_activities)
         self.advantages: List[float] = []   # per-episode normalized actor advantages
         self.returns: List[float] = []      # log-space critic targets Y_log
 
@@ -258,6 +259,7 @@ class RolloutBuffer:
         feasible_count: int = 0,
         actor_valid: bool = False,
         closed: bool = False,
+        depth_band: int = 0,
         advantage: float = 0.0,
         return_log: float = 0.0,
     ) -> None:
@@ -273,6 +275,7 @@ class RolloutBuffer:
         self.feasible_counts.append(feasible_count)
         self.actor_valid.append(bool(actor_valid))
         self.closed.append(bool(closed))
+        self.depth_bands.append(int(depth_band))
         self.advantages.append(float(advantage))
         self.returns.append(float(return_log))
 
@@ -402,6 +405,52 @@ def _sample_stratified_cells(
     return chosen
 
 
+def relative_depth_band(depth: int, n_activities: int, n_bands: int) -> int:
+    """Band index of depth / n_activities on a uniform grid of n_bands cells."""
+    n_bands = max(1, int(n_bands))
+    rel = float(depth) / float(max(1, n_activities))
+    return min(n_bands - 1, int(max(0.0, rel) * n_bands))
+
+
+def compute_depth_balanced_weights(
+    depth_bands: Sequence[int],
+    mask: torch.Tensor,
+    *,
+    max_weight: float,
+) -> Tuple[torch.Tensor, Dict[int, float]]:
+    """Per-transition critic loss weights that give every occupied depth band
+    equal total weight (inverse band frequency), capped at ``max_weight``.
+
+    Deep leaf twigs are >90% of a long episode's closed subtrees, so an
+    unweighted regression calibrates the critic to 1-10 node subtrees and
+    leaves the few shallow 1e3-1e5 node targets as noise. Weights are 0 off
+    the mask; the most populous band weighs < 1 and sparse bands > 1, relative
+    to the unweighted baseline of 1. The cap is a hard bound on how far a
+    handful of shallow samples can be amplified. Consumers must divide by the
+    weight sum (weighted mean), so no global renormalization is applied.
+    Returns (weights, per-band weight).
+    """
+    if max_weight < 1.0:
+        raise ValueError("critic_balance_max_weight must be >= 1.")
+    bands = torch.as_tensor(list(depth_bands), dtype=torch.long)
+    mask = mask.to(dtype=torch.bool)
+    if bands.numel() != mask.numel():
+        raise ValueError("depth_bands and mask must have the same length.")
+    weights = torch.zeros(mask.numel(), dtype=torch.float32)
+    n_masked = int(mask.sum().item())
+    if n_masked == 0:
+        return weights, {}
+    present = bands[mask]
+    counts = {int(b): int((present == b).sum().item()) for b in present.unique().tolist()}
+    per_band = {
+        b: min(float(max_weight), n_masked / (len(counts) * n))
+        for b, n in counts.items()
+    }
+    for b, w in per_band.items():
+        weights[mask & (bands == b)] = w
+    return weights, per_band
+
+
 def subsample_episode(
     episode: StagedEpisode,
     valid_flags: List[bool],
@@ -470,7 +519,8 @@ def subsample_episode(
     cell_of = {
         i: (
             min(n_time - 1, int(i / n_steps * n_time)),
-            min(n_depth - 1, int(max(0.0, relative_depth[i]) * n_depth)),
+            relative_depth_band(episode.depths[i] if i < len(episode.depths) else 0,
+                                int(denom_depth), n_depth),
         ) for i in valid_idx
     }
 
@@ -866,6 +916,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "ent_coef_end": 0.001,
     "vf_coef": 0.5,
     "vf_loss_type": "mse",     # "mse" | "huber"; targets are exact closed-subtree log sizes
+    "critic_depth_balance": True,      # equal total vf weight per relative-depth band
+    "critic_balance_max_weight": 20.0, # cap on any band's per-sample weight (before renorm)
     "huber_delta": 1.0,        # huber only, in log-node units (1.0 ~ one e-fold of tree size)
     "actor_lr": 5e-5,            # conservative fine-tuning rate for the BC-initialized actor
     "critic_lr": 3e-4,
@@ -1073,6 +1125,10 @@ def main() -> None:
     vf_loss_type = str(config["vf_loss_type"]).strip().lower()
     if vf_loss_type not in {"mse", "huber"}:
         raise ValueError("vf_loss_type must be 'mse' or 'huber'.")
+    critic_depth_balance = bool(config["critic_depth_balance"])
+    critic_balance_max_weight = float(config["critic_balance_max_weight"])
+    if not math.isfinite(critic_balance_max_weight) or critic_balance_max_weight < 1.0:
+        raise ValueError("critic_balance_max_weight must be a finite number >= 1.")
     huber_delta = float(config["huber_delta"])
     max_grad_norm = float(config["max_grad_norm"])
     target_kl = config.get("target_kl")
@@ -1147,7 +1203,8 @@ def main() -> None:
         f"shallow_priority_per_cell={shallow_priority_per_cell}"
     )
     vf_desc = f"huber(delta={huber_delta})" if vf_loss_type == "huber" else "mse"
-    print(f"  vf_loss={vf_desc}  vf_coef={vf_coef}")
+    print(f"  vf_loss={vf_desc}  vf_coef={vf_coef}  "
+          f"critic_depth_balance={critic_depth_balance} (max_weight={critic_balance_max_weight:g})")
     print("  reward=-1 per expanded node  critic=log-node space, trained on closed subtrees only  frontier_bootstrap=every pending node")
     print(
         f"  episode_horizon: max_nodes={max_nodes}  time_limit_s={time_limit_s} (ceiling)  "
@@ -1343,6 +1400,9 @@ def main() -> None:
                 feasible_count=staged.feasible_counts[i],
                 actor_valid=i in actor_set,
                 closed=targets.closed[i],
+                depth_band=relative_depth_band(
+                    staged.depths[i], len(current_instance.activities), stratify_depth_bands,
+                ),
                 advantage=normalized_adv.get(i, 0.0),
                 return_log=targets.returns_log[i],
             )
@@ -1435,6 +1495,36 @@ def main() -> None:
         )
         ret_std = returns_c.std().item() if n_critic > 1 else float("nan")
 
+        # Depth-balanced critic weights (mean 1 over critic-valid, 0 elsewhere).
+        if critic_depth_balance:
+            critic_weights, band_weights = compute_depth_balanced_weights(
+                buffer.depth_bands, critic_valid, max_weight=critic_balance_max_weight,
+            )
+        else:
+            critic_weights = critic_valid.to(dtype=torch.float32)
+            band_weights = {}
+        # Per-band critic calibration: the quantity the balancing is meant to fix.
+        band_stats: Dict[int, Dict[str, float]] = {}
+        bands_t = torch.tensor(buffer.depth_bands, dtype=torch.long)
+        for b in sorted(set(bands_t[critic_valid].tolist())):
+            sel = critic_valid & (bands_t == b)
+            y_b, v_b = returns[sel], values_old[sel]
+            var_b = y_b.var().item() if sel.sum() > 1 else 0.0
+            band_stats[b] = {
+                "n": int(sel.sum().item()),
+                "weight": float(band_weights.get(b, 1.0)),
+                "y_mean": y_b.mean().item(),
+                "v_mean": v_b.mean().item(),
+                "ev": float("nan") if var_b == 0.0 else 1.0 - (y_b - v_b).var().item() / var_b,
+            }
+        print(
+            "[Critic] " + "  ".join(
+                f"d{b}(n={st['n']}, w={st['weight']:.1f}, Y={st['y_mean']:+.2f}, "
+                f"V={st['v_mean']:+.2f}, ev={st['ev']:+.2f})"
+                for b, st in band_stats.items()
+            )
+        )
+
         # ---- BATCHED PPO UPDATE (the GPU-optimized part) ----
         # Sort valid indices by candidate-set size (R) for bucket batching.
         # Transitions with similar R end up in the same minibatch, minimizing
@@ -1449,10 +1539,13 @@ def main() -> None:
         ac.critic_model.train()
         ac.policy_model.train(not critic_warmup)
         if update_count == 0 and critic_warmup_updates > 0:
+            # Weighted means so the initial bias is not anchored to deep twigs.
+            w_c = critic_weights[critic_valid]
+            w_sum = float(w_c.sum().item()) or 1.0
             bias_delta = calibrate_value_head_bias(
                 ac.critic_model,
-                current_mean_log_value=float(values_c.mean().item()),
-                target_mean_log_value=float(returns_c.mean().item()),
+                current_mean_log_value=float((values_c * w_c).sum().item() / w_sum),
+                target_mean_log_value=float((returns_c * w_c).sum().item() / w_sum),
             )
             print(
                 f"[Warmup] calibrated critic output bias by {bias_delta:+.3f}: "
@@ -1516,11 +1609,12 @@ def main() -> None:
                 mb_advantages = advantages[mb_idx].to(device)
                 mb_returns = returns[mb_idx].to(device)
                 # Policy terms are averaged over actor-valid states only; the
-                # value loss uses every transition (forced states included).
+                # value loss is a depth-balanced weighted mean over closed
+                # subtrees (forced states included).
                 mb_actor = actor_valid[mb_idx].to(device=device, dtype=torch.float32)
                 mb_n_actor = mb_actor.sum().clamp(min=1.0)
-                mb_critic = critic_valid[mb_idx].to(device=device, dtype=torch.float32)
-                mb_n_critic = mb_critic.sum().clamp(min=1.0)
+                mb_critic_w = critic_weights[mb_idx].to(device=device)
+                mb_critic_w_sum = mb_critic_w.sum().clamp(min=1e-6)
 
                 # Batched forward pass
                 mb_obs_list = [buffer.obs[i] for i in mb_idx]
@@ -1543,7 +1637,7 @@ def main() -> None:
                     )
                 else:
                     vf_elem = nn.functional.mse_loss(values_b, mb_returns, reduction="none")
-                vf_loss = (vf_elem * mb_critic).sum() / mb_n_critic
+                vf_loss = (vf_elem * mb_critic_w).sum() / mb_critic_w_sum
 
                 critic_optimizer.zero_grad()
                 (vf_coef * vf_loss).backward()
@@ -1692,6 +1786,10 @@ def main() -> None:
             writer.add_scalar("train/batch_actor_size", n_actor, global_step)
             writer.add_scalar("train/batch_critic_size", n_critic, global_step)
             writer.add_scalar("train/critic_fraction", n_critic / max(n_total, 1), global_step)
+            for b, st in band_stats.items():
+                for key in ("n", "weight", "y_mean", "v_mean", "ev"):
+                    if st[key] == st[key]:
+                        writer.add_scalar(f"critic_band/d{b}/{key}", st[key], global_step)
 
         # ---- Clear accumulation state for next cycle ----
         buffer.clear()
