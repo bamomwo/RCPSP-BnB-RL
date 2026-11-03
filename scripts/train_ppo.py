@@ -463,9 +463,17 @@ def subsample_episode(
     rng: random.Random,
     shallow_depth_threshold: float = 0.5,
     shallow_priority_per_cell: int = 0,
+    actor_closed_only: bool = False,
+    closed_flags: Optional[List[bool]] = None,
 ) -> Tuple[List[int], SubsampleReport]:
     """
     Choose which of an episode's transitions enter the PPO batch.
+
+    ``actor_closed_only`` is the closed-subtree baseline: the actor pool is
+    restricted to transitions whose subtree closed in the episode, so the
+    actor only sees returns that are exact observations rather than
+    critic-bootstrapped. ``closed_flags`` (Tree-GAE ``closed`` per transition)
+    is required when that mode is on; the forced pool is unaffected.
 
     Returns (kept_indices_sorted, report). Selection never changes a
     transition's advantage or target; it only chooses whose gradients enter
@@ -498,6 +506,12 @@ def subsample_episode(
         return [], report
 
     actor_pool = [i for i in valid_idx if episode.feasible_counts[i] > 1]
+    if actor_closed_only:
+        if closed_flags is None:
+            raise ValueError("actor_closed_only requires closed_flags.")
+        if len(closed_flags) != len(valid_flags):
+            raise ValueError("closed_flags must align with valid_flags.")
+        actor_pool = [i for i in actor_pool if closed_flags[i]]
     forced_pool = [i for i in valid_idx if episode.feasible_counts[i] <= 1]
     report.n_forced_available = len(forced_pool)
 
@@ -910,6 +924,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "stratify_time_bands": 3,         # episode-progress bands (early/mid/late)
     "stratify_depth_bands": 4,        # relative-depth bands (depth / n_activities)
     "forced_state_cap": 1024,         # forced (<= 1 feasible) states kept per episode, critic only
+    "actor_closed_only": False,       # baseline: actor trains only on closed-subtree transitions
     "shallow_depth_threshold": 0.5,   # strict real-task completion fraction
     "shallow_priority_per_cell": 0,   # bounded shallow inclusion per grid cell; 0 disables
     "ent_coef_start": 0.01,
@@ -1125,6 +1140,7 @@ def main() -> None:
     vf_loss_type = str(config["vf_loss_type"]).strip().lower()
     if vf_loss_type not in {"mse", "huber"}:
         raise ValueError("vf_loss_type must be 'mse' or 'huber'.")
+    actor_closed_only = bool(config["actor_closed_only"])
     critic_depth_balance = bool(config["critic_depth_balance"])
     critic_balance_max_weight = float(config["critic_balance_max_weight"])
     if not math.isfinite(critic_balance_max_weight) or critic_balance_max_weight < 1.0:
@@ -1206,6 +1222,7 @@ def main() -> None:
     print(f"  vf_loss={vf_desc}  vf_coef={vf_coef}  "
           f"critic_depth_balance={critic_depth_balance} (max_weight={critic_balance_max_weight:g})")
     print("  reward=-1 per expanded node  critic=log-node space, trained on closed subtrees only  frontier_bootstrap=every pending node")
+    print(f"  actor={'closed subtrees only (baseline)' if actor_closed_only else 'closed + open spine (bootstrapped targets)'}")
     print(
         f"  episode_horizon: max_nodes={max_nodes}  time_limit_s={time_limit_s} (ceiling)  "
         f"eval_time_limit_s={float(config['eval_time_limit_s'])} (wall clock)"
@@ -1328,14 +1345,21 @@ def main() -> None:
             rng=subsample_rng,
             shallow_depth_threshold=shallow_depth_threshold,
             shallow_priority_per_cell=shallow_priority_per_cell,
+            actor_closed_only=actor_closed_only,
+            closed_flags=targets.closed,
         )
         actor_idx = [i for i in kept_idx if staged.feasible_counts[i] > 1]
+        if actor_closed_only:
+            # Subsampling already restricted the pool; assert the invariant so a
+            # bootstrapped open target can never reach the policy gradient.
+            assert all(targets.closed[i] for i in actor_idx), "open actor transition in closed-only mode"
         actor_set = set(actor_idx)
         normalized_adv, adv_stats = normalize_episode_advantages(targets.advantages, actor_idx)
         n_valid_ep = len(kept_idx)
 
         metrics = frontier_targets.metrics
         closed_kept = sum(targets.closed[i] for i in kept_idx)
+        actor_closed = sum(targets.closed[i] for i in actor_idx)
         open_kept = n_valid_ep - closed_kept
         root_id = episode_tree.get("root_id")
         root_t = staged.node_ids.index(root_id) if root_id in staged.node_ids else None
@@ -1410,7 +1434,8 @@ def main() -> None:
 
         print(
             f"[Subsample] valid={sub_report.n_valid}  kept={sub_report.n_kept}  "
-            f"actor={len(actor_idx)}  forced_kept={sub_report.n_forced_kept}/{sub_report.n_forced_available}  "
+            f"actor={len(actor_idx)}(closed={actor_closed})  "
+            f"forced_kept={sub_report.n_forced_kept}/{sub_report.n_forced_available}  "
             f"shallow_kept={sub_report.n_shallow_kept}  "
             f"shallow_priority_target={sub_report.n_shallow_priority_target}  "
             f"shallow_available={sub_report.n_shallow_available}  "
@@ -1433,6 +1458,7 @@ def main() -> None:
             writer.add_scalar("subsample/valid", sub_report.n_valid, global_step)
             writer.add_scalar("subsample/kept", sub_report.n_kept, global_step)
             writer.add_scalar("subsample/actor_valid", len(actor_idx), global_step)
+            writer.add_scalar("subsample/actor_closed", actor_closed, global_step)
             writer.add_scalar("subsample/forced_available", sub_report.n_forced_available, global_step)
             writer.add_scalar("subsample/forced_kept", sub_report.n_forced_kept, global_step)
             writer.add_scalar("subsample/shallow_available", sub_report.n_shallow_available, global_step)

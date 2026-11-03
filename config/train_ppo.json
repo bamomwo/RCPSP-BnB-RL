@@ -23,6 +23,7 @@
   "min_episodes": 8,
   "episode_transition_cap": 4096,
   "forced_state_cap": 1024,
+  "actor_closed_only": true,
   "stratify_time_bands": 3,
   "stratify_depth_bands": 4,
   "shallow_depth_threshold": 0.5,
