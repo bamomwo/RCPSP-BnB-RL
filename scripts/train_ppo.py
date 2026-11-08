@@ -1,13 +1,20 @@
 """
-PPO fine-tuning for the RCPSP branching policy (separate actor/critic, Tree-GAE).
+PPO fine-tuning for the RCPSP branching policy (separate actor/critic,
+multi-dive primal returns).
 
 The policy samples one activity at each branch point. The solver explores that
 activity first, then the remaining activities in descending policy-logit order,
 so the full DFS sibling order is governed by the actor. PPO scores only the
 sampled activity; the tail is a deterministic function of the logits.
 
-Credit assignment is a single-channel Tree-GAE backup (-1 per expanded node)
-with every pending frontier node bootstrapped by the critic in log-node space.
+Credit assignment is the multi-dive backup over EXPLORED nodes only
+(tree_return.compute_multidive_returns): a node's return Q_sub is the best
+terminal makespan/LB gap to the root lower bound found inside its explored
+subtree minus a normalized step cost up to that leaf. Pending stack nodes are
+ignored, so no frontier bootstrap is needed and every expanded node is a valid
+critic target. Split nodes with >= 2 explored children optionally add a
+hindsight pairwise ranking loss over the children's logits.
+
 The update phase is batched: observations are padded to a common sequence
 length, sorted by candidate-set size to minimize padding waste, and processed
 in one forward pass per minibatch. Evaluation uses the greedy policy ordering.
@@ -39,13 +46,9 @@ from rcpsp_bnb_rl.data.dataset import list_instance_paths  # noqa: E402
 from rcpsp_bnb_rl.data.parsing import load_instance  # noqa: E402
 from rcpsp_bnb_rl.ml.action_order import selected_first_policy_order  # noqa: E402
 from rcpsp_bnb_rl.ml.models import (  # noqa: E402
-    LOG_VALUE_MIN,
     BranchingTransformer,
     SeparateActorCritic,
     load_separate_actor_critic_checkpoint,
-    clamp_log_value,
-    log_value_to_raw,
-    raw_return_to_log,
     save_separate_actor_critic_checkpoint,
 )
 from rcpsp_bnb_rl.ml.il.featurize import (  # noqa: E402
@@ -54,7 +57,11 @@ from rcpsp_bnb_rl.ml.il.featurize import (  # noqa: E402
     set_resource_feature_dim, set_interaction_feature_dim,
 )
 from rcpsp_bnb_rl.ml.rl import BranchingEnv  # noqa: E402
-from rcpsp_bnb_rl.ml.rl.tree_return import compute_tree_gae  # noqa: E402
+from rcpsp_bnb_rl.ml.rl.tree_return import (  # noqa: E402
+    MultiDiveReturns,
+    compute_multidive_returns,
+    split_ranking_loss,
+)
 from rcpsp_bnb_rl.bnb.branching_order import make_order_fn  # noqa: E402
 from rcpsp_bnb_rl.bnb.solver import BnBSolver  # noqa: E402
 
@@ -118,7 +125,7 @@ class ActorCritic(nn.Module):
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, List[int]]:
         """
         Sample or score one activity, returning action, log_prob, entropy, the
-        critic's LOG-SPACE value (<= 0; see log_value_to_raw) and the complete
+        critic's value (an estimate of the multi-dive return Q_sub) and the complete
         DFS sibling order: the sampled activity first, then the remaining
         candidates by descending logit (infeasible ones last). Only the sampled
         activity is a PPO action; the tail is deterministic given the logits.
@@ -221,6 +228,25 @@ def compute_log_probs_entropy(
     return dist.log_prob(actions), dist.entropy()
 
 
+def batch_split_children(
+    split_slots: Sequence[Sequence[int]],
+    split_scores: Sequence[Sequence[float]],
+    device: torch.device,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Pad per-transition explored-child lists to [B, M] (slot, score, mask)."""
+    B = len(split_slots)
+    M = max((len(x) for x in split_slots), default=0)
+    slots = torch.zeros((B, M), dtype=torch.long)
+    scores = torch.zeros((B, M), dtype=torch.float32)
+    mask = torch.zeros((B, M), dtype=torch.bool)
+    for b, (sl, sc) in enumerate(zip(split_slots, split_scores)):
+        if sl:
+            slots[b, :len(sl)] = torch.tensor(sl, dtype=torch.long)
+            scores[b, :len(sc)] = torch.tensor(sc, dtype=torch.float32)
+            mask[b, :len(sl)] = True
+    return slots.to(device), scores.to(device), mask.to(device)
+
+
 # ---------------------------------------------------------------------------
 # Rollout buffer
 # ---------------------------------------------------------------------------
@@ -240,10 +266,13 @@ class RolloutBuffer:
         self.depths: List[int] = []
         self.feasible_counts: List[int] = []
         self.actor_valid: List[bool] = []   # feasible_count > 1: policy-gradient eligible
-        self.closed: List[bool] = []        # subtree closed: Y_log is exact, critic trains on it
         self.depth_bands: List[int] = []    # relative-depth band (depth / n_activities)
         self.advantages: List[float] = []   # per-episode normalized actor advantages
-        self.returns: List[float] = []      # log-space critic targets Y_log
+        self.returns: List[float] = []      # critic targets Y = Q_sub(v)
+        # Split nodes (>= 2 explored children): candidate slot + Q_sub per child,
+        # for the hindsight ranking loss. Empty lists elsewhere.
+        self.split_slots: List[List[int]] = []
+        self.split_scores: List[List[float]] = []
 
     def add(
         self,
@@ -258,10 +287,11 @@ class RolloutBuffer:
         depth: int = 0,
         feasible_count: int = 0,
         actor_valid: bool = False,
-        closed: bool = False,
         depth_band: int = 0,
         advantage: float = 0.0,
-        return_log: float = 0.0,
+        return_value: float = 0.0,
+        split_slots: Optional[List[int]] = None,
+        split_scores: Optional[List[float]] = None,
     ) -> None:
         self.obs.append(obs)
         self.actions.append(int(action))
@@ -274,10 +304,11 @@ class RolloutBuffer:
         self.depths.append(depth)
         self.feasible_counts.append(feasible_count)
         self.actor_valid.append(bool(actor_valid))
-        self.closed.append(bool(closed))
         self.depth_bands.append(int(depth_band))
         self.advantages.append(float(advantage))
-        self.returns.append(float(return_log))
+        self.returns.append(float(return_value))
+        self.split_slots.append(list(split_slots or []))
+        self.split_scores.append(list(split_scores or []))
 
     def __len__(self) -> int:
         return len(self.values)
@@ -314,6 +345,8 @@ class StagedEpisode:
     # Scheduled REAL tasks / total real tasks at the state where the action was
     # taken. Older callers can omit this and use depth / n_activities instead.
     completion_ratios: List[float] = field(default_factory=list)
+    # Sorted candidate activity ids of each observation (logit slot k <-> ready_ids[k]).
+    ready_ids: List[List[int]] = field(default_factory=list)
     # Number of FEASIBLE candidates at each state (action_mask.sum()), not the
     # raw candidate count. What matters for the policy gradient is how many
     # actions were actually selectable — see subsample_episode.
@@ -421,9 +454,9 @@ def compute_depth_balanced_weights(
     """Per-transition critic loss weights that give every occupied depth band
     equal total weight (inverse band frequency), capped at ``max_weight``.
 
-    Deep leaf twigs are >90% of a long episode's closed subtrees, so an
-    unweighted regression calibrates the critic to 1-10 node subtrees and
-    leaves the few shallow 1e3-1e5 node targets as noise. Weights are 0 off
+    Deep nodes are >90% of an episode's expanded nodes, so an unweighted
+    regression calibrates the critic to near-leaf states and leaves the few
+    shallow targets as noise. Weights are 0 off
     the mask; the most populous band weighs < 1 and sparse bands > 1, relative
     to the unweighted baseline of 1. The cap is a hard bound on how far a
     handful of shallow samples can be amplified. Consumers must divide by the
@@ -463,17 +496,9 @@ def subsample_episode(
     rng: random.Random,
     shallow_depth_threshold: float = 0.5,
     shallow_priority_per_cell: int = 0,
-    actor_closed_only: bool = False,
-    closed_flags: Optional[List[bool]] = None,
 ) -> Tuple[List[int], SubsampleReport]:
     """
     Choose which of an episode's transitions enter the PPO batch.
-
-    ``actor_closed_only`` is the closed-subtree baseline: the actor pool is
-    restricted to transitions whose subtree closed in the episode, so the
-    actor only sees returns that are exact observations rather than
-    critic-bootstrapped. ``closed_flags`` (Tree-GAE ``closed`` per transition)
-    is required when that mode is on; the forced pool is unaffected.
 
     Returns (kept_indices_sorted, report). Selection never changes a
     transition's advantage or target; it only chooses whose gradients enter
@@ -506,12 +531,6 @@ def subsample_episode(
         return [], report
 
     actor_pool = [i for i in valid_idx if episode.feasible_counts[i] > 1]
-    if actor_closed_only:
-        if closed_flags is None:
-            raise ValueError("actor_closed_only requires closed_flags.")
-        if len(closed_flags) != len(valid_flags):
-            raise ValueError("closed_flags must align with valid_flags.")
-        actor_pool = [i for i in actor_pool if closed_flags[i]]
     forced_pool = [i for i in valid_idx if episode.feasible_counts[i] <= 1]
     report.n_forced_available = len(forced_pool)
 
@@ -587,153 +606,63 @@ def subsample_episode(
     return kept, report
 
 
-ADVANTAGE_SPACES = ("log", "raw")
-
-
-def validate_advantage_space(space: Any) -> str:
-    """"log": A = Y_log - V_log (scale-free across depths/instances); "raw": node units."""
-    value = str(space).strip().lower()
-    if value not in ADVANTAGE_SPACES:
-        raise ValueError(f"advantage_space must be one of {ADVANTAGE_SPACES}.")
-    return value
-
-
-@torch.no_grad()
-def predict_frontier_values(
-    ac: ActorCritic,
-    observations: Mapping[int, Dict[str, torch.Tensor]],
-    device: torch.device,
-    *,
-    batch_size: int,
-) -> Dict[int, float]:
-    """Raw-unit critic estimates for pending frontier states (no actor pass).
-
-    The critic emits log-space values; they are inverted with the clamped
-    transform so the Tree-GAE backup receives finite node counts. Python
-    floats are returned so the boundary cannot change during PPO epochs.
-    """
-    if batch_size <= 0:
-        raise ValueError("Frontier prediction batch_size must be positive.")
-    node_ids = sorted(observations, key=lambda nid: (len(observations[nid]["action_mask"]), nid))
-    values: Dict[int, float] = {}
-    was_training = ac.critic_model.training
-    ac.critic_model.eval()
-    try:
-        for start in range(0, len(node_ids), batch_size):
-            ids = node_ids[start:start + batch_size]
-            cand, glob, mask, critic, pad, _, resources, interactions, resource_mask = batch_observations(
-                [observations[nid] for nid in ids], device,
-            )
-            _, v_log = ac.critic_model.forward_batch(
-                cand, glob, mask, critic, pad, resources, interactions, resource_mask,
-            )
-            raw = log_value_to_raw(v_log.to(dtype=torch.float64))
-            if not torch.isfinite(raw).all().item():
-                raise ValueError("Critic produced a non-finite frontier value.")
-            values.update(zip(ids, raw.cpu().tolist()))
-    finally:
-        ac.critic_model.train(was_training)
-    return values
-
-
-@dataclass
-class FrontierTargets:
-    """Fixed boundary values for every pending node, in raw node units."""
-    values: Dict[int, float] = field(default_factory=dict)
-    metrics: Dict[str, float] = field(default_factory=dict)
-
-
-def build_frontier_targets(
-    env: BranchingEnv,
-    ac: ActorCritic,
-    device: torch.device,
-    *,
-    batch_size: int,
-) -> FrontierTargets:
-    """Boundary value of every pending node under the unit expansion reward.
-
-    Prunable, dead-end and complete-schedule states cost nothing more (0);
-    eligible states with no feasible action cost exactly one expansion (-1);
-    everything else is the critic's raw estimate. Coverage is complete, so a
-    parent's residual never lacks a child value.
-    """
-    frontier = env.bootstrap_frontier(min_completion=0.0)
-    values = dict.fromkeys(frontier.zero_return_ids, 0.0)
-    values.update(dict.fromkeys(frontier.expansion_only_ids, -1.0))
-    critic_values = predict_frontier_values(
-        ac, frontier.observations, device, batch_size=batch_size,
-    )
-    values.update(critic_values)
-    metrics: Dict[str, float] = {
-        "pending": len(frontier.completion_ratios),
-        "exact_zero": len(frontier.zero_return_ids),
-        "expansion_estimates": len(frontier.expansion_only_ids),
-        "critic_estimates": len(critic_values),
-        "critic_forced": sum(
-            int(frontier.observations[nid]["action_mask"].sum()) == 1 for nid in critic_values
-        ),
-        "uncovered": len(frontier.completion_ratios) - len(values),
-    }
-    if critic_values:
-        raw_values = np.asarray(list(critic_values.values()), dtype=np.float64)
-        metrics.update(
-            critic_raw_mean=float(raw_values.mean()),
-            critic_raw_abs_max=float(np.abs(raw_values).max()),
-        )
-    return FrontierTargets(values=values, metrics=metrics)
-
-
 @dataclass
 class EpisodeTargets:
-    """Per-transition Tree-GAE targets for one episode (unnormalized)."""
-    advantages: List[float]   # actor advantage in the configured space
-    returns_log: List[float]  # critic regression target Y_log = -ln(1 + |Y_raw|)
-    values_raw: List[float]   # V_old in node units
-    returns_raw: List[float]  # lambda-return Y_raw = V_old + A_raw
-    valid: List[bool]         # transition's node is an expanded tree node
-    closed: List[bool]        # subtree had no pending descendant: Y is exact
+    """Per-transition multi-dive targets for one episode (unnormalized)."""
+    advantages: List[float]   # A(v) = Q_sub(v) - V_old(v)
+    returns: List[float]      # critic regression target Y(v) = Q_sub(v)
+    valid: List[bool]         # transition's node is an expanded (explored) tree node
+    split_slots: List[List[int]]     # candidate slots of explored children at split nodes
+    split_scores: List[List[float]]  # their Q_sub
+    backup: MultiDiveReturns
 
 
 def compute_episode_targets(
     *,
     tree: Mapping[str, object],
     node_ids: List[Optional[int]],
-    values_log: List[float],
-    frontier_values: Mapping[int, float],
-    gamma: float,
-    lam: float,
-    advantage_space: str,
+    values: List[float],
+    ready_ids: List[List[int]],
+    lb_root: float,
+    n_activities: int,
+    alpha: float,
 ) -> EpisodeTargets:
-    """Run the Tree-GAE backup in raw units and express targets per transition.
+    """Run the multi-dive backup and express targets per transition.
 
-    advantage_space="log" uses A = Y_log - V_log = ln((1+|V_raw|)/(1+|Y_raw|)),
-    positive when the subtree closed in fewer nodes than predicted and O(1) at
-    every depth. Both sides are clamped to [LOG_VALUE_MIN, 0] first, so two
-    saturated quantities give A = 0 rather than a spurious penalty. "raw" keeps
-    A_raw = Y_raw - V_raw in node units.
+    ``ready_ids`` is the sorted candidate activity list of each transition's
+    observation, so an explored child (identified by the activity it
+    scheduled) can be mapped back to the logit slot the actor scored it in.
     """
-    values_raw_t = log_value_to_raw(torch.tensor(values_log, dtype=torch.float64))
-    values_raw = {
-        nid: v for nid, v in zip(node_ids, values_raw_t.tolist()) if nid is not None
-    }
-    gae = compute_tree_gae(
-        tree, values=values_raw, frontier_values=frontier_values, gamma=gamma, lam=lam,
+    backup = compute_multidive_returns(
+        tree, lb_root=lb_root, n_activities=n_activities, alpha=alpha,
     )
-    tt = gae.for_transitions(node_ids)
-    returns_raw = torch.tensor(tt.returns, dtype=torch.float64)
-    v_raw = torch.tensor(tt.values, dtype=torch.float64)
-    returns_log = raw_return_to_log(returns_raw)  # clamped to LOG_VALUE_MIN
-    if advantage_space == "log":
-        advantages = returns_log - clamp_log_value(torch.tensor(values_log, dtype=torch.float64))
-    else:
-        advantages = returns_raw - v_raw
+    returns, valid = backup.targets_for_transitions(node_ids)
+    advantages = [
+        (returns[t] - values[t]) if valid[t] else 0.0 for t in range(len(node_ids))
+    ]
+    activity_of = {
+        int(n["id"]): n.get("activity")  # type: ignore[index]
+        for n in tree.get("nodes", [])  # type: ignore[union-attr]
+    }
+    split_slots: List[List[int]] = [[] for _ in node_ids]
+    split_scores: List[List[float]] = [[] for _ in node_ids]
+    for t, nid in enumerate(node_ids):
+        if nid is None or nid not in backup.split_children:
+            continue
+        slot_of = {aid: k for k, aid in enumerate(ready_ids[t])}
+        slots, scores = [], []
+        for c in backup.split_children[nid]:
+            k = slot_of.get(activity_of.get(c))
+            if k is None:
+                continue  # child activity not among this observation's candidates
+            slots.append(k)
+            scores.append(backup.q_sub[c])
+        if len(slots) >= 2:
+            split_slots[t] = slots
+            split_scores[t] = scores
     return EpisodeTargets(
-        advantages=advantages.tolist(),
-        returns_log=returns_log.tolist(),
-        values_raw=tt.values,
-        returns_raw=tt.returns,
-        valid=tt.valid,
-        closed=tt.closed,
+        advantages=advantages, returns=returns, valid=valid,
+        split_slots=split_slots, split_scores=split_scores, backup=backup,
     )
 
 
@@ -755,29 +684,18 @@ def normalize_episode_advantages(
     return dict(zip(indices, normed.tolist())), stats
 
 
-def _softplus_inverse(y: float) -> float:
-    return math.log(math.expm1(y)) if y < 20.0 else y
-
-
 def calibrate_value_head_bias(
-    model: BranchingTransformer, *, current_mean_log_value: float, target_mean_log_value: float,
+    model: BranchingTransformer, *, current_mean_value: float, target_mean_value: float,
 ) -> float:
-    """Shift the critic's output bias so its typical prediction matches the targets.
-
-    The head emits -softplus(z). Moving the final Linear bias shifts z for every
-    state by the same amount, so a fresh head (which predicts ~0 remaining
-    nodes everywhere) can start near the batch-mean log target instead of
-    climbing there one Huber-bounded step at a time. Returns the bias delta.
-    """
+    """Shift the critic's final linear bias so its mean prediction matches the
+    mean target of the first batch. Returns the bias delta."""
     output_layer = model.value_head[-1]
     if not isinstance(output_layer, nn.Linear) or output_layer.out_features != 1:
         raise TypeError("Expected the critic's final value-head layer to be Linear(..., 1).")
-    current = min(-1e-6, float(current_mean_log_value))
-    target = min(-1e-6, float(target_mean_log_value))
-    delta = _softplus_inverse(-target) - _softplus_inverse(-current)
+    delta = float(target_mean_value) - float(current_mean_value)
     with torch.no_grad():
         output_layer.bias.add_(delta)
-    return float(delta)
+    return delta
 
 
 # ---------------------------------------------------------------------------
@@ -892,7 +810,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "max_instances": None,
     "max_resources": 4,
     "resource_encoder": "legacy_flat",
-    "dominance": "set_based",
+    "dominance": "none",
     # Model
     "d_model": 64,
     "n_heads": 4,
@@ -905,9 +823,10 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "ppo_epochs": 4,
     "target_mb_size": 4096,
     "clip_eps": 0.2,
-    "tree_gamma": 1.0,
-    "tree_gae_lambda": 0.95,     # Tree-GAE decay; 1.0 recovers the Monte Carlo subtree return
-    "advantage_space": "log",    # "log": Y_log - V_log (scale-free) | "raw": node units
+    "step_alpha": 0.01,          # per-dive exploration cost: alpha / N_activities per expanded node
+    "stop_at_dive_boundary": True,  # finish the active plunge once max_nodes is hit
+    "stop_at_root_lb": True,     # end the episode when a schedule matches the root lower bound
+    "split_ranking_coef": 0.0,   # weight of the hindsight ranking loss at split nodes (0 = off)
     "min_batch_size": 4096,
     # Effective-sample-size controls. A PPO batch must contain data from at
     # least min_episodes DISTINCT instances before an update fires, and no
@@ -924,16 +843,15 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "stratify_time_bands": 3,         # episode-progress bands (early/mid/late)
     "stratify_depth_bands": 4,        # relative-depth bands (depth / n_activities)
     "forced_state_cap": 1024,         # forced (<= 1 feasible) states kept per episode, critic only
-    "actor_closed_only": False,       # baseline: actor trains only on closed-subtree transitions
     "shallow_depth_threshold": 0.5,   # strict real-task completion fraction
     "shallow_priority_per_cell": 0,   # bounded shallow inclusion per grid cell; 0 disables
     "ent_coef_start": 0.01,
     "ent_coef_end": 0.001,
     "vf_coef": 0.5,
-    "vf_loss_type": "mse",     # "mse" | "huber"; targets are exact closed-subtree log sizes
+    "vf_loss_type": "huber",   # "huber" | "mse"; targets are bounded Q_sub returns
     "critic_depth_balance": True,      # equal total vf weight per relative-depth band
     "critic_balance_max_weight": 20.0, # cap on any band's per-sample weight (before renorm)
-    "huber_delta": 1.0,        # huber only, in log-node units (1.0 ~ one e-fold of tree size)
+    "huber_delta": 1.0,        # huber only; caps the gradient of weak-LB outlier instances
     "actor_lr": 5e-5,            # conservative fine-tuning rate for the BC-initialized actor
     "critic_lr": 3e-4,
     "critic_warmup_updates": 16, # updates with the actor frozen while the critic calibrates
@@ -982,11 +900,14 @@ def main() -> None:
 
     # Validate the backup configuration before loading data/models or creating
     # output files.
-    tree_gamma = float(config["tree_gamma"])
-    tree_gae_lambda = float(config["tree_gae_lambda"])
-    if not (0.0 < tree_gamma <= 1.0) or not (0.0 <= tree_gae_lambda <= 1.0):
-        raise ValueError("tree_gamma must be in (0, 1] and tree_gae_lambda in [0, 1].")
-    advantage_space = validate_advantage_space(config["advantage_space"])
+    step_alpha = float(config["step_alpha"])
+    if not math.isfinite(step_alpha) or step_alpha < 0.0:
+        raise ValueError("step_alpha must be a finite non-negative number.")
+    split_ranking_coef = float(config["split_ranking_coef"])
+    if not math.isfinite(split_ranking_coef) or split_ranking_coef < 0.0:
+        raise ValueError("split_ranking_coef must be a finite non-negative number.")
+    stop_at_dive_boundary = bool(config["stop_at_dive_boundary"])
+    stop_at_root_lb = bool(config["stop_at_root_lb"])
     critic_warmup_updates = config["critic_warmup_updates"]
     if (
         isinstance(critic_warmup_updates, bool)
@@ -1140,7 +1061,6 @@ def main() -> None:
     vf_loss_type = str(config["vf_loss_type"]).strip().lower()
     if vf_loss_type not in {"mse", "huber"}:
         raise ValueError("vf_loss_type must be 'mse' or 'huber'.")
-    actor_closed_only = bool(config["actor_closed_only"])
     critic_depth_balance = bool(config["critic_depth_balance"])
     critic_balance_max_weight = float(config["critic_balance_max_weight"])
     if not math.isfinite(critic_balance_max_weight) or critic_balance_max_weight < 1.0:
@@ -1166,6 +1086,8 @@ def main() -> None:
         time_limit_s=time_limit_s,
         dominance=dominance,
         max_nodes=max_nodes,
+        stop_at_dive_boundary=stop_at_dive_boundary,
+        stop_at_root_lb=stop_at_root_lb,
     )
 
     buffer = RolloutBuffer()
@@ -1200,7 +1122,7 @@ def main() -> None:
     t_start = time.perf_counter()
     print(f"\n{'='*80}")
     print(f"  PPO Training (GPU-batched update, min_batch_size={min_batch_size}, min_episodes={min_episodes})")
-    print(f"  total_steps={total_env_steps:,}  backup=tree_gae(gamma={tree_gamma},lambda={tree_gae_lambda},adv_space={advantage_space})  train_instances={len(instance_paths)}  eval_instances={len(eval_paths)}")
+    print(f"  total_steps={total_env_steps:,}  backup=multidive(alpha={step_alpha})  train_instances={len(instance_paths)}  eval_instances={len(eval_paths)}")
     print(f"  clip_eps={clip_eps}  ent_coef={ent_coef_start}->{ent_coef_end} (linear decay)")
     if eval_every_updates is not None:
         print(f"  evaluation every {eval_every_updates} PPO update(s)")
@@ -1221,8 +1143,8 @@ def main() -> None:
     vf_desc = f"huber(delta={huber_delta})" if vf_loss_type == "huber" else "mse"
     print(f"  vf_loss={vf_desc}  vf_coef={vf_coef}  "
           f"critic_depth_balance={critic_depth_balance} (max_weight={critic_balance_max_weight:g})")
-    print("  reward=-1 per expanded node  critic=log-node space, trained on closed subtrees only  frontier_bootstrap=every pending node")
-    print(f"  actor={'closed subtrees only (baseline)' if actor_closed_only else 'closed + open spine (bootstrapped targets)'}")
+    print("  return=Q_sub: best terminal gap to root LB minus alpha/N per step to the best leaf; explored nodes only, no bootstrap")
+    print(f"  dominance={dominance}  stop_at_dive_boundary={stop_at_dive_boundary}  stop_at_root_lb={stop_at_root_lb}  split_ranking_coef={split_ranking_coef:g}")
     print(
         f"  episode_horizon: max_nodes={max_nodes}  time_limit_s={time_limit_s} (ceiling)  "
         f"eval_time_limit_s={float(config['eval_time_limit_s'])} (wall clock)"
@@ -1264,6 +1186,7 @@ def main() -> None:
             staged.parent_ids.append(step_out.info.get("parent_id"))
             staged.depths.append(int(step_out.info.get("depth", 0)))
             staged.completion_ratios.append(float(step_out.info["completion_ratio"]))
+            staged.ready_ids.append(obs["ready_ids"].tolist())
             # Feasible-candidate count, NOT the raw candidate count: masked
             # (infeasible) candidates get probability exactly 0, so only the
             # feasible count determines whether this state has a real choice.
@@ -1281,7 +1204,11 @@ def main() -> None:
                 obs = step_out.observation
 
         # ---- Episode summary ----
-        ep_return = -float(stats.nodes_expanded)  # unit expansion reward: G(root)
+        lb_root = env.root_lower_bound
+        ep_gap = (
+            (stats.best_makespan - lb_root) / max(1, lb_root)
+            if stats.best_makespan is not None else float("nan")
+        )
         elapsed = time.perf_counter() - t_start
         ep_wall = max(1e-9, time.perf_counter() - t_episode_start)
         print(
@@ -1292,14 +1219,15 @@ def main() -> None:
             f"Nodes={stats.nodes_expanded}  "
             f"Best_Ms={stats.best_makespan}  "
             f"Inc_Improves={stats.incumbent_improvements}  "
-            f"G_root={ep_return:+.0f}  "
+            f"LB_root={lb_root}  gap={ep_gap:.3f}  "
             f"wall={ep_wall:.0f}s  nodes/s={stats.nodes_expanded / ep_wall:.0f}  "
             f"elapsed={elapsed:.0f}s"
         )
         print()
 
         if writer is not None:
-            writer.add_scalar("episode/return", ep_return, global_step)
+            if ep_gap == ep_gap:
+                writer.add_scalar("episode/final_gap", ep_gap, global_step)
             writer.add_scalar("episode/nodes_expanded", stats.nodes_expanded, global_step)
             writer.add_scalar("episode/incumbent_improvements", stats.incumbent_improvements, global_step)
             writer.add_scalar("episode/steps", episode_steps, global_step)
@@ -1318,19 +1246,16 @@ def main() -> None:
             episode_steps = 0
             continue
 
-        # ---- Tree-GAE targets on the FULL episode ----
-        # Every expanded node's residual needs its children's values, so the
-        # backup runs before subsampling. The frontier supplies a boundary value
-        # for every pending leaf; no expanded node is dropped for being open.
-        frontier_targets = build_frontier_targets(env, ac, device, batch_size=target_mb_size)
+        # ---- Multi-dive targets on the FULL episode ----
+        # The backup needs every explored node; pending nodes are ignored.
         targets = compute_episode_targets(
             tree=episode_tree,
             node_ids=staged.node_ids,
-            values_log=staged.values,
-            frontier_values=frontier_targets.values,
-            gamma=tree_gamma,
-            lam=tree_gae_lambda,
-            advantage_space=advantage_space,
+            values=staged.values,
+            ready_ids=staged.ready_ids,
+            lb_root=lb_root,
+            n_activities=len(current_instance.activities),
+            alpha=step_alpha,
         )
 
         # ---- Stratified subsample, then per-episode advantage normalization ----
@@ -1345,58 +1270,50 @@ def main() -> None:
             rng=subsample_rng,
             shallow_depth_threshold=shallow_depth_threshold,
             shallow_priority_per_cell=shallow_priority_per_cell,
-            actor_closed_only=actor_closed_only,
-            closed_flags=targets.closed,
         )
         actor_idx = [i for i in kept_idx if staged.feasible_counts[i] > 1]
-        if actor_closed_only:
-            # Subsampling already restricted the pool; assert the invariant so a
-            # bootstrapped open target can never reach the policy gradient.
-            assert all(targets.closed[i] for i in actor_idx), "open actor transition in closed-only mode"
         actor_set = set(actor_idx)
         normalized_adv, adv_stats = normalize_episode_advantages(targets.advantages, actor_idx)
         n_valid_ep = len(kept_idx)
 
-        metrics = frontier_targets.metrics
-        closed_kept = sum(targets.closed[i] for i in kept_idx)
-        actor_closed = sum(targets.closed[i] for i in actor_idx)
-        open_kept = n_valid_ep - closed_kept
+        backup = targets.backup
         root_id = episode_tree.get("root_id")
         root_t = staged.node_ids.index(root_id) if root_id in staged.node_ids else None
-        metrics.update(
-            closed_kept=closed_kept, open_kept=open_kept,
-            open_fraction=open_kept / max(1, n_valid_ep), **adv_stats,
+        n_split_kept = sum(1 for i in actor_idx if targets.split_slots[i])
+        n_split_pairs = sum(
+            len(targets.split_slots[i]) * (len(targets.split_slots[i]) - 1) // 2 for i in actor_idx
         )
-        target_clamped = sum(targets.returns_log[i] <= LOG_VALUE_MIN + 1e-6 for i in kept_idx)
-        metrics["target_clamped_kept"] = target_clamped
+        metrics: Dict[str, float] = {
+            "explored": len(backup.explored_children),
+            "split_nodes": len(backup.split_children),
+            "split_kept": n_split_kept,
+            "split_pairs_kept": n_split_pairs,
+            "dead_end": backup.n_dead_end,
+            "cut": backup.n_cut,
+            **adv_stats,
+        }
         if root_t is not None:
-            root_v, root_y = targets.values_raw[root_t], targets.returns_raw[root_t]
             metrics.update(
-                root_value_raw=root_v,
-                root_return_raw=root_y,
+                root_value=targets.returns[root_t] - targets.advantages[root_t],
+                root_return=targets.returns[root_t],
                 root_advantage=targets.advantages[root_t],
-                # |V|/|Y| at the root: ~1 means a calibrated critic. On exhausted
-                # episodes Y is the exact node count, so this is predicted/actual.
-                root_value_ratio=abs(root_v) / max(abs(root_y), 1.0),
+                root_steps_to_best=backup.steps_to_best[root_id],
             )
         print(
-            f"[TreeGAE] pending={int(metrics.get('pending', 0))}  "
-            f"exact_zero={int(metrics.get('exact_zero', 0))}  "
-            f"expansion={int(metrics.get('expansion_estimates', 0))}  "
-            f"critic={int(metrics.get('critic_estimates', 0))}  "
-            f"open_kept={open_kept}/{n_valid_ep}  "
-            f"target_clamped={target_clamped}  "
-            f"root(V={metrics.get('root_value_raw', float('nan')):.0f}, "
-            f"Y={metrics.get('root_return_raw', float('nan')):.0f}, "
+            f"[MultiDive] explored={int(metrics['explored'])}  "
+            f"split={int(metrics['split_nodes'])} (kept={n_split_kept}, pairs={n_split_pairs})  "
+            f"dead_end={backup.n_dead_end}  cut={backup.n_cut}  "
+            f"root(V={metrics.get('root_value', float('nan')):+.3f}, "
+            f"Y={metrics.get('root_return', float('nan')):+.3f}, "
             f"A={metrics.get('root_advantage', float('nan')):+.3f}, "
-            f"ratio={metrics.get('root_value_ratio', float('nan')):.2f})  "
+            f"steps_to_best={int(metrics.get('root_steps_to_best', 0))})  "
             f"adv(mean={adv_stats['adv_mean']:+.3f}, std={adv_stats['adv_std']:.3f}, "
             f"absmax={adv_stats['adv_abs_max']:.3f})"
         )
         if writer is not None:
             for name, value in metrics.items():
                 if value == value:  # skip NaN
-                    writer.add_scalar(f"tree_gae/{name}", value, global_step)
+                    writer.add_scalar(f"multidive/{name}", value, global_step)
 
         if n_valid_ep == 0:
             print(f"[Accumulate] no usable transitions (valid={sub_report.n_valid}, "
@@ -1423,18 +1340,19 @@ def main() -> None:
                 depth=staged.depths[i],
                 feasible_count=staged.feasible_counts[i],
                 actor_valid=i in actor_set,
-                closed=targets.closed[i],
                 depth_band=relative_depth_band(
                     staged.depths[i], len(current_instance.activities), stratify_depth_bands,
                 ),
                 advantage=normalized_adv.get(i, 0.0),
-                return_log=targets.returns_log[i],
+                return_value=targets.returns[i],
+                split_slots=targets.split_slots[i],
+                split_scores=targets.split_scores[i],
             )
         ep_end_idx = len(buffer)
 
         print(
             f"[Subsample] valid={sub_report.n_valid}  kept={sub_report.n_kept}  "
-            f"actor={len(actor_idx)}(closed={actor_closed})  "
+            f"actor={len(actor_idx)}  "
             f"forced_kept={sub_report.n_forced_kept}/{sub_report.n_forced_available}  "
             f"shallow_kept={sub_report.n_shallow_kept}  "
             f"shallow_priority_target={sub_report.n_shallow_priority_target}  "
@@ -1458,7 +1376,6 @@ def main() -> None:
             writer.add_scalar("subsample/valid", sub_report.n_valid, global_step)
             writer.add_scalar("subsample/kept", sub_report.n_kept, global_step)
             writer.add_scalar("subsample/actor_valid", len(actor_idx), global_step)
-            writer.add_scalar("subsample/actor_closed", actor_closed, global_step)
             writer.add_scalar("subsample/forced_available", sub_report.n_forced_available, global_step)
             writer.add_scalar("subsample/forced_kept", sub_report.n_forced_kept, global_step)
             writer.add_scalar("subsample/shallow_available", sub_report.n_shallow_available, global_step)
@@ -1497,21 +1414,19 @@ def main() -> None:
 
         # ---- Assemble per-transition targets ----
         # Advantages were normalized per episode at commit time; critic targets
-        # are in log-node space and need no running statistics.
+        # are bounded Q_sub returns and need no running statistics. Every kept
+        # transition is an explored node with an exact target.
         n_total = len(buffer)
         returns = torch.tensor(buffer.returns, dtype=torch.float32)
         advantages = torch.tensor(buffer.advantages, dtype=torch.float32)
         actor_valid = torch.tensor(buffer.actor_valid, dtype=torch.bool)
-        # The critic regresses only on closed subtrees, whose targets are the
-        # exact observed node counts. Open-spine targets contain the critic's
-        # own frontier bootstraps and would make the regression self-referential.
-        critic_valid = torch.tensor(buffer.closed, dtype=torch.bool)
+        critic_valid = torch.ones(n_total, dtype=torch.bool)
         values_old = torch.tensor(buffer.values, dtype=torch.float32)
         n_actor = int(actor_valid.sum().item())
         n_critic = int(critic_valid.sum().item())
         indices = np.arange(n_total)
 
-        # Critic diagnostics in log space over the closed (trained-on) transitions.
+        # Critic diagnostics over all trained-on transitions.
         returns_c = returns[critic_valid]
         values_c = values_old[critic_valid]
         var_returns = returns_c.var() if n_critic > 1 else torch.tensor(0.0)
@@ -1560,7 +1475,7 @@ def main() -> None:
         sorted_indices = indices[sorted_order]
 
         # Critic warmup: the BC actor stays frozen (no policy pass, no KL stop)
-        # until the critic has calibrated to the log-node targets.
+        # until the critic has calibrated to the Q_sub targets.
         critic_warmup = update_count + 1 <= critic_warmup_updates
         ac.critic_model.train()
         ac.policy_model.train(not critic_warmup)
@@ -1570,12 +1485,12 @@ def main() -> None:
             w_sum = float(w_c.sum().item()) or 1.0
             bias_delta = calibrate_value_head_bias(
                 ac.critic_model,
-                current_mean_log_value=float((values_c * w_c).sum().item() / w_sum),
-                target_mean_log_value=float((returns_c * w_c).sum().item() / w_sum),
+                current_mean_value=float((values_c * w_c).sum().item() / w_sum),
+                target_mean_value=float((returns_c * w_c).sum().item() / w_sum),
             )
             print(
                 f"[Warmup] calibrated critic output bias by {bias_delta:+.3f}: "
-                f"mean V_log {values_old.mean().item():.3f} -> target mean {returns.mean().item():.3f}"
+                f"mean V {values_old.mean().item():.3f} -> target mean {returns.mean().item():.3f}"
             )
         # Fix minibatch SIZE, not count: derive the chunk count per update so
         # each minibatch holds ~target_mb_size transitions regardless of the
@@ -1597,6 +1512,9 @@ def main() -> None:
         ent_coef_now = ent_coef_start + (ent_coef_end - ent_coef_start) * progress
 
         total_pg_loss = total_vf_loss = total_ent = 0.0
+        total_rank_loss = 0.0
+        total_rank_pairs = 0
+        n_rank_samples = 0
         total_kl = 0.0
         n_kl_samples = 0   # actor minibatch steps (0 during warmup)
         n_vf_samples = 0   # critic minibatch steps
@@ -1635,8 +1553,8 @@ def main() -> None:
                 mb_advantages = advantages[mb_idx].to(device)
                 mb_returns = returns[mb_idx].to(device)
                 # Policy terms are averaged over actor-valid states only; the
-                # value loss is a depth-balanced weighted mean over closed
-                # subtrees (forced states included).
+                # value loss is a depth-balanced weighted mean over every kept
+                # transition (forced states included).
                 mb_actor = actor_valid[mb_idx].to(device=device, dtype=torch.float32)
                 mb_n_actor = mb_actor.sum().clamp(min=1.0)
                 mb_critic_w = critic_weights[mb_idx].to(device=device)
@@ -1648,15 +1566,12 @@ def main() -> None:
                     mb_obs_list, device
                 )
 
-                # ---- Critic: closed subtrees only, log-node space ----
+                # ---- Critic: every kept node, Q_sub target ----
                 _, values_b = ac.critic_model.forward_batch(
                     cand_b, glob_b, mask_b, critic_feats=critic_b, pad_mask=pad_b,
                     resource_feats=resource_b, candidate_resource_feats=interaction_b,
                     resource_mask=resource_mask_b,
                 )
-                # Log-space regression. Targets are already clamped; the
-                # prediction is left unclamped so a saturated critic keeps a
-                # gradient back into range.
                 if vf_loss_type == "huber":
                     vf_elem = nn.functional.huber_loss(
                         values_b, mb_returns, delta=huber_delta, reduction="none",
@@ -1710,8 +1625,24 @@ def main() -> None:
                 # Entropy bonus
                 entropy_loss = -(mb_entropies_t * mb_actor).sum() / mb_n_actor
 
+                # Hindsight ranking over explored children at split nodes.
+                rank_loss = logits_b.new_zeros(())
+                if split_ranking_coef > 0.0:
+                    slots_b, scores_b, smask_b = batch_split_children(
+                        [buffer.split_slots[i] for i in mb_idx],
+                        [buffer.split_scores[i] for i in mb_idx],
+                        device,
+                    )
+                    if slots_b.shape[1] >= 2:
+                        rank_loss, n_pairs = split_ranking_loss(
+                            logits_b, slots_b, scores_b, smask_b, row_weight=mb_actor,
+                        )
+                        total_rank_pairs += n_pairs
+                        total_rank_loss += rank_loss.item()
+                        n_rank_samples += 1
+
                 actor_optimizer.zero_grad()
-                (pg_loss + ent_coef_now * entropy_loss).backward()
+                (pg_loss + ent_coef_now * entropy_loss + split_ranking_coef * rank_loss).backward()
                 nn.utils.clip_grad_norm_(ac.policy_model.parameters(), max_grad_norm)
                 actor_optimizer.step()
 
@@ -1741,6 +1672,7 @@ def main() -> None:
         pg_avg = total_pg_loss / n_kl_samples if n_kl_samples else float("nan")
         ent_avg = total_ent / n_kl_samples if n_kl_samples else float("nan")
         vf_avg = total_vf_loss / max(n_vf_samples, 1)
+        rank_avg = total_rank_loss / n_rank_samples if n_rank_samples else float("nan")
         completed_steps = n_vf_samples    # minibatch steps actually run this update
         mean_kl = total_kl / n_kl_samples if n_kl_samples > 0 else 0.0
         n_distinct_instances = len({rec.instance_name for rec in episode_records})
@@ -1754,6 +1686,7 @@ def main() -> None:
             f"kept={n_total}  actor={n_actor}  critic={n_critic}  "
             f"pg={pg_avg:+.4f}  "
             f"vf={vf_avg:.4f}  "
+            f"rank={rank_avg:.4f}({total_rank_pairs} pairs)  "
             f"ev={explained_var:+.3f}  "
             f"ret_std={ret_std:.4f}  "
             f"ent={ent_avg:.4f}  "
@@ -1774,6 +1707,9 @@ def main() -> None:
         if writer is not None:
             writer.add_scalar("train/critic_warmup", 1.0 if critic_warmup else 0.0, global_step)
             writer.add_scalar("train/vf_loss", vf_avg, global_step)
+            if n_rank_samples:
+                writer.add_scalar("train/split_rank_loss", rank_avg, global_step)
+                writer.add_scalar("train/split_rank_pairs", total_rank_pairs, global_step)
             if not critic_warmup:
                 writer.add_scalar("train/pg_loss", pg_avg, global_step)
                 writer.add_scalar("train/entropy", ent_avg, global_step)

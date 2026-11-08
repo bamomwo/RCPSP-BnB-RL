@@ -683,6 +683,7 @@ CRITIC_FEATURE_NAMES = [
     "depth_frac",            # depth / num_activities — how deep X sits (near-leaf => tiny subtree)
     "frac_unscheduled",      # |unscheduled| / num_activities — remaining decisions below X
     "ready_frac",            # |ready| / num_activities — branching breadth at X
+    "lb_root_gap",           # (node_lb - root_lb) / root_lb — exact ceiling on any terminal score below X
     # --- Instance-static difficulty fingerprint (constant per episode) ---
     # These break the shallow/pre-incumbent blindness: at depth 0 the dynamic
     # features above are near-identical across instances, so the critic cannot
@@ -743,6 +744,7 @@ def critic_features(
         min(1.0, max(0.0, float(depth) / N)),
         min(1.0, max(0.0, float(n_unscheduled) / N)),
         min(1.0, max(0.0, float(n_ready) / N)),
+        max(0.0, (float(node_lb) - float(cp_lb)) / max(1.0, float(cp_lb))),
     ]
 
     # Append instance-static difficulty features if provided.

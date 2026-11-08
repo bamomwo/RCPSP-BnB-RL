@@ -183,6 +183,12 @@ class BBNode:
     action: Optional[str]
     depth: int
     status: str = "pending"  # pending | expanded | pruned | solution
+    # Chronological pop index (1-based) assigned when the node leaves the DFS
+    # stack; None while pending. Creation order (node_id) differs from visit
+    # order because children are pushed in reverse rank.
+    visit_order: Optional[int] = None
+    # Activity scheduled by the branching decision that created this node.
+    activity: Optional[int] = None
     # Path-local stagnation tracking (for the stagnation-aware reward).
     # path_best_lb     : the maximum lower bound seen on the root->this-node path.
     # stagnation_depth : consecutive depth steps on this path since path_best_lb
@@ -378,6 +384,7 @@ class BnBSolver:
         debug: bool = False,
         external_lower_bound: Optional[int] = None,
         memory_bounded: bool = False,
+        stop_at_dive_boundary: bool = False,
         debug_checkpoint_nodes: Optional[int] = None,
         debug_prefix_depth: int = 3,
         debug_checkpoint_callback: Optional[Callable[[DebugCheckpoint], None]] = None,
@@ -391,7 +398,13 @@ class BnBSolver:
         state-dependent bound as ``max(internal_lb, external_lower_bound)``.
 
         The argument is opt-in and defaults to ``None`` so existing training
-        and evaluation behavior is unchanged.  With ``memory_bounded=True``,
+        and evaluation behavior is unchanged.  With ``stop_at_dive_boundary``
+        the node budget does not cut the search mid-plunge: once
+        ``max_nodes`` is reached the solver keeps following the active dive
+        (first-ranked child of the node just expanded) until it pops a
+        terminal leaf, adding fewer than ``N_activities`` expansions, so
+        every expanded node has at least one explored child.  With
+        ``memory_bounded=True``,
         live DFS nodes use parent-linked decisions and activity bitmasks rather
         than copied schedules and sets. Completed nodes and tree edges are not
         retained in the returned result. This mode is intended for long-running
@@ -601,6 +614,11 @@ class BnBSolver:
                 return ref
             return self.nodes[int(ref)]
 
+        def _parent_id_of(stored) -> Optional[int]:
+            if memory_bounded:
+                return None if stored.parent is None else stored.parent.node_id
+            return stored.parent_id
+
         def _compute_proof_burden() -> int:
             """Sum of (incumbent - node.lb) over open stack nodes with lb < incumbent."""
             if best_makespan is None:
@@ -758,13 +776,27 @@ class BnBSolver:
             if debug_checkpoint_callback is not None:
                 debug_checkpoint_callback(checkpoint)
 
-        while stack and ((max_nodes is None) or (nodes_expanded < max_nodes)) and not time_exceeded():
+        # Id of the last expanded node that pushed children; the active plunge
+        # continues only while the top of the stack is one of its children.
+        plunge_parent_id: Optional[int] = None
+        visit_counter = 0
+
+        while stack and not time_exceeded():
             if stop_on_first_solution and best_makespan is not None:
                 break
+            if max_nodes is not None and nodes_expanded >= max_nodes:
+                if not stop_at_dive_boundary:
+                    break
+                if _parent_id_of(_stack_node(stack[-1])) != plunge_parent_id:
+                    break  # the plunge ended at a terminal leaf or a dead end
 
             node_ref = stack.pop()
             stored_node = _stack_node(node_ref)
             node_id = stored_node.node_id
+            plunge_parent_id = None
+            visit_counter += 1
+            if not memory_bounded:
+                stored_node.visit_order = visit_counter
             if collect_checkpoints:
                 diagnostic_totals["visited"] += 1
             compact_node: Optional[CompactBBNode] = None
@@ -930,6 +962,7 @@ class BnBSolver:
                 nodes_expanded_after_incumbent += 1
 
             # Reverse push for DFS/LIFO.
+            children_pushed = 0
             for reversed_rank, act_id in enumerate(reversed(acts)):
                 if collect_checkpoints:
                     diagnostic_totals["candidate_attempts"] += 1
@@ -1046,6 +1079,7 @@ class BnBSolver:
                         stagnation_depth=child_stagnation_depth,
                     )
                     stack.append(child_node)
+                    children_pushed += 1
                 else:
                     child_node = BBNode(
                         node_id=child_id,
@@ -1055,6 +1089,7 @@ class BnBSolver:
                         lower_bound=child_lb,
                         parent_id=node_id,
                         action=f"act {act_id}@{est_start}",
+                        activity=act_id,
                         depth=node.depth + 1,
                         path_best_lb=child_path_best_lb,
                         stagnation_depth=child_stagnation_depth,
@@ -1074,6 +1109,9 @@ class BnBSolver:
                         child_node.debug_prefix = prefix
                     self.edges.append((node_id, child_id))
                     stack.append(child_id)
+                    children_pushed += 1
+            if children_pushed:
+                plunge_parent_id = node_id
 
             # The feasibility cache has served both consumers (ordering callback
             # and the child loop above); free it so long runs don't retain one
@@ -1134,6 +1172,7 @@ def solve_serial(
     debug: bool = False,
     external_lower_bound: Optional[int] = None,
     memory_bounded: bool = False,
+    stop_at_dive_boundary: bool = False,
 ) -> SolverResult:
     solver = BnBSolver(
         instance=instance,
@@ -1150,4 +1189,5 @@ def solve_serial(
         stop_on_first_solution=stop_on_first_solution,
         debug=debug,
         memory_bounded=memory_bounded,
+        stop_at_dive_boundary=stop_at_dive_boundary,
     )

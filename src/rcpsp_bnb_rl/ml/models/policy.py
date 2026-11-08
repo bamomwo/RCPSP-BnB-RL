@@ -17,28 +17,6 @@ import torch.nn.functional as F
 # This puts 1-node and 100k-node subtrees on one stationary scale, so no
 # running return normalizer is needed. Tree-GAE backups run in raw units.
 
-LOG_VALUE_MIN = -15.0  # exp(15) ~ 3.3M nodes: clamp before inverting
-
-
-def log_value_to_raw(v_log: torch.Tensor) -> torch.Tensor:
-    """V_raw = -(exp(-clamp(V_log, -15, 0)) - 1)."""
-    return -torch.expm1(-v_log.clamp(LOG_VALUE_MIN, 0.0))
-
-
-def raw_return_to_log(y_raw: torch.Tensor) -> torch.Tensor:
-    """Y_log = clamp(-ln(1 + max(0, -Y_raw)), -15, 0): the critic regression target.
-
-    The floor matches log_value_to_raw's clamp, so a saturated prediction and a
-    saturated target compare as equal instead of producing a false advantage.
-    """
-    return (-torch.log1p(torch.clamp(-y_raw, min=0.0))).clamp(min=LOG_VALUE_MIN)
-
-
-def clamp_log_value(v_log: torch.Tensor) -> torch.Tensor:
-    """Critic prediction on the same [LOG_VALUE_MIN, 0] range as its targets."""
-    return v_log.clamp(LOG_VALUE_MIN, 0.0)
-
-
 # ---------------------------------------------------------------------------
 # Building blocks
 # ---------------------------------------------------------------------------
@@ -102,8 +80,8 @@ class BranchingTransformer(nn.Module):
     Attention-based branching policy for RCPSP branch-and-bound.
 
     CLS token (global features) + per-candidate embeddings → transformer encoder
-    → logits [R] over candidates + value scalar from CLS output. The value is
-    emitted in log-node space through -softplus, so it is always <= 0.
+    → logits [R] over candidates + value scalar from CLS output. The value head
+    is linear and unbounded: it regresses the multi-dive return Q_sub directly.
 
     By default both output heads use one encoder. ``policy_only`` and
     ``value_only`` omit the unused head when building independent PPO networks.
@@ -276,7 +254,7 @@ class BranchingTransformer(nn.Module):
                 value_in = torch.cat([cls_out, critic_feats], dim=-1)  # [d_model + Fk]
             else:
                 value_in = cls_out
-            value = -F.softplus(self.value_head(value_in).squeeze(-1))  # log-space, <= 0
+            value = self.value_head(value_in).squeeze(-1)
 
         return logits, value
 
@@ -385,7 +363,7 @@ class BranchingTransformer(nn.Module):
                 value_in = torch.cat([cls_out, critic_feats], dim=-1)  # [B, d_model+Fk]
             else:
                 value_in = cls_out
-            values = -F.softplus(self.value_head(value_in).squeeze(-1))  # [B], log-space
+            values = self.value_head(value_in).squeeze(-1)  # [B]
 
         return logits, values
 

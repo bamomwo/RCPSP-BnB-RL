@@ -142,6 +142,8 @@ class BranchingEnv:
         dominance: object = "set_based",
         lb_spec: object = DEFAULT_LOWER_BOUND_ID,
         max_nodes: Optional[int] = None,
+        stop_at_dive_boundary: bool = False,
+        stop_at_root_lb: bool = False,
     ) -> None:
         self.instance_source = instance_source
         self.max_resources = max_resources
@@ -156,6 +158,11 @@ class BranchingEnv:
             raise ValueError("BranchingEnv needs a time_limit_s or a max_nodes horizon")
         self.time_limit_s = time_limit_s
         self.max_nodes = None if max_nodes is None else int(max_nodes)
+        # Multi-dive options: finish the active plunge once the node budget is
+        # hit (every expanded node then has an explored child), and stop as
+        # soon as a schedule matches the root lower bound (provably optimal).
+        self.stop_at_dive_boundary = bool(stop_at_dive_boundary)
+        self.stop_at_root_lb = bool(stop_at_root_lb)
         self.dominance_spec = normalize_dominance_spec(dominance)
         self.lb_spec = lb_spec
 
@@ -312,6 +319,8 @@ class BranchingEnv:
                     dominance=self.dominance_spec,
                     time_limit_s=self.time_limit_s,
                     max_nodes=self.max_nodes,
+                    stop_at_dive_boundary=self.stop_at_dive_boundary,
+                    external_lower_bound=self._cp_lb if self.stop_at_root_lb else None,
                 )
                 to_env.put(("done", result))
             except Exception as exc:
@@ -564,6 +573,11 @@ class BranchingEnv:
         return self._episode_stats
 
     @property
+    def root_lower_bound(self) -> int:
+        """Root lower bound of the current instance (anchor for terminal scores)."""
+        return int(self._cp_lb)
+
+    @property
     def result(self) -> Optional[SolverResult]:
         """The full SolverResult of the finished episode (None until done)."""
         return self._result
@@ -624,7 +638,8 @@ class BranchingEnv:
         """
         The complete search tree of the finished episode for the subtree-return
         backup. Returns None until episode is done. Dict with keys:
-          "nodes": list of {id, parent_id, depth, status, is_incumbent, makespan}
+          "nodes": list of {id, parent_id, depth, status, is_incumbent, makespan,
+                            lower_bound, visit_order, activity}
           "edges": list of (parent_id, child_id)
           "root_id": root node id
           "root_lb": root lower bound
@@ -653,6 +668,9 @@ class BranchingEnv:
                 "status": n.status,
                 "is_incumbent": n.node_id in incumbent_ids,
                 "makespan": sol_makespan.get(n.node_id),
+                "lower_bound": n.lower_bound,
+                "visit_order": n.visit_order,
+                "activity": n.activity,
             }
             for n in res.nodes
         ]
