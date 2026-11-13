@@ -315,9 +315,11 @@ def _selected_by_pm_rule(
     resource_idx: int,
     k: int,
 ) -> bool:
+    # Klein & Scholl LB5: J(r, k) relaxes to k parallel machines iff no k + 1
+    # of its members fit together, i.e. every member has demand > cap / (k + 1).
     cap = int(instance.resource_caps[resource_idx])
     demand = int(instance.activities[act_id].resources[resource_idx])
-    return demand > (cap - int(k))
+    return demand * (int(k) + 1) > cap
 
 
 def _build_pm2_k_values(capacity: int) -> List[int]:
@@ -351,25 +353,29 @@ def _parallel_machine_relaxation_bound(
     """
     Lower bound for selected jobs on a k-machine relaxation.
 
-    Uses two standard valid terms:
+    Uses three valid terms:
     - job term: max_j (head_j + p_j + tail_j)
     - load term: min_head + ceil(sum_j p_j / k) + min_tail
+    - energy term: min_head + ceil(sum_j p_j * r_j / cap) + min_tail
+      (dominates the load term when k = cap selects every job)
     """
-    _ = resource_idx  # kept for signature symmetry with future PM variants
-
     if int(k) <= 0 or not jobs:
         return 0
 
+    cap = int(instance.resource_caps[resource_idx])
     proc_sum = 0
+    energy_sum = 0
     job_term = 0
     min_head = None
     min_tail = None
     for act_id in jobs:
-        p = int(instance.activities[act_id].duration)
+        act = instance.activities[act_id]
+        p = int(act.duration)
         h = int(heads[act_id])
         q = int(tails[act_id])
 
         proc_sum += p
+        energy_sum += p * int(act.resources[resource_idx])
         candidate = h + p + q
         if candidate > job_term:
             job_term = candidate
@@ -381,8 +387,10 @@ def _parallel_machine_relaxation_bound(
     if min_head is None or min_tail is None:
         return job_term
 
-    load_term = int(min_head) + _ceil_div(proc_sum, int(k)) + int(min_tail)
-    return max(job_term, load_term)
+    load = _ceil_div(proc_sum, int(k))
+    if cap > 0:
+        load = max(load, _ceil_div(energy_sum, cap))
+    return max(job_term, int(min_head) + load + int(min_tail))
 
 
 def _are_activities_compatible(
@@ -431,43 +439,46 @@ def _node_packing_bound_value(
 
 def _resource_projection_bound(
     instance: RCPSPInstance,
-    packed_set: Sequence[int],
+    jobs: Sequence[int],
     heads: Mapping[int, int],
     tails: Mapping[int, int],
-    scheduled: Mapping[int, object],
 ) -> int:
     """
-    Resource-projection bound over a packed activity subset.
+    Resource-projection (energetic) bound over head/tail-thresholded subsets.
 
-    For each resource r, project total subset energy onto the window
-    [min(head), Cmax - min(tail)] to obtain:
-        Cmax >= min_head + ceil(total_energy_r / cap_r) + min_tail.
+    For each resource r, head threshold h and tail threshold q, every job with
+    head >= h and tail >= q must run inside [h, Cmax - q], so
+        Cmax >= h + ceil(sum_{j: head_j >= h, tail_j >= q} p_j * r_j / cap_r) + q.
+    The thresholds range over the distinct heads/tails of `jobs`; this is exact
+    for the subset family {head >= h, tail >= q}.
     """
-    _ = scheduled  # reserved for future strengthening using residual profiles
-
-    if not packed_set:
+    if not jobs:
         return 0
 
-    min_head = min(int(heads[act_id]) for act_id in packed_set)
-    min_tail = min(int(tails[act_id]) for act_id in packed_set)
     best = 0
-
     for r, cap in enumerate(instance.resource_caps):
         cap_int = int(cap)
         if cap_int <= 0:
             continue
-        energy = 0
-        for act_id in packed_set:
-            dur = int(instance.activities[act_id].duration)
-            req = int(instance.activities[act_id].resources[r])
-            if dur <= 0 or req <= 0:
-                continue
-            energy += dur * req
-        if energy <= 0:
+        triples = []
+        for act_id in jobs:
+            act = instance.activities[act_id]
+            energy = int(act.duration) * int(act.resources[r])
+            if energy > 0:
+                triples.append((int(heads[act_id]), int(tails[act_id]), energy))
+        if not triples:
             continue
-        candidate = min_head + _ceil_div(energy, cap_int) + min_tail
-        if candidate > best:
-            best = candidate
+        # Sort by tail descending so a prefix is exactly {tail >= q}.
+        triples.sort(key=lambda x: -x[1])
+        for h in {t[0] for t in triples}:
+            cum = 0
+            for head, q, energy in triples:
+                if head < h:
+                    continue
+                cum += energy
+                candidate = h + _ceil_div(cum, cap_int) + q
+                if candidate > best:
+                    best = candidate
 
     return best
 
@@ -479,18 +490,32 @@ def _single_machine_bound(
     durations: Mapping[int, int],
 ) -> int:
     """
-    Single-machine lower bound on a packed subset.
+    One-machine head/tail bound on a pairwise-incompatible set.
 
-    Every packed activity must be processed on one serial machine in this
-    relaxation, yielding:
-        Cmax >= min_head + sum_durations + min_tail.
+    Packed activities can never overlap, so they form a 1 | r_j, q_j | Cmax
+    instance. For every head threshold h and tail threshold q the subset
+    {head >= h, tail >= q} must be processed serially inside [h, Cmax - q]:
+        Cmax >= h + sum_{j in subset} p_j + q.
+    The max over all thresholds is the classical subset (Carlier) bound and
+    strictly dominates the full-set value min_head + sum_dur + min_tail.
     """
     if not packed_set:
         return 0
-    min_head = min(int(heads[act_id]) for act_id in packed_set)
-    min_tail = min(int(tails[act_id]) for act_id in packed_set)
-    sum_dur = sum(int(durations[act_id]) for act_id in packed_set)
-    return min_head + sum_dur + min_tail
+    triples = sorted(
+        ((int(heads[a]), int(tails[a]), int(durations[a])) for a in packed_set),
+        key=lambda x: -x[1],
+    )
+    best = 0
+    for h in {t[0] for t in triples}:
+        cum = 0
+        for head, q, dur in triples:
+            if head < h:
+                continue
+            cum += dur
+            candidate = h + cum + q
+            if candidate > best:
+                best = candidate
+    return best
 
 
 def _copy_predecessors(
@@ -677,15 +702,29 @@ def lb_cc(
     if not unscheduled_ids:
         return fixed_horizon
 
-    # Resource-energy required by unscheduled activities.
+    predecessors, order = _precedence_statics(instance)
+    heads = _compute_heads(instance, scheduled, predecessors, order)
+
+    # Resource-energy required by unscheduled activities, and the earliest time
+    # any of it can be placed on r. Spare capacity before the first unscheduled
+    # consumer of r can start lies in the past and must not be filled.
     remaining_energy: List[int] = [0 for _ in range(instance.num_resources)]
+    energy_start: List[int] = [0 for _ in range(instance.num_resources)]
+    seen_consumer: List[bool] = [False for _ in range(instance.num_resources)]
     for act_id in unscheduled_ids:
         act = instance.activities[act_id]
         dur = int(act.duration)
+        if dur <= 0:
+            continue
+        head = int(heads[act_id])
         for r in range(instance.num_resources):
             req = int(act.resources[r])
-            if req > 0 and dur > 0:
-                remaining_energy[r] += dur * req
+            if req <= 0:
+                continue
+            remaining_energy[r] += dur * req
+            if not seen_consumer[r] or head < energy_start[r]:
+                energy_start[r] = head
+                seen_consumer[r] = True
 
     # Keep this finite but very large to force pruning once an incumbent exists.
     per_resource_lb: List[int] = []
@@ -698,11 +737,12 @@ def lb_cc(
 
         events = _aggregate_resource_events(instance, scheduled, r)
         used = 0
-        prev_t = 0
+        prev_t = energy_start[r]
         accumulated = 0
         reached = False
 
         for t, delta in events:
+            # Events before energy_start only update `used`; no capacity is credited.
             if t > prev_t:
                 avail = cap - used
                 if avail > 0:
@@ -800,11 +840,15 @@ def lb_ip1(
     """
     Triplet-incompatibility lower bound (IP1).
 
-    For each resource-incompatible triplet (i, j, k), enforce one serial order
-    among its six permutations. For each permutation (a, b, c), add temporary
-    arcs (a -> b) and (b -> c), compute the precedence LB if acyclic, and keep
-    the minimum over feasible permutations. The final bound is the max over
-    all considered triplets and the base precedence bound.
+    A resource-incompatible triplet (i, j, k) cannot run entirely in parallel.
+    By the Helly property of intervals, that only forces SOME pair to be
+    disjoint, i.e. one of the six ordered arcs (a -> b) over pairs of the
+    triplet must hold. The triplet contributes the minimum precedence LB over
+    those six single-arc extensions; the final bound is the max over all
+    considered triplets and the base precedence bound.
+
+    (Chaining two arcs a -> b -> c per permutation, as a full serialisation
+    would, is NOT a valid relaxation: two of the three may still overlap.)
     """
     _ = unscheduled  # kept for interface consistency across all lower bounds
 
@@ -827,13 +871,13 @@ def lb_ip1(
                     continue
 
                 triplet_candidates: List[int] = []
-                for a, b, c in permutations((i, j, k)):
+                for a, b in permutations((i, j, k), 2):
                     lb_tmp = _precedence_lb_with_added_arcs(
                         instance=instance,
                         scheduled=scheduled,
                         predecessors=predecessors,
                         activities=order,
-                        arcs=[(a, b), (b, c)],
+                        arcs=[(a, b)],
                     )
                     if lb_tmp is not None:
                         triplet_candidates.append(lb_tmp)
@@ -856,10 +900,12 @@ def lb_pm1(
     """
     Parallel-machine lower bound (PM1).
 
-    PM1 uses the full-capacity case k = B_r for each resource r, selecting jobs
-    through the PM rule and applying a k-machine relaxation bound.
+    PM1 uses the full-capacity case k = B_r for each resource r, selecting
+    unscheduled jobs through the PM rule and applying a k-machine relaxation
+    bound. Scheduled activities are excluded: they are already fixed, and one
+    with zero head or tail would wipe out the offsets of the remaining subset.
     """
-    _ = unscheduled  # kept for interface consistency across all lower bounds
+    unscheduled_set = {int(a) for a in unscheduled}
 
     fixed_horizon = max((_entry_finish(entry) for entry in scheduled.values()), default=0)
     predecessors, order = _precedence_statics(instance)
@@ -885,6 +931,8 @@ def lb_pm1(
 
         jobs: List[int] = []
         for act_id in order:
+            if act_id not in unscheduled_set:
+                continue
             duration = int(instance.activities[act_id].duration)
             demand = int(instance.activities[act_id].resources[r])
             if duration <= 0 or demand <= 0:
@@ -919,9 +967,9 @@ def lb_pm2(
     Parallel-machine lower bound (PM2).
 
     PM2 evaluates a restricted subset of k-machine cases for each resource
-    and keeps the strongest resulting bound.
+    over the unscheduled activities and keeps the strongest resulting bound.
     """
-    _ = unscheduled  # kept for interface consistency across all lower bounds
+    unscheduled_set = {int(a) for a in unscheduled}
 
     fixed_horizon = max((_entry_finish(entry) for entry in scheduled.values()), default=0)
     predecessors, order = _precedence_statics(instance)
@@ -950,11 +998,11 @@ def lb_pm2(
 
             jobs: List[int] = []
             for act_id in order:
+                if act_id not in unscheduled_set:
+                    continue
                 duration = int(instance.activities[act_id].duration)
                 demand = int(instance.activities[act_id].resources[r])
-                if duration <= 0:
-                    continue
-                if demand <= 0:
+                if duration <= 0 or demand <= 0:
                     continue
                 if not _selected_by_pm_rule(instance, act_id, r, k):
                     continue
@@ -1063,8 +1111,8 @@ def lb_np1(
     """
     Node-packing lower bound (NP1).
 
-    Extends NP0 by combining the NP packing value with a resource-projection
-    term computed on the same packed set.
+    Extends NP0 with a head/tail-thresholded resource-projection term over all
+    unscheduled activities (the packed set alone is dominated by NP0).
     """
     unscheduled_set = {int(a) for a in unscheduled}
     fixed_horizon = max((_entry_finish(entry) for entry in scheduled.values()), default=0)
@@ -1129,10 +1177,9 @@ def lb_np1(
     )
     lb_rp_value = _resource_projection_bound(
         instance=instance,
-        packed_set=packed_set,
+        jobs=act_ids,
         heads=heads,
         tails=tails,
-        scheduled=scheduled,
     )
     candidate_lb = max(base_lb_cp, lb_np0_value, lb_rp_value)
     if candidate_lb > best_lb:
@@ -1149,8 +1196,8 @@ def lb_np2(
     """
     Node-packing lower bound (NP2).
 
-    Extends NP0 by combining the NP packing value with a single-machine
-    relaxation bound computed on the same packed set.
+    Extends NP0 with the one-machine head/tail subset bound on the packed set
+    (the packed activities form a 1 | r_j, q_j | Cmax instance).
     """
     unscheduled_set = {int(a) for a in unscheduled}
     fixed_horizon = max((_entry_finish(entry) for entry in scheduled.values()), default=0)
@@ -1510,9 +1557,9 @@ def lb_cs(
 
     This bound extends the precedence critical-path value z by checking, for each
     non-critical unscheduled activity i, how much uninterrupted processing time can
-    be embedded inside [ES_i, LF_i] when only the resource profile of one selected
-    critical path is reserved. If i cannot fit fully in that interval/profile, then
-    the project duration must be extended by at least d_i - e_i.
+    be embedded inside [ES_i, LF_i] when the resource profile of all fixed scheduled
+    activities plus one selected critical path is reserved. If i cannot fit fully in
+    that interval/profile, the project duration must be extended by at least d_i - e_i.
     """
     unscheduled_set: Set[int] = {int(a) for a in unscheduled}
     fixed_horizon = max((_entry_finish(entry) for entry in scheduled.values()), default=0)
@@ -1574,11 +1621,17 @@ def lb_cs(
         critical_path.add(cur)
         cur = best_pred.get(cur)
 
-    # Resource profile induced by this critical path over [0, z).
+    # Resource profile over [0, z): every fixed scheduled activity at its
+    # recorded interval, plus unscheduled critical-path activities at ES/EF.
     profile: List[List[int]] = [[0 for _ in range(instance.num_resources)] for _ in range(max(0, z))]
-    for act_id in critical_path:
-        start = es[act_id]
-        finish = ef[act_id]
+    for act_id in set(scheduled.keys()) | critical_path:
+        if act_id in scheduled:
+            entry = scheduled[act_id]
+            start = _entry_start(entry)
+            finish = _entry_finish(entry)
+        else:
+            start = es[act_id]
+            finish = ef[act_id]
         if finish <= start:
             continue
         reqs = instance.activities[act_id].resources
@@ -1707,6 +1760,7 @@ def lower_bound(
     unscheduled: Iterable[int],
     scheduled: Mapping[int, object],
     lb_id: str = DEFAULT_LOWER_BOUND_ID,
+    incumbent: int | None = None,
 ) -> int:
     """
     Compute the requested lower bound.
@@ -1716,11 +1770,19 @@ def lower_bound(
     - a comma-separated string (e.g. "lb_cp,lb_cc")
     - a sequence of ids (e.g. ["lb_cp", "lb_cc"])
 
-    Composite semantics: max over selected bounds.
+    Composite semantics: max over selected bounds, evaluated in the given order.
+    When `incumbent` is supplied, evaluation stops as soon as the running max
+    reaches it: the node is fathomed either way, so the remaining (typically
+    heavier) bounds cannot change the decision. The returned value is then a
+    valid but possibly non-maximal lower bound.
     """
     lb_ids = normalize_lower_bound_spec(lb_id)
-    values = [
-        get_lower_bound_fn(bound_id)(instance, unscheduled, scheduled)
-        for bound_id in lb_ids
-    ]
-    return max(values)
+    best_val: int | None = None
+    for bound_id in lb_ids:
+        val = get_lower_bound_fn(bound_id)(instance, unscheduled, scheduled)
+        if best_val is None or val > best_val:
+            best_val = val
+        if incumbent is not None and best_val >= incumbent:
+            break
+    assert best_val is not None
+    return best_val

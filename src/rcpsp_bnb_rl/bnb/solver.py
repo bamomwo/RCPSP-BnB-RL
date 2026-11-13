@@ -433,12 +433,16 @@ class BnBSolver:
         def _internal_lower_bound(
             node_unscheduled,
             node_scheduled: Dict[int, ScheduleEntry],
+            incumbent: Optional[int] = None,
         ) -> int:
+            # `incumbent` lets composite specs stop early once the child is already
+            # fathomed; the value stays a valid lower bound.
             return lower_bound(
                 self.instance,
                 node_unscheduled,
                 node_scheduled,
                 lb_id=lb_spec,
+                incumbent=incumbent,
             )
 
         def _effective_lower_bound(internal: int) -> int:
@@ -1021,6 +1025,7 @@ class BnBSolver:
                 child_internal_lb = _internal_lower_bound(
                     child_unscheduled,
                     child_scheduled,
+                    incumbent=incumbent_bound,
                 )
                 child_lb = _effective_lower_bound(child_internal_lb)
                 if collect_checkpoints:
