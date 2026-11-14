@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass
 import math
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence
@@ -11,7 +11,7 @@ import torch
 from rcpsp_bnb_rl.bnb.dominance import normalize_dominance_spec
 from rcpsp_bnb_rl.bnb.lower_bounds import DEFAULT_LOWER_BOUND_ID, lower_bound
 from rcpsp_bnb_rl.bnb.scheduling import build_profile, earliest_feasible_start
-from rcpsp_bnb_rl.bnb.solver import BBNode, BnBSolver, ScheduleEntry, SolverResult, StepContext, current_makespan
+from rcpsp_bnb_rl.bnb.solver import BBNode, BnBSolver, SolverResult, StepContext, current_makespan
 from rcpsp_bnb_rl.data.parsing import RCPSPInstance, load_instance
 from rcpsp_bnb_rl.ml.action_order import resolve_activity_order
 from rcpsp_bnb_rl.ml.il.featurize import (
@@ -19,9 +19,7 @@ from rcpsp_bnb_rl.ml.il.featurize import (
     NodeContext,
     build_instance_statics,
     candidate_features,
-    critic_features,
     global_features,
-    instance_static_features,
     candidate_set_features,
     global_set_features,
     resource_set_features,
@@ -33,8 +31,7 @@ from rcpsp_bnb_rl.ml.il.featurize import (
 # Data containers
 # ---------------------------------------------------------------------------
 
-# Solver done reasons that leave pending nodes on the stack (episode truncated,
-# not terminated). The frontier of such an episode is bootstrapped.
+# Solver done reasons that leave pending nodes on the stack.
 TRUNCATION_REASONS = frozenset({"time_limit", "node_limit"})
 
 @dataclass
@@ -58,23 +55,6 @@ class EpisodeStats:
     best_makespan: Optional[int] = None
     final_gap: Optional[float] = None
     done_reason: str = "unknown"
-
-
-@dataclass
-class BootstrapFrontier:
-    """Boundary states for training targets, without changing solver closure.
-
-    Completion ratios cover every pending node. Observations contain only
-    eligible, nonterminal states with at least one feasible action. Under the
-    unit expansion reward the remaining collections are exact: zero remaining
-    cost for prunable, dead-end and complete-schedule states, and a single
-    expansion (-1) for eligible states with no feasible action.
-    """
-
-    completion_ratios: Dict[int, float] = field(default_factory=dict)
-    observations: Dict[int, Dict[str, torch.Tensor]] = field(default_factory=dict)
-    zero_return_ids: List[int] = field(default_factory=list)
-    expansion_only_ids: List[int] = field(default_factory=list)
 
 
 def real_activity_ids(instance: RCPSPInstance) -> set[int]:
@@ -158,9 +138,8 @@ class BranchingEnv:
             raise ValueError("BranchingEnv needs a time_limit_s or a max_nodes horizon")
         self.time_limit_s = time_limit_s
         self.max_nodes = None if max_nodes is None else int(max_nodes)
-        # Multi-dive options: finish the active plunge once the node budget is
-        # hit (every expanded node then has an explored child), and stop as
-        # soon as a schedule matches the root lower bound (provably optimal).
+        # Finish the active plunge when either budget is hit, and optionally
+        # stop when a schedule matches the root lower bound (provably optimal).
         self.stop_at_dive_boundary = bool(stop_at_dive_boundary)
         self.stop_at_root_lb = bool(stop_at_root_lb)
         self.dominance_spec = normalize_dominance_spec(dominance)
@@ -169,10 +148,8 @@ class BranchingEnv:
         # Set at reset()
         self.instance: Optional[RCPSPInstance] = None
         self._episode_stats: EpisodeStats = EpisodeStats()
-        self._n_activities: int = 0
         self._real_activity_ids: set[int] = set()
         self._cp_lb: int = 0
-        self._static_feats: Optional[List[float]] = None
         self._statics: Optional[InstanceStatics] = None
 
         # Step-level state written by the callback, read by step()
@@ -258,15 +235,11 @@ class BranchingEnv:
                 count=len(ready_sorted),
             )
         )
-        critic = torch.from_numpy(
-            np.asarray(self._critic_features(node, incumbent), dtype=np.float32)
-        )
         observation = {
             "global_feats": glob,
             "candidate_feats": cand,
             "ready_ids": torch.tensor(ready_sorted, dtype=torch.long),
             "action_mask": mask,
-            "critic_feats": critic,
         }
         if resource_values is not None:
             observation["resource_feats"] = torch.from_numpy(
@@ -277,19 +250,6 @@ class BranchingEnv:
             )
             observation["resource_mask"] = torch.ones(len(resource_values), dtype=torch.bool)
         return observation
-
-    def _critic_features(self, node: BBNode, incumbent: Optional[int]) -> List[float]:
-        """Critic-only features: a function of the node's own subproblem."""
-        return critic_features(
-            incumbent=incumbent,
-            node_lb=node.lower_bound,
-            cp_lb=self._cp_lb,
-            depth=node.depth,
-            n_unscheduled=len(node.unscheduled),
-            n_ready=len(node.ready),
-            num_activities=self._n_activities,
-            static_feats=self._static_feats,
-        )
 
     # ------------------------------------------------------------------
     # Generator-based solver coroutine
@@ -364,7 +324,6 @@ class BranchingEnv:
         self._done = False
         self._done_reason = "unknown"
         self._result = None
-        self._n_activities = len(self.instance.activities)
         self._real_activity_ids = real_activity_ids(self.instance)
         self._cp_lb = int(lower_bound(
             self.instance,
@@ -372,9 +331,6 @@ class BranchingEnv:
             {},
             lb_id=self.lb_spec,
         ))
-        # Instance-static difficulty features (constant for the whole episode).
-        # Computed once here and reused for every node's critic vector.
-        self._static_feats = instance_static_features(self.instance)
         # Instance-invariant structures shared by every NodeContext this episode.
         self._statics = build_instance_statics(self.instance)
 
@@ -582,67 +538,19 @@ class BranchingEnv:
         """The full SolverResult of the finished episode (None until done)."""
         return self._result
 
-    def bootstrap_frontier(self, min_completion: float) -> BootstrapFrontier:
-        """Build final pending boundary observations for selective bootstrapping.
-
-        Eligibility uses scheduled real tasks divided by total real tasks.
-        Exact pruning/terminal cases are reported even below the threshold.
-        Feasibility and critic features are evaluated against the final
-        incumbent. No solver nodes are expanded, sampled, relabelled, or
-        otherwise mutated.
-        """
-        if not math.isfinite(min_completion) or not 0.0 <= min_completion <= 1.0:
-            raise ValueError("min_completion must be a finite number in [0, 1]")
-        res = self._result
-        if res is None or not self._done or self.instance is None:
-            raise RuntimeError("bootstrap_frontier() requires a finished episode")
-
-        frontier = BootstrapFrontier()
-        real_ids = real_activity_ids(self.instance)
-        real_count = len(real_ids)
-        pending_nodes = [node for node in res.nodes if node.status == "pending"]
-        incumbent = res.best_makespan
-        for node in pending_nodes:
-            completion = (
-                len(real_ids.intersection(node.scheduled)) / real_count
-                if real_count else 1.0
-            )
-            frontier.completion_ratios[node.node_id] = completion
-            # Match the solver's terminal order: bound pruning comes first.
-            if incumbent is not None and node.lower_bound >= incumbent:
-                frontier.zero_return_ids.append(node.node_id)
-                continue
-            if not node.unscheduled:
-                # Complete schedule: popping it costs no further expansion.
-                frontier.zero_return_ids.append(node.node_id)
-                continue
-            if not node.ready:
-                frontier.zero_return_ids.append(node.node_id)
-                continue
-            if completion < min_completion:
-                continue
-
-            # Recompute feasibility under the final incumbent on a shallow
-            # copy so neither cache nor solver state changes.
-            obs = self._observe(replace(node, est_map=None), incumbent)
-            if bool(obs["action_mask"].any()):
-                frontier.observations[node.node_id] = obs
-            else:
-                # Conditional on the final incumbent: the solver counts this
-                # as an expansion, unlike empty-ready pruning. Future incumbent
-                # tightening can instead cause bound pruning before expansion.
-                frontier.expansion_only_ids.append(node.node_id)
-        return frontier
-
     def search_tree(self) -> Optional[Dict[str, object]]:
         """
         The complete search tree of the finished episode for the subtree-return
         backup. Returns None until episode is done. Dict with keys:
           "nodes": list of {id, parent_id, depth, status, is_incumbent, makespan,
-                            lower_bound, visit_order, activity}
+                            lower_bound, visit_order, activity, prune_reason,
+                            candidate_count, generated_children,
+                            dominance_pruned_children, infeasible_pruned_children,
+                            infeasible_child_lower_bound}
           "edges": list of (parent_id, child_id)
           "root_id": root node id
           "root_lb": root lower bound
+          "n_activities": total activities, defining decision depths 0..N-1
         """
         res = self._result
         if res is None:
@@ -652,7 +560,7 @@ class BranchingEnv:
         best: Optional[int] = None
         incumbent_ids = set()
         sol_makespan: Dict[int, int] = {}
-        for n in sorted(res.nodes, key=lambda nn: nn.node_id):
+        for n in sorted(res.nodes, key=lambda nn: nn.visit_order or math.inf):
             if n.status == "solution":
                 mk = current_makespan(n.scheduled)
                 sol_makespan[n.node_id] = mk
@@ -671,6 +579,12 @@ class BranchingEnv:
                 "lower_bound": n.lower_bound,
                 "visit_order": n.visit_order,
                 "activity": n.activity,
+                "prune_reason": n.prune_reason,
+                "candidate_count": n.candidate_count,
+                "generated_children": n.generated_children,
+                "dominance_pruned_children": n.dominance_pruned_children,
+                "infeasible_pruned_children": n.infeasible_pruned_children,
+                "infeasible_child_lower_bound": n.infeasible_child_lower_bound,
             }
             for n in res.nodes
         ]
@@ -680,4 +594,5 @@ class BranchingEnv:
             "edges": list(res.edges),
             "root_id": root_id,
             "root_lb": float(self._cp_lb),
+            "n_activities": len(self.instance.activities),
         }

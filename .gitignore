@@ -21,11 +21,12 @@ models/*
 results/
 znotes/
 zfigures/
+tests/
 
 config/run_bnb_nu.json
 scripts/run_bnb_nu.py
 
-tests/
+# Keep regression tests reviewable; caches are ignored above.
 
 # Scripts kept locally but excluded from version control.
 /scripts/visualize_bnb.py

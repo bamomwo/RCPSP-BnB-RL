@@ -30,7 +30,7 @@ class StepContext:
     Accumulated statistics between two consecutive order_ready_fn calls.
 
     The solver populates this before each call to order_ready_fn so the RL
-    environment can compute per-step rewards without reimplementing B&B logic.
+    environment can report search progress without reimplementing B&B logic.
 
     Fields
     ------
@@ -43,8 +43,7 @@ class StepContext:
     proof_burden      : sum over open stack nodes of max(0, incumbent - node.lb)
                         — total dangerous remaining search space at this moment.
                         Zero when no incumbent exists, or when the stack contains
-                        no node with lb < incumbent. (Legacy diagnostic; the
-                        optimality-gap reward uses frontier_min_lb instead.)
+                        no node with lb < incumbent.
     frontier_min_lb   : minimum lower bound over the open frontier — the stack
                         nodes plus the node currently being expanded. This is the
                         dual bound: no open branch can yield a makespan below it.
@@ -54,18 +53,15 @@ class StepContext:
                         when the stack is momentarily empty (e.g. at the root).
                         None when the frontier is empty.
     stack_size        : number of open nodes on the stack at this decision (the
-                        live frontier size). A proxy for remaining search work;
-                        used as a critic-only runtime feature.
+                        live frontier size).
     elapsed_s         : wall-clock seconds since the solve started, at this
-                        decision. Critic-only; with time_limit_s it gives the
-                        time_fraction that predicts time-limit truncation.
-    time_limit_s      : the solve time budget (None if unbounded). Critic-only.
+                        decision.
+    time_limit_s      : the solve time budget (None if unbounded).
     stagnation_depth  : path-local stagnation of the node about to be branched
                         on — consecutive DFS depth steps since the lower bound
-                        last improved on this branch. Drives the stagnation
-                        multiplier in the reward and is a critic-only feature.
+                        last improved on this branch.
     node_path_best_lb : the best (max) lower bound seen on the active path to the
-                        node about to be branched on. Diagnostic / critic-only.
+                        node about to be branched on.
     """
     incumbent_before: Optional[int]
     incumbent_after: Optional[int]
@@ -205,6 +201,13 @@ class BBNode:
     # Populated only for opt-in checkpoint diagnostics in full-tree debug mode.
     internal_lower_bound: Optional[int] = None
     debug_prefix: DebugPrefix = ()
+    # Omitted children remain visible to outcome backups through these counts.
+    prune_reason: Optional[str] = None
+    candidate_count: int = 0
+    generated_children: int = 0
+    dominance_pruned_children: int = 0
+    infeasible_pruned_children: int = 0
+    infeasible_child_lower_bound: Optional[int] = None
 
 
 class ActivityMaskSet(AbstractSet[int]):
@@ -344,6 +347,7 @@ class SolverResult:
     final_proof_burden: int = 0  # sum(incumbent - lb) over open stack nodes at termination
     final_frontier_min_lb: Optional[int] = None  # min lb over open frontier at termination
     debug_info: Optional[DebugInfo] = None
+    incumbent_history: List[IncumbentEvent] = field(default_factory=list)
 
 
 def current_makespan(scheduled: Dict[int, ScheduleEntry]) -> int:
@@ -399,11 +403,11 @@ class BnBSolver:
 
         The argument is opt-in and defaults to ``None`` so existing training
         and evaluation behavior is unchanged.  With ``stop_at_dive_boundary``
-        the node budget does not cut the search mid-plunge: once
-        ``max_nodes`` is reached the solver keeps following the active dive
+        neither budget cuts the search mid-plunge: once ``max_nodes`` or
+        ``time_limit_s`` is reached the solver keeps following the active dive
         (first-ranked child of the node just expanded) until it pops a
-        terminal leaf, adding fewer than ``N_activities`` expansions, so
-        every expanded node has at least one explored child.  With
+        terminal leaf or reaches a dead end, adding fewer than
+        ``N_activities`` expansions. With
         ``memory_bounded=True``,
         live DFS nodes use parent-linked decisions and activity bitmasks rather
         than copied schedules and sets. Completed nodes and tree edges are not
@@ -597,6 +601,9 @@ class BnBSolver:
         debug_info: Optional[DebugInfo] = (
             None if memory_bounded else (DebugInfo() if debug else None)
         )
+        incumbent_history: List[IncumbentEvent] = []
+        if debug_info is not None:
+            debug_info.incumbent_history = incumbent_history
         external_bound_matched = False
 
         # Counters that accumulate between consecutive order_ready_fn calls.
@@ -784,12 +791,18 @@ class BnBSolver:
         # continues only while the top of the stack is one of its children.
         plunge_parent_id: Optional[int] = None
         visit_counter = 0
+        budget_stop_reason: Optional[str] = None
 
-        while stack and not time_exceeded():
+        while stack:
             if stop_on_first_solution and best_makespan is not None:
                 break
-            if max_nodes is not None and nodes_expanded >= max_nodes:
-                if not stop_at_dive_boundary:
+            if budget_stop_reason is None:
+                if time_exceeded():
+                    budget_stop_reason = "time_limit"
+                elif max_nodes is not None and nodes_expanded >= max_nodes:
+                    budget_stop_reason = "node_limit"
+            if budget_stop_reason is not None:
+                if not stop_at_dive_boundary or plunge_parent_id is None:
                     break
                 if _parent_id_of(_stack_node(stack[-1])) != plunge_parent_id:
                     break  # the plunge ended at a terminal leaf or a dead end
@@ -814,20 +827,6 @@ class BnBSolver:
                     stored_node.unscheduled,
                     stored_node.scheduled,
                 )
-
-            incumbent = incumbent_bound
-            if incumbent is not None and stored_node.lower_bound >= incumbent:
-                if not memory_bounded:
-                    stored_node.status = "pruned"
-                nodes_pruned += 1
-                _step_lb_pruned += 1
-                if debug_info is not None:
-                    debug_info.lb_pruned += 1
-                if collect_checkpoints:
-                    diagnostic_totals["lb_pruned"] += 1
-                if seen_incumbent:
-                    nodes_pruned_after_incumbent += 1
-                continue
 
             node_is_complete = (
                 compact_node.unscheduled_mask == 0
@@ -855,15 +854,14 @@ class BnBSolver:
                         best_compact_node = compact_node
                     else:
                         best_schedule = stored_node.scheduled
-                    if debug_info is not None:
-                        debug_info.incumbent_history.append(IncumbentEvent(
-                            rank=len(debug_info.incumbent_history) + 1,
-                            makespan=makespan,
-                            nodes_expanded=nodes_expanded,
-                            depth=stored_node.depth,
-                            elapsed_s=time.perf_counter() - start_time_monotonic,
-                            prefix=stored_node.debug_prefix,
-                        ))
+                    incumbent_history.append(IncumbentEvent(
+                        rank=len(incumbent_history) + 1,
+                        makespan=makespan,
+                        nodes_expanded=nodes_expanded,
+                        depth=stored_node.depth,
+                        elapsed_s=time.perf_counter() - start_time_monotonic,
+                        prefix=() if memory_bounded else stored_node.debug_prefix,
+                    ))
                     if not seen_incumbent:
                         first_incumbent_expanded = nodes_expanded
                         seen_incumbent = True
@@ -882,6 +880,21 @@ class BnBSolver:
                         break
                 continue
 
+            incumbent = incumbent_bound
+            if incumbent is not None and stored_node.lower_bound >= incumbent:
+                if not memory_bounded:
+                    stored_node.status = "pruned"
+                    stored_node.prune_reason = "bound"
+                nodes_pruned += 1
+                _step_lb_pruned += 1
+                if debug_info is not None:
+                    debug_info.lb_pruned += 1
+                if collect_checkpoints:
+                    diagnostic_totals["lb_pruned"] += 1
+                if seen_incumbent:
+                    nodes_pruned_after_incumbent += 1
+                continue
+
             node_has_ready = (
                 compact_node.ready_mask != 0
                 if compact_node is not None
@@ -892,6 +905,7 @@ class BnBSolver:
                     diagnostic_totals["dead_ends"] += 1
                 if not memory_bounded:
                     stored_node.status = "pruned"
+                    stored_node.prune_reason = "dead_end"
                 nodes_pruned += 1
                 _step_lb_pruned += 1
                 if seen_incumbent:
@@ -957,6 +971,7 @@ class BnBSolver:
 
             if not memory_bounded:
                 node.status = "expanded"
+                node.candidate_count = len(acts)
             nodes_expanded += 1
             if collect_checkpoints:
                 diagnostic_totals["expanded"] += 1
@@ -985,6 +1000,9 @@ class BnBSolver:
                         profile=node_profile,
                     )
                 if est_start is None:
+                    if not memory_bounded:
+                        node.infeasible_pruned_children += 1
+                        node.infeasible_child_lower_bound = incumbent_bound
                     if collect_checkpoints:
                         diagnostic_totals["infeasible_candidates"] += 1
                     continue
@@ -1049,6 +1067,8 @@ class BnBSolver:
                     state_key=compact_child_key,
                 )
                 if pruned_rule is not None:
+                    if not memory_bounded:
+                        node.dominance_pruned_children += 1
                     if collect_checkpoints:
                         diagnostic_totals["dominance_pruned"] += 1
                     if debug_info is not None:
@@ -1115,6 +1135,8 @@ class BnBSolver:
                     self.edges.append((node_id, child_id))
                     stack.append(child_id)
                     children_pushed += 1
+            if not memory_bounded:
+                node.generated_children = children_pushed
             if children_pushed:
                 plunge_parent_id = node_id
 
@@ -1127,10 +1149,8 @@ class BnBSolver:
 
         if external_bound_matched:
             solver_done_reason = "external_bound_matched"
-        elif stack and time_exceeded():
-            solver_done_reason = "time_limit"
-        elif stack and max_nodes is not None and nodes_expanded >= max_nodes:
-            solver_done_reason = "node_limit"
+        elif stack and budget_stop_reason is not None:
+            solver_done_reason = budget_stop_reason
         else:
             solver_done_reason = "search_exhausted"
         final_proof_burden = _compute_proof_burden()
@@ -1162,6 +1182,7 @@ class BnBSolver:
             final_proof_burden=final_proof_burden,
             final_frontier_min_lb=final_frontier_min_lb,
             debug_info=debug_info,
+            incumbent_history=incumbent_history,
         )
 
 

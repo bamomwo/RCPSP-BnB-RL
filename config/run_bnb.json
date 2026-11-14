@@ -2,7 +2,7 @@
   "max_nodes": null,
   "branching_order": "policy",
   "time_limit_s": 60,
-  "policy_path": "models/sac/checkpoints/policy_ppo_step1517001.pt",
+  "policy_path": "models/pairwise-2/policy_ranknet_best.pt",
   "policy_device": "cpu",
   "policy_resource_encoder": "set",
   "search_strategy": "ubs",
