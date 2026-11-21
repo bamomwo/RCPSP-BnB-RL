@@ -6,6 +6,7 @@ import numpy as np
 import torch
 
 from rcpsp_bnb_rl.bnb.precedence import build_predecessors
+from rcpsp_bnb_rl.bnb.lower_bounds import DEFAULT_LOWER_BOUND_ID
 from rcpsp_bnb_rl.bnb.scheduling import build_profile, earliest_feasible_start
 from rcpsp_bnb_rl.bnb.solver import BBNode
 from rcpsp_bnb_rl.data.parsing import RCPSPInstance
@@ -21,6 +22,9 @@ from rcpsp_bnb_rl.ml.il.featurize import (
 )
 from rcpsp_bnb_rl.ml.action_order import policy_ranked_indices
 from rcpsp_bnb_rl.ml.models.policy import BranchingTransformer
+from rcpsp_bnb_rl.ml.observations import (
+    LEGACY_OBSERVATION_SCHEMA, OBSERVATION_SCHEMA, build_actor_observation,
+)
 
 
 def _build_context_for_node(
@@ -135,6 +139,8 @@ def make_policy_order_fn(
     resource_encoder: str = "legacy_flat",
     device: torch.device | str = "cpu",
     predecessors: Optional[Dict] = None,
+    observation_schema: Optional[str] = None,
+    lb_spec: object = DEFAULT_LOWER_BOUND_ID,
 ) -> callable:
     """
     Build a ready-order function driven by the branching policy.
@@ -149,6 +155,9 @@ def make_policy_order_fn(
         raise ValueError("resource_encoder must be 'legacy_flat' or 'set'")
     if getattr(model, "resource_set_enabled", False):
         resource_encoder = "set"
+    schema = observation_schema or getattr(model, "observation_schema", LEGACY_OBSERVATION_SCHEMA)
+    if schema not in {LEGACY_OBSERVATION_SCHEMA, OBSERVATION_SCHEMA}:
+        raise ValueError(f"Unknown actor observation schema: {schema}")
     model = model.to(device)
     model.eval()
     model = _maybe_script_model(model, device)
@@ -167,6 +176,17 @@ def make_policy_order_fn(
         # path would featurise the single candidate and return it unchanged.
         if len(node.ready) == 1:
             return list(node.ready)
+
+        if schema == OBSERVATION_SCHEMA:
+            obs = build_actor_observation(
+                instance, node.scheduled, node.unscheduled, node.ready, node.depth,
+                statics=statics, lb_spec=lb_spec, resource_encoder=resource_encoder,
+                max_resources=max_resources,
+            )
+            ready_ids = obs.pop("ready_ids").tolist()
+            with torch.inference_mode():
+                logits, _ = model(**{key: value.to(device) for key, value in obs.items()})
+            return [ready_ids[index] for index in policy_ranked_indices(logits.cpu().tolist())]
 
         ctx = _build_context_for_node(instance, node, preds, incumbent, statics=statics)
         ready_sorted = sorted(node.ready)

@@ -227,6 +227,8 @@ def make_policy_order_fn(
     resource_encoder: str = "legacy_flat",
     device: object = "cpu",
     predecessors=None,
+    observation_schema: Optional[str] = None,
+    lb_spec: object = DEFAULT_LOWER_BOUND_ID,
 ) -> ReadyOrderFn:
     """
     Thin wrapper around rl.policy_guidance.make_policy_order_fn.
@@ -241,6 +243,8 @@ def make_policy_order_fn(
         resource_encoder=resource_encoder,
         device=device,
         predecessors=predecessors,
+        observation_schema=observation_schema,
+        lb_spec=lb_spec,
     )
 
 
@@ -291,6 +295,8 @@ def make_order_fn(kind: str, **kwargs) -> ReadyOrderFn:
             resource_encoder=str(kwargs.get("resource_encoder", "legacy_flat")),
             device=kwargs.get("device", "cpu"),
             predecessors=kwargs.get("predecessors"),
+            observation_schema=kwargs.get("observation_schema"),
+            lb_spec=kwargs.get("lb_spec", kwargs.get("lb_id", DEFAULT_LOWER_BOUND_ID)),
         )
 
     raise ValueError(

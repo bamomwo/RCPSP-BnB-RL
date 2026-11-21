@@ -501,6 +501,7 @@ def main() -> None:
                 resource_encoder=policy_resource_encoder,
                 device=device,
                 predecessors=order_context_solver.predecessors,
+                lb_spec=lb_spec,
             )
         elif branch_order == "lower_bound":
             order_fn = make_order_fn(

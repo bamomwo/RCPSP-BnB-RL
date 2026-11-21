@@ -102,6 +102,7 @@ class BranchingTransformer(nn.Module):
         interaction_feature_dim: int = 0,
         policy_only: bool = False,
         value_only: bool = False,
+        observation_schema: str = "legacy",
     ) -> None:
         super().__init__()
         assert d_model % n_heads == 0, f"d_model={d_model} must be divisible by n_heads={n_heads}"
@@ -110,6 +111,7 @@ class BranchingTransformer(nn.Module):
         self.critic_feature_dim = critic_feature_dim
         self.policy_only = bool(policy_only)
         self.value_only = bool(value_only)
+        self.observation_schema = observation_schema
         if self.policy_only and self.value_only:
             raise ValueError("A transformer cannot be both policy-only and value-only")
         if self.policy_only and critic_feature_dim:
@@ -574,6 +576,7 @@ def _policy_config(model: BranchingTransformer) -> dict:
         "critic_feature_dim": model.critic_feature_dim,
         "policy_only": model.policy_only,
         "value_only": model.value_only,
+        "observation_schema": model.observation_schema,
         "resource_feature_dim": model.resource_feature_dim,
         "interaction_feature_dim": model.interaction_feature_dim,
         "feature_schema": (
@@ -627,6 +630,7 @@ def _model_from_state(
     device: torch.device | str,
     dropout: float,
     critic_feature_dim: int | None = None,
+    strict_actor: bool = False,
 ) -> BranchingTransformer:
     # Recover architecture dims from saved weights if config is incomplete
     global_dim = cfg.get("global_dim") or state["cls_proj.weight"].shape[1]
@@ -657,7 +661,19 @@ def _model_from_state(
         interaction_feature_dim=interaction_feature_dim,
         policy_only=bool(cfg.get("policy_only", False)),
         value_only=bool(cfg.get("value_only", False)),
+        observation_schema=str(cfg.get("observation_schema", "legacy")),
     ).to(device)
+
+    if strict_actor:
+        if not model.resource_set_enabled:
+            unused = ("resource_proj.", "interaction_proj.", "resource_global_proj.")
+            state = dict(state)
+            for key, value in model.state_dict().items():
+                if key.startswith(unused) and (key not in state or state[key].shape != value.shape):
+                    state[key] = value
+        model.load_state_dict(state, strict=True)
+        model.eval()
+        return model
 
     # Drop checkpoint weights whose shape no longer matches (e.g. resized value head).
     model_state = model.state_dict()
@@ -708,6 +724,34 @@ def load_policy_checkpoint(
         value_norm = None if model.policy_only else _checkpoint_value_norm(checkpoint)
         return model, value_norm
     return model
+
+
+def load_actor_checkpoint(
+    path: str,
+    device: torch.device | str = "cpu",
+    dropout: float = 0.0,
+) -> BranchingTransformer:
+    """Extract a strict, critic-free actor from BC or deployment checkpoints.
+
+    Only value-head parameters and unused flat-model resource modules may be
+    discarded. Missing, unexpected, or malformed actor parameters are errors.
+    """
+    checkpoint = torch.load(path, map_location=device, weights_only=False)
+    if "model_state" not in checkpoint:
+        raise ValueError(f"Checkpoint at {path} is missing 'model_state'")
+    cfg = dict(checkpoint.get("config", {}))
+    if cfg.get("value_only", False):
+        raise ValueError("A value-only checkpoint has no actor")
+    state = {k: v for k, v in checkpoint["model_state"].items() if not k.startswith("value_head.")}
+    for name, projection in (
+        ("resource_feature_dim", "resource_proj.weight"),
+        ("interaction_feature_dim", "interaction_proj.weight"),
+    ):
+        if name not in cfg:
+            weight = state.get(projection)
+            cfg[name] = int(weight.shape[1]) if weight is not None and weight.shape[1] > 1 else 0
+    cfg.update(policy_only=True, value_only=False, critic_feature_dim=0)
+    return _model_from_state(cfg, state, device, dropout, critic_feature_dim=0, strict_actor=True)
 
 
 def load_separate_actor_critic_checkpoint(
