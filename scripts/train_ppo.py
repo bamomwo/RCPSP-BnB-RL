@@ -1,4 +1,4 @@
-"""Actor fine-tuning with greedy single dives and sibling forks."""
+"""Actor training with greedy single dives and sibling forks."""
 from __future__ import annotations
 
 import argparse
@@ -19,7 +19,11 @@ if str(PROJECT_ROOT / "src") not in sys.path:
 
 from rcpsp_bnb_rl.data.dataset import list_instance_paths
 from rcpsp_bnb_rl.data.parsing import load_instance
-from rcpsp_bnb_rl.ml.models import load_actor_checkpoint, save_policy_checkpoint
+from rcpsp_bnb_rl.ml.il.featurize import (
+    set_global_feature_dim, set_candidate_feature_dim,
+    set_resource_feature_dim, set_interaction_feature_dim,
+)
+from rcpsp_bnb_rl.ml.models import BranchingTransformer, load_actor_checkpoint, save_policy_checkpoint
 from rcpsp_bnb_rl.ml.observations import OBSERVATION_SCHEMA
 from rcpsp_bnb_rl.ml.rl.evaluation import evaluate_actor
 from rcpsp_bnb_rl.ml.rl.primal_training import train_update
@@ -32,6 +36,10 @@ DEFAULT_CONFIG = {
     "pattern": "*.rcp",
     "max_instances": None,
     "bc_checkpoint": "models/policy_bc.pt",
+    "d_model": 64,
+    "n_heads": 4,
+    "n_layers": 2,
+    "ffn_dim": 128,
     "total_updates": 200,
     "episodes_per_update": 32,
     "epochs": 2,
@@ -71,7 +79,7 @@ def load_config(path: Path) -> dict:
     config = {**DEFAULT_CONFIG, **supplied}
     for name in ("total_updates", "episodes_per_update", "epochs", "target_mb_size",
                  "max_active_forks", "inference_chunk_size", "metrics_batch_size",
-                 "eval_every_updates", "torch_threads"):
+                 "eval_every_updates", "torch_threads", "d_model", "n_heads", "n_layers", "ffn_dim"):
         value = config[name]
         if isinstance(value, bool) or not isinstance(value, int) or value < 1:
             raise ValueError(f"{name} must be a positive integer")
@@ -90,7 +98,31 @@ def load_config(path: Path) -> dict:
         value = config[name]
         if value is not None and (isinstance(value, bool) or not isinstance(value, int) or value < 1):
             raise ValueError(f"{name} must be a positive integer or null")
+    checkpoint = config["bc_checkpoint"]
+    if checkpoint is not None and (not isinstance(checkpoint, str) or not checkpoint.strip()):
+        raise ValueError("bc_checkpoint must be a nonempty path string or null for random initialization")
+    if config["d_model"] % config["n_heads"]:
+        raise ValueError("d_model must be divisible by n_heads")
     return config
+
+
+def initialize_actor(config: dict, device: torch.device | str) -> BranchingTransformer:
+    """Load an actor checkpoint or construct a random actor for the shared schema."""
+    if config["bc_checkpoint"] is None:
+        actor = BranchingTransformer(
+            global_dim=set_global_feature_dim(), candidate_dim=set_candidate_feature_dim(),
+            d_model=config["d_model"], n_heads=config["n_heads"],
+            n_layers=config["n_layers"], ffn_dim=config["ffn_dim"], dropout=0.0,
+            resource_feature_dim=set_resource_feature_dim(),
+            interaction_feature_dim=set_interaction_feature_dim(), policy_only=True,
+            observation_schema=OBSERVATION_SCHEMA,
+        ).to(device)
+    else:
+        actor = load_actor_checkpoint(config["bc_checkpoint"], device=device)
+    if not actor.resource_set_enabled or actor.cls_proj.in_features != 17 or actor.cand_proj.in_features != 18:
+        raise ValueError("Sibling training requires the resource-set schema (17 global / 18 candidate)")
+    actor.observation_schema = OBSERVATION_SCHEMA
+    return actor.eval()
 
 
 def load_optima(path: str | None) -> dict[str, int]:
@@ -136,10 +168,7 @@ def run_training(config: dict) -> dict:
     if config["eval_limit"] is not None:
         eval_paths = eval_paths[:config["eval_limit"]]
     optima = load_optima(config["eval_optimal_json"])
-    actor = load_actor_checkpoint(config["bc_checkpoint"], device=device)
-    if not actor.resource_set_enabled or actor.cls_proj.in_features != 17 or actor.cand_proj.in_features != 18:
-        raise ValueError("The first experiment requires the BC resource-set schema (17 global / 18 candidate)")
-    actor.observation_schema = OBSERVATION_SCHEMA
+    actor = initialize_actor(config, device)
     optimizer = torch.optim.AdamW(actor.parameters(), lr=config["actor_lr"], weight_decay=0.0)
     save_path = Path(config["save_path"])
     save_path.parent.mkdir(parents=True, exist_ok=True)
@@ -159,6 +188,8 @@ def run_training(config: dict) -> dict:
     episodes = 0
     started = time.perf_counter()
     print(f"Actor-only sibling training: {len(paths)} instances, {device}; schema={OBSERVATION_SCHEMA}", flush=True)
+    initialization = "random" if config["bc_checkpoint"] is None else f"checkpoint ({config['bc_checkpoint']})"
+    print(f"  initialization={initialization}", flush=True)
     print(f"  instances/update={config['episodes_per_update']}  minibatch={config['target_mb_size']}  "
           f"epochs={config['epochs']}  lr={config['actor_lr']:g}  target_KL={config['target_kl']}", flush=True)
     fork_budget = config["max_forks_per_dive"]
@@ -238,6 +269,7 @@ def run_training(config: dict) -> dict:
                         writer.add_scalar(f"rollout/{band}/{key}", value, update)
             metadata = {"step": env_steps, "update": update, "training_config": config,
                         "training_method": "greedy_sibling_ranknet_v1", "observation_schema": OBSERVATION_SCHEMA,
+                        "actor_initialization": "random" if config["bc_checkpoint"] is None else "checkpoint",
                         "fork_selection": "stratified_depth", "fork_outcome_scope": "selected_fork_states"}
             save_policy_checkpoint(actor, str(save_path), metadata)
             if update % config["eval_every_updates"] == 0 or update == config["total_updates"]:

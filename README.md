@@ -2,8 +2,8 @@
 
 This project learns an activity-ordering policy for exact depth-first branch and
 bound on the Resource-Constrained Project Scheduling Problem (RCPSP). Behavioral
-cloning (BC) initializes the actor. The first primal-policy experiment fine-tunes
-that actor using complete greedy schedules and direct sibling comparisons.
+cloning (BC) can initialize the actor, or training can start from random weights.
+Primal-policy training uses complete greedy schedules and direct sibling comparisons.
 
 ## Primal-policy training
 
@@ -35,6 +35,15 @@ The historical filename is retained, but this trainer uses actor-only RankNet,
 not PPO. `config/train_ppo.json` starts from `models/policy_bc.pt`, collects 32
 instances per update, and writes artifacts under `models/primal-policy/`. Set
 `device` to `cpu` for a local run; unavailable CUDA also falls back to CPU.
+
+Set `"bc_checkpoint": null` to train from scratch. The seeded random Actor uses
+`d_model: 64`, `n_heads: 4`, `n_layers: 2`, and `ffn_dim: 128` by default;
+these architecture settings can be changed in the training config. A checkpoint
+path loads its saved architecture and weights instead. Both paths use the same
+17 global / 18 candidate resource-set inputs, `policy_only=True`, disabled
+dropout, and incumbent-free observations. Startup logs and saved metadata record
+the initialization source. An invalid checkpoint path raises an error.
+
 `total_updates` and `episodes_per_update` control the experiment budget. There
 are no secondary stems. Collection and diagnostics use these tunable limits:
 
