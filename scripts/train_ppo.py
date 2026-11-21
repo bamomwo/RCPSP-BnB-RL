@@ -1,4 +1,4 @@
-"""Minimal J30 actor fine-tuning with greedy single dives and sibling forks."""
+"""Actor fine-tuning with greedy single dives and sibling forks."""
 from __future__ import annotations
 
 import argparse
@@ -24,7 +24,7 @@ from rcpsp_bnb_rl.ml.observations import OBSERVATION_SCHEMA
 from rcpsp_bnb_rl.ml.rl.evaluation import evaluate_actor
 from rcpsp_bnb_rl.ml.rl.primal_training import train_update
 from rcpsp_bnb_rl.ml.rl.reporting import format_evaluation, save_evaluation, summarize_evaluation
-from rcpsp_bnb_rl.ml.rl.single_dive import DiveState, collect_fork_episode
+from rcpsp_bnb_rl.ml.rl.single_dive import collect_fork_episode
 
 
 DEFAULT_CONFIG = {
@@ -168,9 +168,6 @@ def run_training(config: dict) -> dict:
                     rng.shuffle(order)
                 path = order.pop()
                 instance = load_instance(path)
-                # J30 files include two identifiable zero-duration dummy endpoints.
-                if len(DiveState(instance).real_activity_ids) != 30:
-                    raise ValueError(f"This experiment requires 30 real activities: {path}")
                 episode = collect_fork_episode(actor, instance, device, lb_spec=config["lower_bound"])
                 records.extend(episode.records)
                 diagnostics = dict(episode.diagnostics)
