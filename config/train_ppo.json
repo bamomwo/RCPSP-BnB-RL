@@ -1,5 +1,5 @@
 {
-  "root": "data/train/1kNetRes",
+  "root": "data/train/All",
   "pattern": "*.rcp",
   "max_instances": null,
   "bc_checkpoint": "models/policy_bc.pt",
@@ -7,6 +7,10 @@
   "episodes_per_update": 32,
   "epochs": 2,
   "target_mb_size": 128,
+  "max_forks_per_dive": 32,
+  "max_active_forks": 128,
+  "inference_chunk_size": 128,
+  "metrics_batch_size": 128,
   "actor_lr": 0.00005,
   "entropy_coef": 0.001,
   "target_kl": 0.02,

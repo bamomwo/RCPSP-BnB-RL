@@ -36,6 +36,10 @@ DEFAULT_CONFIG = {
     "episodes_per_update": 32,
     "epochs": 2,
     "target_mb_size": 128,
+    "max_forks_per_dive": 32,
+    "max_active_forks": 128,
+    "inference_chunk_size": 128,
+    "metrics_batch_size": 128,
     "actor_lr": 5e-5,
     "entropy_coef": 0.001,
     "target_kl": 0.02,
@@ -66,6 +70,7 @@ def load_config(path: Path) -> dict:
         raise ValueError(f"Unknown training config keys: {sorted(unknown)}")
     config = {**DEFAULT_CONFIG, **supplied}
     for name in ("total_updates", "episodes_per_update", "epochs", "target_mb_size",
+                 "max_active_forks", "inference_chunk_size", "metrics_batch_size",
                  "eval_every_updates", "torch_threads"):
         value = config[name]
         if isinstance(value, bool) or not isinstance(value, int) or value < 1:
@@ -81,7 +86,7 @@ def load_config(path: Path) -> dict:
     value = config["target_kl"]
     if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0):
         raise ValueError("target_kl must be positive and finite or null")
-    for name in ("max_instances", "eval_limit", "eval_max_nodes"):
+    for name in ("max_instances", "eval_limit", "eval_max_nodes", "max_forks_per_dive"):
         value = config[name]
         if value is not None and (isinstance(value, bool) or not isinstance(value, int) or value < 1):
             raise ValueError(f"{name} must be a positive integer or null")
@@ -156,6 +161,10 @@ def run_training(config: dict) -> dict:
     print(f"Actor-only sibling training: {len(paths)} instances, {device}; schema={OBSERVATION_SCHEMA}", flush=True)
     print(f"  instances/update={config['episodes_per_update']}  minibatch={config['target_mb_size']}  "
           f"epochs={config['epochs']}  lr={config['actor_lr']:g}  target_KL={config['target_kl']}", flush=True)
+    fork_budget = config["max_forks_per_dive"]
+    print(f"  fork_budget={fork_budget if fork_budget is not None else 'all'}  "
+          f"active_forks={config['max_active_forks']}  inference_batch={config['inference_chunk_size']}  "
+          f"metrics_batch={config['metrics_batch_size']}", flush=True)
     try:
         for update in range(1, config["total_updates"] + 1):
             print(f"\n[Collect {update}/{config['total_updates']}] instances={config['episodes_per_update']}", flush=True)
@@ -168,20 +177,29 @@ def run_training(config: dict) -> dict:
                     rng.shuffle(order)
                 path = order.pop()
                 instance = load_instance(path)
-                episode = collect_fork_episode(actor, instance, device, lb_spec=config["lower_bound"])
+                episode = collect_fork_episode(
+                    actor, instance, device, lb_spec=config["lower_bound"],
+                    max_forks_per_dive=config["max_forks_per_dive"],
+                    max_active_forks=config["max_active_forks"],
+                    inference_chunk_size=config["inference_chunk_size"],
+                )
                 records.extend(episode.records)
                 diagnostics = dict(episode.diagnostics)
                 env_steps += int(diagnostics["environment_steps"])
                 episodes += 1
                 episode_reports.append({"instance": str(path), "stem_makespan": episode.stem_makespan,
                                         "root_lower_bound": episode.root_lower_bound, **diagnostics})
+                fork_count = str(len(episode.records))
+                if diagnostics["n_eligible_fork_states"] > len(episode.records):
+                    fork_count += f"/{diagnostics['n_eligible_fork_states']}"
                 print(f"  [Episode {episodes}] {path.name:<24}  stem={episode.stem_makespan:<4}  "
                       f"best={diagnostics['best_makespan']:<4}  lb={episode.root_lower_bound:<4}  "
-                      f"forks={len(episode.records):<2}  signal={diagnostics['n_non_tied_groups']:<2}  "
+                      f"forks={fork_count:<2}  signal={diagnostics['n_non_tied_groups']:<2}  "
                       f"beat={diagnostics['n_beat_states']}", flush=True)
             report = train_update(actor, optimizer, records, device, epochs=config["epochs"],
                                   minibatch_size=config["target_mb_size"], entropy_coef=config["entropy_coef"],
-                                  target_kl=config["target_kl"], max_grad_norm=config["max_grad_norm"])
+                                  target_kl=config["target_kl"], max_grad_norm=config["max_grad_norm"],
+                                  metrics_batch_size=config["metrics_batch_size"])
             duration = time.perf_counter() - batch_started
             rollout_summary = {
                 "mean_dive1_makespan": float(np.mean([e["stem_makespan"] for e in episode_reports])),
@@ -219,7 +237,8 @@ def run_training(config: dict) -> dict:
                     for key, value in counts.items():
                         writer.add_scalar(f"rollout/{band}/{key}", value, update)
             metadata = {"step": env_steps, "update": update, "training_config": config,
-                        "training_method": "greedy_sibling_ranknet_v1", "observation_schema": OBSERVATION_SCHEMA}
+                        "training_method": "greedy_sibling_ranknet_v1", "observation_schema": OBSERVATION_SCHEMA,
+                        "fork_selection": "stratified_depth", "fork_outcome_scope": "selected_fork_states"}
             save_policy_checkpoint(actor, str(save_path), metadata)
             if update % config["eval_every_updates"] == 0 or update == config["total_updates"]:
                 save_policy_checkpoint(actor, str(checkpoint_dir / f"policy_update{update}.pt"), metadata)

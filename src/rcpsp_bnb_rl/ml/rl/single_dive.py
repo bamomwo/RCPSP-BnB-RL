@@ -136,26 +136,59 @@ class ForkEpisode:
     root_lower_bound: int
 
 
+def _select_fork_indices(completion_ratios: list[float], budget: int | None) -> list[int]:
+    if budget is None or len(completion_ratios) <= budget:
+        return list(range(len(completion_ratios)))
+    if budget == 1:
+        return [min(range(len(completion_ratios)), key=lambda i: abs(completion_ratios[i] - 0.5))]
+    selected = []
+    for slot in range(budget):
+        target = completion_ratios[0] + (completion_ratios[-1] - completion_ratios[0]) * slot / (budget - 1)
+        first = selected[-1] + 1 if selected else 0
+        last = len(completion_ratios) - (budget - slot)
+        selected.append(min(range(first, last + 1), key=lambda i: abs(completion_ratios[i] - target)))
+    return selected
+
+
 def collect_fork_episode(
     actor: torch.nn.Module,
     instance: RCPSPInstance,
     device: torch.device | str,
     lb_spec: object = DEFAULT_LOWER_BOUND_ID,
+    *,
+    max_forks_per_dive: int | None = 32,
+    max_active_forks: int = 128,
+    inference_chunk_size: int = 128,
 ) -> ForkEpisode:
-    """Record one greedy stem, then greedily complete every alternative sibling.
+    """Record a greedy stem and complete every sibling at selected fork states.
 
     All fork states share the collection actor without intervening updates. The
     stem outcome is reused for its chosen child because its suffix is greedy too.
+    A null fork budget evaluates every split; finite budgets cover the stem depth.
     """
+    for name, value in (("max_forks_per_dive", max_forks_per_dive),
+                        ("max_active_forks", max_active_forks),
+                        ("inference_chunk_size", inference_chunk_size)):
+        if value is None and name == "max_forks_per_dive":
+            continue
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            raise ValueError(f"{name} must be a positive integer" + (" or null" if name == "max_forks_per_dive" else ""))
     device = torch.device(device)
     start_time = time.perf_counter()
     stem = DiveState(instance)
     root_lb = lower_bound(instance, stem.unscheduled, {}, lb_id=lb_spec, incumbent=None)
     records: list[ForkRecord] = []
-    snapshots: list[DiveState] = []
+    snapshots: list[DiveState | None] = []
+    # Small projects can retain every split immediately; larger ones replay only
+    # the selected prefixes so full snapshots never exceed the fork budget.
+    save_all = max_forks_per_dive is None or max_forks_per_dive >= len(instance.activities) - 1
+    stem_decisions: list[tuple[int, float, torch.Tensor, int]] = []
+    action_trace: list[int] = []
     batch_sizes: list[int] = []
     stem_forward_calls = 0
     env_steps = 0
+    replay_steps = 0
+    peak_active_forks = 0
     was_training = actor.training
     actor.eval()
     try:
@@ -164,54 +197,93 @@ def collect_fork_episode(
                 if not stem.ready:
                     raise ValueError("An unfinished dive has no ready activities")
                 if len(stem.ready) == 1:
-                    stem.step(next(iter(stem.ready)))
+                    aid = next(iter(stem.ready))
                 else:
                     observation = stem.observation(lb_spec)
                     if int(observation["action_mask"].sum()) < 2:
                         raise ValueError("A valid serial SGS split must have at least two feasible actions")
                     logits = actor.forward_batch(**batch_observations([observation], device))[0][0]
                     selected = int(logits.argmax().item())
-                    snapshots.append(stem.clone())
-                    records.append(ForkRecord(
-                        observation=observation,
-                        old_logits=logits.detach().cpu().clone(),
-                        makespans=torch.full((len(observation["ready_ids"]),), -1, dtype=torch.long),
-                        depth=stem.depth,
-                        completion_ratio=stem.completion_ratio,
-                        selected_index=selected,
-                    ))
-                    stem.step(int(observation["ready_ids"][selected]))
+                    old_logits = logits.detach().cpu().clone()
+                    if save_all:
+                        snapshots.append(stem.clone())
+                        records.append(ForkRecord(
+                            observation=observation, old_logits=old_logits,
+                            makespans=torch.full((len(observation["ready_ids"]),), -1, dtype=torch.long),
+                            depth=stem.depth, completion_ratio=stem.completion_ratio,
+                            selected_index=selected,
+                        ))
+                    else:
+                        stem_decisions.append((stem.depth, stem.completion_ratio, old_logits, selected))
+                    aid = int(observation["ready_ids"][selected])
                     stem_forward_calls += 1
+                action_trace.append(aid)
+                stem.step(aid)
                 env_steps += 1
 
             stem_wall_s = time.perf_counter() - start_time
-            pool: list[tuple[DiveState, int, int]] = []
-            for row, (snapshot, record) in enumerate(zip(snapshots, records)):
+            n_eligible_fork_states = len(records) if save_all else len(stem_decisions)
+            if not save_all and stem_decisions:
+                indices = _select_fork_indices([decision[1] for decision in stem_decisions], max_forks_per_dive)
+                selected_decisions = {stem_decisions[i][0]: stem_decisions[i] for i in indices}
+                last_depth = max(selected_decisions)
+                replay = DiveState(instance, statics=stem.statics)
+                for depth, aid in enumerate(action_trace):
+                    if depth in selected_decisions:
+                        _, ratio, old_logits, selected = selected_decisions[depth]
+                        observation = replay.observation(lb_spec)
+                        records.append(ForkRecord(
+                            observation=observation, old_logits=old_logits,
+                            makespans=torch.full((len(observation["ready_ids"]),), -1, dtype=torch.long),
+                            depth=depth, completion_ratio=ratio, selected_index=selected,
+                        ))
+                        snapshots.append(replay.clone())
+                    if depth == last_depth:
+                        break
+                    replay.step(aid)
+                    replay_steps += 1
+                    env_steps += 1
+                del replay
+
+            for record in records:
                 record.makespans[record.selected_index] = stem.makespan
-                for slot, aid in enumerate(record.observation["ready_ids"].tolist()):
-                    if slot == record.selected_index:
-                        continue
+            pending_counts = [len(record.makespans) - 1 for record in records]
+            jobs = iter((row, slot, aid)
+                        for row, record in enumerate(records)
+                        for slot, aid in enumerate(record.observation["ready_ids"].tolist())
+                        if slot != record.selected_index)
+            pending = next(jobs, None)
+            pool: list[tuple[DiveState, int, int]] = []
+            while pool or pending is not None:
+                while len(pool) < max_active_forks and pending is not None:
+                    row, slot, aid = pending
+                    snapshot = snapshots[row]
+                    assert snapshot is not None
                     fork = snapshot.clone()
+                    del snapshot
+                    pending_counts[row] -= 1
+                    if pending_counts[row] == 0:
+                        snapshots[row] = None
+                    peak_active_forks = max(peak_active_forks, len(pool) + 1)
                     fork.step(aid)
                     env_steps += 1
                     if fork.done:
-                        record.makespans[slot] = fork.makespan
+                        records[row].makespans[slot] = fork.makespan
                     else:
                         pool.append((fork, row, slot))
-
-            while pool:
-                split_work = [(k, state.observation(lb_spec)) for k, (state, _, _) in enumerate(pool)
-                              if len(state.ready) > 1]
+                    del fork
+                    pending = next(jobs, None)
+                split_indices = [k for k, (state, _, _) in enumerate(pool) if len(state.ready) > 1]
                 choices: dict[int, int] = {}
-                if split_work:
-                    observations = [observation for _, observation in split_work]
+                for start in range(0, len(split_indices), inference_chunk_size):
+                    indices = split_indices[start:start + inference_chunk_size]
+                    observations = [pool[k][0].observation(lb_spec) for k in indices]
                     logits = actor.forward_batch(**batch_observations(observations, device))[0]
                     selected = logits.argmax(dim=1).cpu().tolist()
-                    choices = {
-                        index: int(observation["ready_ids"][slot])
-                        for (index, observation), slot in zip(split_work, selected)
-                    }
+                    choices.update({index: int(observation["ready_ids"][slot])
+                                    for index, observation, slot in zip(indices, observations, selected)})
                     batch_sizes.append(len(observations))
+                    del observations, logits
                 remaining = []
                 for k, (state, row, slot) in enumerate(pool):
                     if not state.ready:
@@ -223,6 +295,8 @@ def collect_fork_episode(
                         records[row].makespans[slot] = state.makespan
                     else:
                         remaining.append((state, row, slot))
+                if pool:
+                    del state
                 pool = remaining
     finally:
         actor.train(was_training)
@@ -244,6 +318,12 @@ def collect_fork_episode(
     n_beat_states = sum(bool((record.makespans < stem.makespan).any()) for record in records)
     n_fork_dives = sum(len(record.makespans) - 1 for record in records)
     diagnostics = {
+        "n_real_activities": len(stem.real_activity_ids),
+        "n_eligible_fork_states": n_eligible_fork_states,
+        "fork_selection": "all" if len(records) == n_eligible_fork_states else "stratified",
+        "n_saved_snapshots": len(records),
+        "peak_active_forks": peak_active_forks,
+        "replay_steps": replay_steps,
         "n_fork_states": len(records),
         "n_fork_dives": n_fork_dives,
         "n_sibling_pairs": n_pairs,

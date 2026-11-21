@@ -5,12 +5,13 @@ bound on the Resource-Constrained Project Scheduling Problem (RCPSP). Behavioral
 cloning (BC) initializes the actor. The first primal-policy experiment fine-tunes
 that actor using complete greedy schedules and direct sibling comparisons.
 
-## Minimal J30 experiment
+## Primal-policy training
 
-Training uses **30 real activities** (the usual J30 files also contain two dummy
-endpoints). Each episode records one greedy stem and snapshots every state with
-two or more ready activities. It forces each alternative sibling once, pools all
-resulting partial schedules, and completes them greedily with batched inference.
+Training accepts variable project sizes, including J30 through RG300. Each
+episode records one greedy stem and selects up to `max_forks_per_dive` states
+with two or more ready activities, spread across the stem's depths. When the
+budget covers every split, all splits are selected. It forces each alternative
+sibling once and completes the resulting partial schedules greedily with batched inference.
 The stem outcome supplies its chosen sibling's result under the same greedy
 continuation rule. Training does not run DFS, use an incumbent or dominance table,
 or construct a critic. Every selected sibling reaches a complete schedule; no
@@ -19,8 +20,8 @@ known optimal makespan is required for training.
 The loss is tie-aware RankNet: average strict sibling-pair losses within each
 informative state, then average across those states. Equal makespans create no
 preference. A small entropy term and measured categorical `KL(old || current)`
-limit collapse and excessive updates. The KL guard checks the full collected
-batch after each optimizer step and stops further steps when the mean exceeds
+limit collapse and excessive updates. The KL guard checks every collected
+state in bounded batches after each optimizer step and stops further steps when the mean exceeds
 `target_kl`; it does not undo the step that crossed the threshold. All-tied batches
 skip optimization. Greedy collection and optimization disable dropout.
 
@@ -35,7 +36,30 @@ not PPO. `config/train_ppo.json` starts from `models/policy_bc.pt`, collects 32
 instances per update, and writes artifacts under `models/primal-policy/`. Set
 `device` to `cpu` for a local run; unavailable CUDA also falls back to CPU.
 `total_updates` and `episodes_per_update` control the experiment budget. There
-are no fork-depth caps, inference chunks, or secondary stems in this version.
+are no secondary stems. Collection and diagnostics use these tunable limits:
+
+| Configuration key | Default | Meaning |
+|---|---:|---|
+| `max_forks_per_dive` | 32 | Maximum parent states evaluated per stem; `null` evaluates all splits. |
+| `max_active_forks` | 128 | Maximum live alternative schedules held in the rollout pool. |
+| `inference_chunk_size` | 128 | Maximum continuation observations passed to one Actor forward call. |
+| `metrics_batch_size` | 128 | Maximum states per forward call when measuring ranking and KL. |
+
+The default fork budget keeps every J30 split while selecting a subset on larger
+projects. Every sibling at a selected state is evaluated, including groups
+larger than the active pool. Only selected full snapshots are retained; pending
+siblings are created as pool slots become available. Actor parameters stay fixed
+throughout collection, so delaying a continuation does not change its rule.
+Inference chunks bound device tensors separately from the CPU scheduling pool.
+The limits bound state and batch counts; wider ready sets and longer resource
+profiles still increase the memory and CPU work of each state.
+
+Ranking summaries run before and after optimization. Each optimizer step checks
+only categorical KL, across all collected states in bounded batches, without
+constructing all sibling-pair comparisons again. Chunk aggregation weights
+RankNet by informative states, accuracy by strict pairs, and KL/entropy by all
+states. These are the same metric definitions as the unchunked calculation.
+
 Updates use minibatches of 128 informative states and two epochs. For an
 illustrative batch with about 272 informative states, this gives three
 minibatches per epoch and six optimizer steps, unless the KL guard stops early.
@@ -102,7 +126,9 @@ For example:
 [Update 10] states=750 info=260 pair_acc=0.68 impr=2.4 loss=0.6965->0.6758 KL=0.00291 steps=6 wall=14.92s
 ```
 
-`best` is the minimum makespan across the stem and all completed forks. `lb` is
+`forks=32/298` means 32 evaluated parent states out of 298 eligible stem splits;
+the denominator is omitted when every split is evaluated. `best` is the minimum
+makespan across the stem and all completed forks at selected states. `lb` is
 the root lower bound. `beat` counts fork states where an alternative strictly
 improves on the stem, once per state. `signal` includes both those states and
 states where the stem is best or tied for best but other siblings are worse.
@@ -116,6 +142,13 @@ makespan units across all collected instances, including zero improvements.
 These diagnostics describe current greedy continuations. Persistent trends can
 guide exploration experiments; they do not independently establish
 generalization or global optimality.
+With a fork budget, `best`, `beat`, and `impr` describe the evaluated subset.
+
+For evaluation on larger projects, explicitly set `eval_root` and provide
+`eval_optimal_json` in the existing proven-optimum format, or set that reference
+to `null` when optima are unavailable. The default evaluation remains the J30
+set. The merged J60/J120 baseline files include unproven upper bounds and must
+not be treated as known optima. Exact DFS and its pruning are unchanged.
 
 Add `--log` to mirror stdout and stderr to `<policy_stem>_train_log.txt` beside the
 checkpoint (for `policy.pt`, this is `policy_train_log.txt`). Each invocation
