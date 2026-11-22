@@ -59,7 +59,7 @@ def policy_kl_metrics(actor, records: Sequence, device: torch.device | str,
     max_kl = 0.0
     for start in range(0, len(records), batch_size):
         batch, old, _ = _record_batch(records[start:start + batch_size], device)
-        logits, _ = actor.forward_batch(**batch)
+        logits = actor.forward_batch(**batch)
         kl = categorical_kl(old, logits, batch["action_mask"])
         total_kl += float(kl.double().sum())
         max_kl = max(max_kl, float(kl.max()))
@@ -79,7 +79,7 @@ def ranking_metrics(actor, records: Sequence, device: torch.device | str,
     max_kl = 0.0
     for start in range(0, len(records), batch_size):
         batch, old, outcomes = _record_batch(records[start:start + batch_size], device)
-        logits, _ = actor.forward_batch(**batch)
+        logits = actor.forward_batch(**batch)
         mask = batch["action_mask"]
         loss, n_pairs, n_states = sibling_ranking_loss(logits, outcomes, mask)
         pairs = (outcomes.unsqueeze(2) < outcomes.unsqueeze(1)) & mask.unsqueeze(2) & mask.unsqueeze(1)
@@ -105,8 +105,6 @@ def train_update(actor, optimizer, records: Sequence, device: torch.device | str
                  entropy_coef: float = 0.001, target_kl: float | None = 0.02,
                  max_grad_norm: float = 0.5, metrics_batch_size: int | None = None) -> dict:
     """Freeze rollout labels; stop updates when measured batch KL exceeds target."""
-    if not actor.policy_only:
-        raise ValueError("Sibling training requires policy_only=True")
     if epochs < 1 or minibatch_size < 1:
         raise ValueError("epochs and minibatch_size must be positive")
     metrics_batch_size = minibatch_size if metrics_batch_size is None else metrics_batch_size
@@ -123,7 +121,7 @@ def train_update(actor, optimizer, records: Sequence, device: torch.device | str
             for start in range(0, len(indices), minibatch_size):
                 selected = [informative[i] for i in indices[start:start + minibatch_size]]
                 batch, _, outcomes = _record_batch(selected, device)
-                logits, _ = actor.forward_batch(**batch)
+                logits = actor.forward_batch(**batch)
                 mask = batch["action_mask"]
                 rank_loss, _, _ = sibling_ranking_loss(logits, outcomes, mask)
                 logp = logits.log_softmax(-1)

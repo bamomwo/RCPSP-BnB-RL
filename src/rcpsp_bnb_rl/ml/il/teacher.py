@@ -6,10 +6,8 @@ from typing import Dict, Iterable, List, Optional
 
 from ortools.sat.python import cp_model
 
-from rcpsp_bnb_rl.bnb.lower_bounds import lower_bound
 from rcpsp_bnb_rl.bnb.precedence import build_predecessors, compute_ready_set
-from rcpsp_bnb_rl.bnb.scheduling import build_profile, earliest_feasible_start
-from rcpsp_bnb_rl.bnb.solver import ScheduleEntry, current_makespan
+from rcpsp_bnb_rl.bnb.solver import ScheduleEntry
 from rcpsp_bnb_rl.data.parsing import RCPSPInstance
 
 
@@ -113,44 +111,6 @@ def generate_trace(
         ready_sorted = sorted(ready)
         unscheduled_sorted = sorted(unscheduled)
 
-        lb = lower_bound(instance, unscheduled, scheduled)
-        ms = current_makespan(scheduled)
-
-        # Resource usage at current makespan frontier
-        res_used = [0] * instance.num_resources
-        for other_id, entry in scheduled.items():
-            if entry.start <= ms < entry.finish:
-                for r in range(instance.num_resources):
-                    res_used[r] += instance.activities[other_id].resources[r]
-
-        # Remaining energy per resource
-        rem_energy = [
-            sum(
-                instance.activities[a].duration * instance.activities[a].resources[r]
-                for a in unscheduled
-            )
-            for r in range(instance.num_resources)
-        ]
-
-        # Earliest feasible starts for each ready activity
-        node_profile = build_profile(
-            instance.activities,
-            instance.resource_caps,
-            scheduled,
-            horizon=sum(act.duration for act in instance.activities.values()),
-        )
-        earliest_starts = {
-            str(rid): earliest_feasible_start(
-                instance,
-                predecessors,
-                scheduled,
-                rid,
-                incumbent=None,
-                profile=node_profile,
-            )
-            for rid in ready_sorted
-        }
-
         records.append({
             "instance": instance_name,
             "num_activities": instance.num_activities,
@@ -164,14 +124,6 @@ def generate_trace(
                 str(k): {"start": v.start, "finish": v.finish, "duration": v.duration}
                 for k, v in scheduled.items()
             },
-            "earliest_start": earliest_starts,
-            "lower_bound": lb,
-            "incumbent": None,   # no incumbent during trace generation (optimal path)
-            "makespan_so_far": ms,
-            "resource_used_now": res_used,
-            "resource_available_now": [cap - u for cap, u in zip(instance.resource_caps, res_used)],
-            "remaining_durations": [instance.activities[a].duration for a in unscheduled],
-            "remaining_energy_per_resource": rem_energy,
             "action": {"task": act_id, "start": start_times[act_id]},
         })
 

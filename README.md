@@ -28,19 +28,18 @@ skip optimization. Greedy collection and optimization disable dropout.
 Run from the repository root using the project environment:
 
 ```bash
-/Users/mac/Documents/teak/env/bin/python scripts/train_ppo.py --config config/train_ppo.json --log
+/Users/mac/Documents/teak/env/bin/python scripts/train_rl.py --config config/train_rl.json --log
 ```
 
-The historical filename is retained, but this trainer uses actor-only RankNet,
-not PPO. `config/train_ppo.json` starts from `models/policy_bc.pt`, collects 32
+The trainer uses actor-only RankNet. `config/train_rl.json` starts from random weights, collects 32
 instances per update, and writes artifacts under `models/primal-policy/`. Set
 `device` to `cpu` for a local run; unavailable CUDA also falls back to CPU.
 
 Set `"bc_checkpoint": null` to train from scratch. The seeded random Actor uses
 `d_model: 64`, `n_heads: 4`, `n_layers: 2`, and `ffn_dim: 128` by default;
 these architecture settings can be changed in the training config. A checkpoint
-path loads its saved architecture and weights instead. Both paths use the same
-17 global / 18 candidate resource-set inputs, `policy_only=True`, disabled
+path to a newly trained v2 BC actor loads its saved architecture and weights instead.
+Both paths use 13 global / 20 candidate / 5 resource / 4 interaction inputs, disabled
 dropout, and incumbent-free observations. Startup logs and saved metadata record
 the initialization source. An invalid checkpoint path raises an error.
 
@@ -80,22 +79,43 @@ For a quick end-to-end validation, copy the config and set `total_updates: 1`,
 
 ## Observation and checkpoint contract
 
-Training and new-actor DFS evaluation share `ml/observations.py`. It computes
-bounds and resource-feasible earliest starts with no incumbent, uses the sum of
-activity durations for latest-start horizons, and fixes the reserved incumbent
-gap feature to zero. It ignores the solver's cached feasibility mask and bound.
-The existing resource-set widths remain **17 global / 18 candidate** features.
-Snapshots, candidate ordering, and resource features depend on the partial
-schedule, not search history. The actor is constructed with `policy_only=True`;
-legacy BC/shared-value and separate-critic checkpoints load through the strict
-`load_actor_checkpoint` extractor without changing actor weights.
+BC, rollout training, and DFS evaluation share `ml/observations.py` and the
+**resource_set_v2** packing features. Bounds and resource-feasible earliest starts
+are recomputed without an incumbent or the solver's cached mask. Latest starts
+use `max(local lower bound, dynamic critical path)` as an aspiration horizon;
+signed slack and time windows can be negative without declaring infeasibility.
+This horizon never changes solver pruning.
 
-Saved checkpoints record `observation_schema: incumbent_free_v1` and the training
-configuration. The existing B&B policy loader recognizes this schema. Old BC and
-RL checkpoints retain legacy observations unless explicitly overridden. Solver
-bound pruning, DFS backtracking, and dominance remain unchanged. Feature
-invariance removes incumbent leakage for the same partial schedule; it does not
-make training and search visit the same states.
+The resource profile is shared with scheduling. Resource tokens and global
+occupancy summaries query `min_est_ready`; interactions query each candidate's
+own EST before placing it. Total resource energy and root critical-path length
+are cached per instance. Energy pressure uses root CP and retains values above
+one. Empty resource sets use one all-zero sentinel token.
+
+The exact column order is declared by `SET_*_FEATURE_NAMES` in
+`src/rcpsp_bnb_rl/ml/il/featurize.py`:
+
+| Input | Width | Ordered columns |
+|---|---:|---|
+| Global | 13 | frac_scheduled, makespan_so_far_norm, lb_norm, lb_gap_norm, rem_dur_sum_norm, rem_dur_mean_norm, rem_dur_max_norm, num_ready_norm, n_res_norm, max_energy_pressure, mean_occ_at_min_est, max_occ_at_min_est, min_est_ready_norm |
+| Candidate | 20 | duration_norm, res_intensity, total_resource_load, head_norm, tail_norm, head_dur_tail_norm, is_critical, num_succ_norm, num_pred_norm, succ_dur_sum_norm, est_norm, est_minus_head_norm, finish_norm, conflict_count_norm, slack_to_lb_signed, ls_norm, time_window_signed, is_urgent, makespan_ext_norm, rel_est_norm |
+| Resource | 5 | is_real_resource, occ_frac_at_min_est, avail_frac_at_min_est, rem_energy_norm, energy_pressure |
+| Candidate-resource | 4 | demand_frac, conflict_load_norm, has_demand, rem_after_demand_at_est_frac |
+
+Time quantities use `S=max(1,sum(durations))`; activity counts use total activities
+`N`, including dummy endpoints. `n_res_norm=min(1,R/N)`. Ready conflict counts use
+ready-set size; demand and occupancy use capacity (zero-capacity denominators
+use one). Remaining energy uses `cap*S`; total-energy pressure uses
+`cap*max(1,root_cp)`. Occupancy alone is clamped to [0,1]; signed slack/windows
+and energy pressure are not clamped. Urgency is `time_window_signed < 1/N`.
+
+Checkpoints record both `observation_schema` and `feature_schema` as
+`resource_set_v2`, together with the input widths and training configuration.
+Old resource-set checkpoints are rejected; retrain BC from the existing raw
+teacher trajectories or use scratch training. There is no v1 feature path or
+automatic weight migration. Teacher action labels are preserved while inputs
+are recomputed through the shared builder; configure the same `lower_bound` in
+BC and rollout training. Solver bound pruning, DFS, and dominance are unchanged.
 
 ## Controlled exact-search evaluation
 
@@ -103,8 +123,8 @@ Training begins without evaluation. When `eval_root` is configured, the trainer
 evaluates the updated actor at each evaluation interval and after the final
 update. Omitting `eval_root` uses `data/eval/intrain/J30_10`; explicitly setting
 `eval_root: null` disables evaluation. Evaluation uses exact DFS with `dominance="set_based"`.
-The separate `compare_policies` helper remains available to compare original BC,
-BC with incumbent-free observations, and a trained actor under identical budgets.
+The `compare_policies` helper compares a v2 BC actor and a trained actor under
+identical budgets and observations.
 
 `evaluation.json` is a readable JSON array with one flat record per evaluation:
 
@@ -113,6 +133,11 @@ BC with incumbent-free observations, and a trained actor under identical budgets
   {"update": 10, "solved": 0.1, "primal_opt": 0.4, "primal_gap": 2.27, "dive1_gap": 10.75, "nodes": 103957}
 ]
 ```
+
+The evaluator itself computes only these five metrics. Its in-memory result
+contains the same five summary fields and per-instance rows with the instance
+name plus those fields; gaps use percentage units throughout. Reporting adds
+the update number and formats attainment counts for the console.
 
 `solved` is the fraction proven optimal across all evaluation instances.
 `primal_opt` is the fraction reaching a known optimum among instances with a
@@ -176,13 +201,14 @@ python scripts/run_bnb.py --config config/run_bnb.json --root data/eval/intrain/
 - `src/rcpsp_bnb_rl/bnb/`: exact solver, scheduling, lower bounds, dominance.
 - `src/rcpsp_bnb_rl/ml/il/`: teacher traces and behavioral cloning features.
 - `src/rcpsp_bnb_rl/ml/models/`: transformer and checkpoint loading.
-- `src/rcpsp_bnb_rl/ml/rl/single_dive.py`: cloneable schedules and fork collection.
+- `src/rcpsp_bnb_rl/ml/rl/env.py`: cloneable schedules and fork collection.
 - `src/rcpsp_bnb_rl/ml/rl/primal_training.py`: ranking optimization and KL checks.
 - `src/rcpsp_bnb_rl/ml/rl/evaluation.py`: exact-search controlled comparisons.
 
-The earlier DFS environment and tree-return helpers remain available for old
-experiments; the new trainer does not use them. Stale tests for the absent
-closed-tree ranking API have been replaced with tests of the new contract.
+The codebase contains one Actor model, one packing feature schema, BC training,
+sibling-ranking training, and exact-search evaluation. Actor forwards return
+logits directly. `load_policy_checkpoint` and `save_policy_checkpoint` are the
+checkpoint API for both training stages and evaluation.
 
 ```bash
 PYTHONPATH=src /Users/mac/Documents/teak/env/bin/python -m unittest discover -s tests -v

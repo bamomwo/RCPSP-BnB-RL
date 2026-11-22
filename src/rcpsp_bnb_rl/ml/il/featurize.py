@@ -6,6 +6,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 import torch
 
 from rcpsp_bnb_rl.bnb.lower_bounds import (
+    DEFAULT_LOWER_BOUND_ID,
     _build_successors_from_predecessors,
     _compute_heads,
     _compute_latest_starts,
@@ -13,6 +14,7 @@ from rcpsp_bnb_rl.bnb.lower_bounds import (
     _topological_order_from_predecessors,
 )
 from rcpsp_bnb_rl.bnb.precedence import build_predecessors
+from rcpsp_bnb_rl.bnb.scheduling import ResourceProfile, build_profile
 from rcpsp_bnb_rl.data.parsing import RCPSPInstance
 from rcpsp_bnb_rl.ml.il.generate_trajectories import TrajectoryRecord
 
@@ -24,11 +26,6 @@ from rcpsp_bnb_rl.ml.il.generate_trajectories import TrajectoryRecord
 def _sum_all_durations(instance: RCPSPInstance) -> float:
     return float(sum(act.duration for act in instance.activities.values())) or 1.0
 
-
-def _pad(values: Sequence[float], target_len: int) -> List[float]:
-    arr = list(values[:target_len])
-    arr.extend([0.0] * (target_len - len(arr)))
-    return arr
 
 
 # ---------------------------------------------------------------------------
@@ -55,6 +52,8 @@ class InstanceStatics:
     num_acts: int
     num_res: int
     caps: List[int]
+    total_resource_energy: List[float]
+    root_cp: int
 
 
 def build_instance_statics(
@@ -75,6 +74,7 @@ def build_instance_statics(
         for a in instance.activities
     }
     num_preds = {a: len(preds.get(a, set())) for a in instance.activities}
+    root_heads = _compute_heads(instance, {}, preds, topo_order)
 
     return InstanceStatics(
         predecessors=preds,
@@ -87,6 +87,12 @@ def build_instance_statics(
         num_acts=instance.num_activities,
         num_res=instance.num_resources,
         caps=instance.resource_caps,
+        total_resource_energy=[
+            float(sum(act.duration * act.resources[r] for act in instance.activities.values()))
+            for r in range(instance.num_resources)
+        ],
+        root_cp=max((root_heads[a] + instance.activities[a].duration + tails[a]
+                     for a in instance.activities), default=0),
     )
 
 
@@ -106,7 +112,6 @@ class NodeContext:
     unscheduled   : set of unscheduled activity ids
     ready         : set of ready activity ids
     lower_bound   : current node lower bound
-    incumbent     : best known makespan so far (None if not yet found)
     earliest_starts : dict mapping ready act_id -> resource-feasible earliest start (None = infeasible)
     """
 
@@ -117,20 +122,19 @@ class NodeContext:
         unscheduled: set,
         ready: set,
         lower_bound: int,
-        incumbent: Optional[int],
         earliest_starts: Dict[int, Optional[int]],
         statics: Optional[InstanceStatics] = None,
+        profile: Optional[ResourceProfile] = None,
     ) -> None:
         self.instance = instance
         self.scheduled = scheduled
         self.unscheduled = unscheduled
         self.ready = ready
         self.lower_bound = lower_bound
-        self.incumbent = incumbent
         self.earliest_starts = earliest_starts
 
         # Instance-invariant structures: reuse the shared bundle when provided,
-        # otherwise build them here (backward-compatible standalone path).
+        # otherwise build them for a standalone context.
         if statics is None:
             statics = build_instance_statics(instance)
 
@@ -139,6 +143,8 @@ class NodeContext:
         self.num_acts: int = statics.num_acts
         self.num_res: int = statics.num_res
         self.caps: List[int] = statics.caps
+        self.total_resource_energy = statics.total_resource_energy
+        self.root_cp = statics.root_cp
 
         # Precedence structures (static)
         self.predecessors = statics.predecessors
@@ -152,20 +158,18 @@ class NodeContext:
         # Tails (longest chain after) — STATIC.
         self.tails: Dict[int, int] = statics.tails
 
-        # Latest starts under current lower bound as horizon
-        horizon = incumbent if incumbent is not None else int(self.sum_durations)
+        # The target horizon is a feature reference, never a pruning deadline.
+        self.cp_value: int = max(
+            (self.heads[a] + instance.activities[a].duration + self.tails[a]
+             for a in instance.activities), default=0,
+        )
+        self.target_horizon = max(lower_bound, self.cp_value)
         self.latest_starts: Dict[int, int] = _compute_latest_starts(
             instance=instance,
             scheduled=scheduled,
             successors=self.successors,
             order=self.topo_order,
-            horizon=horizon,
-        )
-
-        # Critical path value (max head + dur + tail over all activities)
-        self.cp_value: int = max(
-            self.heads[a] + instance.activities[a].duration + self.tails[a]
-            for a in instance.activities
+            horizon=self.target_horizon,
         )
 
         # Current makespan of partial schedule
@@ -173,8 +177,17 @@ class NodeContext:
             max((self._entry_finish(e) for e in scheduled.values()), default=0)
         )
 
-        # Resource usage at makespan_so_far
+        self.min_est_ready = min(
+            (earliest_starts[a] for a in ready if earliest_starts.get(a) is not None),
+            default=self.makespan_so_far,
+        )
+        self.profile = profile if profile is not None else build_profile(
+            instance.activities, instance.resource_caps, scheduled,
+            horizon=max(int(self.sum_durations), self.makespan_so_far),
+        )
+        # Occupancy at the earliest feasible candidate insertion time.
         self.res_used: List[int] = self._compute_res_used()
+        self._resource_features: Optional[List[List[float]]] = None
 
         # Remaining energy per resource
         self.rem_energy: List[float] = [
@@ -204,22 +217,13 @@ class NodeContext:
             return int(entry["finish"])
         return int(entry.finish)
 
-    @staticmethod
-    def _entry_start(entry) -> int:
-        if isinstance(entry, dict):
-            return int(entry["start"])
-        return int(entry.start)
-
     def _compute_res_used(self) -> List[int]:
-        t = self.makespan_so_far
-        usage = [0] * self.num_res
-        for act_id, entry in self.scheduled.items():
-            s = self._entry_start(entry)
-            f = self._entry_finish(entry)
-            if s <= t < f:
-                for r in range(self.num_res):
-                    usage[r] += self.instance.activities[act_id].resources[r]
-        return usage
+        return [self.occupancy_at(self.min_est_ready, r) for r in range(self.num_res)]
+
+    def occupancy_at(self, time: int, resource: int) -> int:
+        """Read the pre-action profile; outside its horizon occupancy is zero."""
+        row = self.profile.usage[resource]
+        return row[time] if 0 <= time < len(row) else 0
 
     def _compute_ready_conflicts(self) -> Tuple[Dict[int, int], Dict[int, List[float]]]:
         """
@@ -251,248 +255,42 @@ class NodeContext:
 
 
 # ---------------------------------------------------------------------------
-# Global features  (one vector per node, fed into the CLS token)
-# ---------------------------------------------------------------------------
-
-# Number of global features = 6 + 4*max_resources + 4
-GLOBAL_FEATURE_NAMES = [
-    # Search progress
-    "depth_norm",
-    "frac_scheduled",
-    "frac_unscheduled",
-    "makespan_so_far_norm",
-    "lb_norm",
-    "lb_gap_norm",
-    "incumbent_gap_norm",
-    # Resource state  (repeated max_resources times each)
-    # "cap_r", "res_util_r", "res_avail_r", "rem_energy_norm_r"
-    # Remaining work
-    "rem_dur_sum_norm",
-    "rem_dur_mean_norm",
-    "rem_dur_max_norm",
-    "num_ready_norm",
-]
-
-
-def global_features(ctx: NodeContext, max_resources: int, depth: int = 0) -> List[float]:
-    S = ctx.sum_durations
-    N = float(ctx.num_acts) or 1.0
-    n_sched = float(len(ctx.scheduled))
-    n_unsched = float(len(ctx.unscheduled))
-
-    lb_gap = max(0.0, ctx.lower_bound - ctx.makespan_so_far) / S
-    if ctx.incumbent is not None and ctx.lower_bound > 0:
-        inc_gap = max(0.0, ctx.incumbent - ctx.lower_bound) / ctx.lower_bound
-    else:
-        inc_gap = 0.0
-
-    feats: List[float] = [
-        float(depth) / N,
-        n_sched / N,
-        n_unsched / N,
-        ctx.makespan_so_far / S,
-        ctx.lower_bound / S,
-        lb_gap,
-        inc_gap,
-    ]
-
-    # Per-resource state (padded / truncated to max_resources)
-    for r in range(max_resources):
-        if r < ctx.num_res:
-            cap = float(ctx.caps[r]) or 1.0
-            used = float(ctx.res_used[r])
-            rem_e = ctx.rem_energy[r]
-            feats.append(cap)
-            feats.append(used / cap)
-            feats.append((cap - used) / cap)
-            feats.append(rem_e / (cap * S))
-        else:
-            feats.extend([0.0, 0.0, 0.0, 0.0])
-
-    # Remaining work summary
-    rem_durs = [ctx.instance.activities[a].duration for a in ctx.unscheduled]
-    if rem_durs:
-        feats.append(sum(rem_durs) / S)
-        feats.append((sum(rem_durs) / len(rem_durs)) / S)
-        feats.append(max(rem_durs) / S)
-    else:
-        feats.extend([0.0, 0.0, 0.0])
-    feats.append(float(len(ctx.ready)) / N)
-
-    return feats
-
-
-# ---------------------------------------------------------------------------
-# Candidate features  (one vector per ready activity)
-# ---------------------------------------------------------------------------
-
-# Number of candidate features = 8 + 4*max_resources + 7 + 7 + (1 + max_resources)
-CANDIDATE_FEATURE_NAMES = [
-    # Intrinsic
-    "duration_norm",
-    "res_intensity",
-    "total_resource_load",
-    # per resource: "res_demand_r"
-    # Precedence structure
-    "head_norm",
-    "tail_norm",
-    "head_dur_tail_norm",
-    "is_critical",
-    "num_successors_norm",
-    "num_predecessors_norm",
-    "succ_dur_sum_norm",
-    # Scheduling feasibility
-    "earliest_start_norm",
-    "est_minus_head_norm",
-    "finish_norm",
-    "slack_to_lb_norm",
-    "latest_start_norm",
-    "time_window_norm",
-    "is_urgent",
-    # Contention
-    "num_conflicting_ready_norm",
-    # per resource: "max_conflict_load_r"
-]
-
-
-def candidate_features(
-    ctx: NodeContext,
-    act_id: int,
-    max_resources: int,
-) -> List[float]:
-    S = ctx.sum_durations
-    N = float(ctx.num_acts) or 1.0
-    instance = ctx.instance
-    act = instance.activities[act_id]
-
-    dur = float(act.duration)
-    dur_norm = dur / S
-
-    # Per-resource demand (normalised by cap)
-    res_demand: List[float] = []
-    for r in range(max_resources):
-        if r < ctx.num_res:
-            cap = float(ctx.caps[r]) or 1.0
-            res_demand.append(act.resources[r] / cap)
-        else:
-            res_demand.append(0.0)
-
-    res_intensity = max(res_demand)
-    total_load = sum(res_demand)
-
-    # Precedence
-    head = float(ctx.heads.get(act_id, 0))
-    tail = float(ctx.tails.get(act_id, 0))
-    hdt = head + dur + tail
-    is_critical = 1.0 if int(hdt) >= ctx.cp_value else 0.0
-    num_succ = float(len(act.successors)) / N
-    num_pred = float(ctx.num_preds.get(act_id, 0)) / N
-    succ_dur = float(ctx.succ_dur_sum.get(act_id, 0)) / S
-
-    # Scheduling feasibility
-    est = ctx.earliest_starts.get(act_id)
-    if est is not None:
-        est_f = float(est)
-        est_norm = est_f / S
-        est_minus_head = max(0.0, est_f - head) / S
-        finish_norm = (est_f + dur) / S
-        slack_to_lb = max(0.0, ctx.lower_bound - (est_f + dur)) / S
-        ls = float(ctx.latest_starts.get(act_id, est_f))
-        ls_norm = ls / S
-        tw = max(0.0, ls - est_f) / S
-        is_urgent = 1.0 if tw < (1.0 / N) else 0.0
-    else:
-        # Infeasible candidate — sentinel values
-        est_norm = -1.0
-        est_minus_head = 0.0
-        finish_norm = -1.0
-        slack_to_lb = 0.0
-        ls_norm = -1.0
-        tw = 0.0
-        is_urgent = 1.0
-
-    # Contention
-    n_ready = float(len(ctx.ready)) or 1.0
-    conflict_count_norm = ctx.conflict_counts.get(act_id, 0) / n_ready
-    conflict_load_per_res: List[float] = []
-    raw_load = ctx.conflict_load.get(act_id, [0.0] * ctx.num_res)
-    for r in range(max_resources):
-        conflict_load_per_res.append(raw_load[r] if r < ctx.num_res else 0.0)
-
-    feats: List[float] = [
-        dur_norm,
-        res_intensity,
-        total_load,
-        *res_demand,
-        head / S,
-        tail / S,
-        hdt / S,
-        is_critical,
-        num_succ,
-        num_pred,
-        succ_dur,
-        est_norm,
-        est_minus_head,
-        finish_norm,
-        slack_to_lb,
-        ls_norm,
-        tw,
-        is_urgent,
-        conflict_count_norm,
-        *conflict_load_per_res,
-    ]
-    return feats
-
-
-# ---------------------------------------------------------------------------
-# Feature dimension helpers
-# ---------------------------------------------------------------------------
-
-def global_feature_dim(max_resources: int) -> int:
-    return 7 + 4 * max_resources + 4
-
-
-def candidate_feature_dim(max_resources: int) -> int:
-    # 3 intrinsic scalars + max_resources demand + 7 precedence + 7 feasibility + 1 + max_resources contention
-    return 3 + max_resources + 7 + 7 + 1 + max_resources
-
-
-# ---------------------------------------------------------------------------
 # Variable-resource (set encoder) features
 # ---------------------------------------------------------------------------
 #
-# The original feature functions above are intentionally kept intact for old
-# checkpoints.  New policies use the functions below: resource-specific data
-# is emitted as a variable-length resource set and candidate/resource
-# interactions, so no resource is silently discarded when an instance has more
-# resources than the legacy ``max_resources`` value.
+# resource_set_v2: time quantities use S=sum(durations), counts use N=activities,
+# demand and occupancy use resource capacity, and energy pressure uses root CP.
 
+FEATURE_SCHEMA = "resource_set_v2"
+SET_GLOBAL_FEATURE_NAMES = [
+    "frac_scheduled", "makespan_so_far_norm", "lb_norm", "lb_gap_norm",
+    "rem_dur_sum_norm", "rem_dur_mean_norm", "rem_dur_max_norm", "num_ready_norm",
+    "n_res_norm", "max_energy_pressure", "mean_occ_at_min_est", "max_occ_at_min_est",
+    "min_est_ready_norm",
+]
+SET_CANDIDATE_FEATURE_NAMES = [
+    "duration_norm", "res_intensity", "total_resource_load",
+    "head_norm", "tail_norm", "head_dur_tail_norm", "is_critical",
+    "num_succ_norm", "num_pred_norm", "succ_dur_sum_norm",
+    "est_norm", "est_minus_head_norm", "finish_norm", "conflict_count_norm",
+    "slack_to_lb_signed", "ls_norm", "time_window_signed", "is_urgent",
+    "makespan_ext_norm", "rel_est_norm",
+]
 SET_RESOURCE_FEATURE_NAMES = [
-    "is_real_resource",
-    "capacity_norm",
-    "usage_frac",
-    "available_frac",
-    "remaining_energy_norm",
-    "energy_pressure",
+    "is_real_resource", "occ_frac_at_min_est", "avail_frac_at_min_est",
+    "rem_energy_norm", "energy_pressure",
 ]
 SET_INTERACTION_FEATURE_NAMES = [
-    "demand_frac",
-    "conflict_load_norm",
-    "has_demand",
-    "remaining_after_demand_frac",
+    "demand_frac", "conflict_load_norm", "has_demand", "rem_after_demand_at_est_frac",
 ]
 
 
 def set_global_feature_dim() -> int:
-    """Width of the fixed, resource-agnostic global feature vector."""
-    # Search progress (7), all-resource summaries (6), remaining work (4).
-    return 17
+    return len(SET_GLOBAL_FEATURE_NAMES)
 
 
 def set_candidate_feature_dim() -> int:
-    """Width of the fixed, resource-agnostic candidate feature vector."""
-    # Intrinsic aggregates (3), precedence (7), feasibility (7), contention (1).
-    return 18
+    return len(SET_CANDIDATE_FEATURE_NAMES)
 
 
 def set_resource_feature_dim() -> int:
@@ -504,53 +302,33 @@ def set_interaction_feature_dim() -> int:
 
 
 def resource_set_features(ctx: NodeContext) -> List[List[float]]:
-    """Return one feature vector for every resource in the instance.
-
-    The resource order is not used by the model; all rows are processed with
-    shared weights and pooled/attended downstream.  Values are normalised by
-    the instance duration scale and each resource's capacity.
-    """
-    S = ctx.sum_durations
-    n_res = ctx.num_res
-    total_energy = [
-        float(sum(
-            ctx.instance.activities[a].duration
-            * ctx.instance.activities[a].resources[r]
-            for a in ctx.instance.activities
-        ))
-        for r in range(n_res)
-    ]
-    # A precedence-only instance legitimately has no renewable resources. The
-    # neural encoder still needs a nonempty token axis, so represent it by one
-    # sentinel token. ``is_real_resource`` tells the model it is a placeholder,
-    # rather than a zero-capacity resource.
-    if n_res == 0:
-        return [[0.0] * set_resource_feature_dim()]
-
+    """Resource occupancy at min EST, remaining energy/S, and total energy/root CP."""
+    if ctx._resource_features is not None:
+        return ctx._resource_features
+    if ctx.num_res == 0:
+        ctx._resource_features = [[0.0] * set_resource_feature_dim()]
+        return ctx._resource_features
     out: List[List[float]] = []
-    for r in range(n_res):
+    for r in range(ctx.num_res):
         cap = float(ctx.caps[r]) if ctx.caps[r] > 0 else 1.0
-        used = float(ctx.res_used[r])
-        pressure = total_energy[r] / (cap * S)
+        occupancy = min(1.0, max(0.0, float(ctx.res_used[r]) / cap))
         out.append([
-            1.0,
-            cap / S,
-            min(1.0, max(0.0, used / cap)),
-            min(1.0, max(0.0, (cap - used) / cap)),
-            float(ctx.rem_energy[r]) / (cap * S),
-            pressure,
+            1.0, occupancy, 1.0 - occupancy,
+            float(ctx.rem_energy[r]) / (cap * ctx.sum_durations),
+            ctx.total_resource_energy[r] / (cap * max(1, ctx.root_cp)),
         ])
+    ctx._resource_features = out
     return out
 
 
 def candidate_resource_features(ctx: NodeContext, act_id: int) -> List[List[float]]:
-    """Return one interaction vector between a candidate and every resource."""
-    S = ctx.sum_durations
+    """Resource demand/conflict and residual capacity at the candidate's EST."""
     act = ctx.instance.activities[act_id]
-    raw_conflict = ctx.conflict_load.get(act_id, [0.0] * ctx.num_res)
     if ctx.num_res == 0:
         return [[0.0] * set_interaction_feature_dim()]
-
+    raw_conflict = ctx.conflict_load.get(act_id, [0.0] * ctx.num_res)
+    est = ctx.earliest_starts.get(act_id)
+    time = ctx.min_est_ready if est is None else est
     out: List[List[float]] = []
     for r in range(ctx.num_res):
         cap = float(ctx.caps[r]) if ctx.caps[r] > 0 else 1.0
@@ -559,64 +337,39 @@ def candidate_resource_features(ctx: NodeContext, act_id: int) -> List[List[floa
             demand / cap,
             float(raw_conflict[r]) if r < len(raw_conflict) else 0.0,
             1.0 if demand > 0 else 0.0,
-            (cap - float(ctx.res_used[r]) - demand) / cap,
+            (cap - ctx.occupancy_at(time, r) - demand) / cap,
         ])
     return out
 
 
-def global_set_features(ctx: NodeContext, depth: int = 0) -> List[float]:
-    """Build the fixed-width global features used by variable-resource models."""
+def global_set_features(ctx: NodeContext) -> List[float]:
+    """Emit SET_GLOBAL_FEATURE_NAMES in their declared order."""
     S = ctx.sum_durations
     N = float(ctx.num_acts) or 1.0
-    n_sched = float(len(ctx.scheduled))
-    n_unsched = float(len(ctx.unscheduled))
-    lb_gap = max(0.0, ctx.lower_bound - ctx.makespan_so_far) / S
-    if ctx.incumbent is not None and ctx.lower_bound > 0:
-        inc_gap = max(0.0, ctx.incumbent - ctx.lower_bound) / ctx.lower_bound
-    else:
-        inc_gap = 0.0
-
     resources = resource_set_features(ctx)
-    # Row 0 is the sentinel/real-resource indicator; summary statistics use
-    # only the physical resource attributes that follow it.
-    caps = [row[1] for row in resources]
-    usages = [row[2] for row in resources]
-    pressure = [row[5] for row in resources]
-    n_res = float(ctx.num_res)
-    if resources:
-        resource_summary = [
-            min(1.0, n_res / N),
-            float(sum(caps) / len(caps)),
-            float(max(caps)),
-            float(sum(usages) / len(usages)),
-            float(max(usages)),
-            float(max(pressure)),
-        ]
-    else:
-        resource_summary = [0.0] * 6
-
+    physical = resources if ctx.num_res else []
+    occupancies = [row[1] for row in physical]
+    pressure = [row[4] for row in physical]
     rem_durs = [ctx.instance.activities[a].duration for a in ctx.unscheduled]
-    remaining = [
+    return [
+        len(ctx.scheduled) / N,
+        ctx.makespan_so_far / S,
+        ctx.lower_bound / S,
+        max(0.0, ctx.lower_bound - ctx.makespan_so_far) / S,
         sum(rem_durs) / S if rem_durs else 0.0,
         (sum(rem_durs) / len(rem_durs)) / S if rem_durs else 0.0,
         max(rem_durs) / S if rem_durs else 0.0,
-        float(len(ctx.ready)) / N,
-    ]
-    return [
-        float(depth) / N,
-        n_sched / N,
-        n_unsched / N,
-        ctx.makespan_so_far / S,
-        ctx.lower_bound / S,
-        lb_gap,
-        inc_gap,
-        *resource_summary,
-        *remaining,
+        len(ctx.ready) / N,
+        min(1.0, ctx.num_res / N),
+        max(pressure, default=0.0),
+        sum(occupancies) / len(occupancies) if occupancies else 0.0,
+        max(occupancies, default=0.0),
+        ctx.min_est_ready / S,
     ]
 
 
 def candidate_set_features(ctx: NodeContext, act_id: int) -> List[float]:
-    """Build fixed-width candidate features with resource aggregates only."""
+    """Emit SET_CANDIDATE_FEATURE_NAMES, retaining signed target violations."""
     S = ctx.sum_durations
     N = float(ctx.num_acts) or 1.0
     act = ctx.instance.activities[act_id]
@@ -624,353 +377,49 @@ def candidate_set_features(ctx: NodeContext, act_id: int) -> List[float]:
         float(act.resources[r]) / (float(ctx.caps[r]) if ctx.caps[r] > 0 else 1.0)
         for r in range(ctx.num_res)
     ]
-    res_intensity = max(demands, default=0.0)
-    total_load = sum(demands)
     head = float(ctx.heads.get(act_id, 0))
     tail = float(ctx.tails.get(act_id, 0))
     dur = float(act.duration)
     hdt = head + dur + tail
-    num_succ = float(len(act.successors)) / N
-    num_pred = float(ctx.num_preds.get(act_id, 0)) / N
-    succ_dur = float(ctx.succ_dur_sum.get(act_id, 0)) / S
     est = ctx.earliest_starts.get(act_id)
     if est is not None:
         est_f = float(est)
         est_norm = est_f / S
         est_minus_head = max(0.0, est_f - head) / S
         finish_norm = (est_f + dur) / S
-        slack_to_lb = max(0.0, ctx.lower_bound - (est_f + dur)) / S
+        slack_to_lb = (ctx.lower_bound - (est_f + dur)) / S
         ls = float(ctx.latest_starts.get(act_id, est_f))
         ls_norm = ls / S
-        tw = max(0.0, ls - est_f) / S
+        tw = (ls - est_f) / S
         is_urgent = 1.0 if tw < (1.0 / N) else 0.0
+        extension = max(0.0, est_f + dur - ctx.makespan_so_far) / S
+        relative_est = (est_f - ctx.min_est_ready) / S
     else:
         est_norm, est_minus_head, finish_norm = -1.0, 0.0, -1.0
         slack_to_lb, ls_norm, tw, is_urgent = 0.0, -1.0, 0.0, 1.0
-    n_ready = float(len(ctx.ready)) or 1.0
-    conflict_count_norm = ctx.conflict_counts.get(act_id, 0) / n_ready
+        extension, relative_est = 0.0, 0.0
     return [
-        dur / S, res_intensity, total_load,
+        dur / S, max(demands, default=0.0), sum(demands),
         head / S, tail / S, hdt / S,
         1.0 if int(hdt) >= ctx.cp_value else 0.0,
-        num_succ, num_pred, succ_dur,
-        est_norm, est_minus_head, finish_norm, slack_to_lb,
-        ls_norm, tw, is_urgent,
-        conflict_count_norm,
+        len(act.successors) / N, ctx.num_preds.get(act_id, 0) / N,
+        float(ctx.succ_dur_sum.get(act_id, 0)) / S,
+        est_norm, est_minus_head, finish_norm,
+        ctx.conflict_counts.get(act_id, 0) / (float(len(ctx.ready)) or 1.0),
+        slack_to_lb, ls_norm, tw, is_urgent, extension, relative_est,
     ]
-
-
-# ---------------------------------------------------------------------------
-# Critic runtime features  (one vector per node, fed ONLY into the value head)
-# ---------------------------------------------------------------------------
-#
-# The critic predicts the search remaining BELOW node X, V(X) ~= -|subtree(X)|
-# (regressed in log-node space). Every feature must therefore be a property of
-# X's own subproblem (scheduled, unscheduled, ready, node LB, incumbent) — never
-# a fact about the search's past or about other nodes on the DFS stack. That
-# rule excludes nodes_expanded, stack_size, proof_burden, time_fraction, the
-# frontier-wide dual gap (frontier_min_lb) and ancestor-path stagnation.
-#
-# All features are critic-only: the policy never sees them, so they cannot make
-# branching decisions machine-dependent. Gaps/fractions are already in [0, 1).
-
-CRITIC_FEATURE_NAMES = [
-    # --- Pruning power: how fast X's subtree collapses ---
-    "local_gap_exact",       # max(0, (inc - node_lb) / inc) — tight => prunes fast => small subtree
-    "incumbent_exists",      # 1 once a feasible schedule is found (no inc => no pruning => huge subtree)
-    "incumbent_ratio",       # inc / cp_lb - 1 — how loose the incumbent still is
-    # --- Structure: how much of the problem is left at X ---
-    "depth_frac",            # depth / num_activities — how deep X sits (near-leaf => tiny subtree)
-    "frac_unscheduled",      # |unscheduled| / num_activities — remaining decisions below X
-    "ready_frac",            # |ready| / num_activities — branching breadth at X
-    "lb_root_gap",           # (node_lb - root_lb) / root_lb — exact ceiling on any terminal score below X
-    # --- Instance-static difficulty fingerprint (constant per episode) ---
-    # These break the shallow/pre-incumbent blindness: at depth 0 the dynamic
-    # features above are near-identical across instances, so the critic cannot
-    # tell an easy root from a hard one. These 8 scalars give it that signal.
-    "order_strength",         # transitive precedence pairs / all pairs — high => small tree
-    "normalized_cpl",         # critical-path length / sum_durations — tight => less branching
-    "resource_factor",        # mean fraction of resources each activity uses
-    "mean_resource_pressure", # mean over r of total demand / (cap * horizon)
-    "max_resource_pressure",  # bottleneck resource pressure
-    "conflict_density",       # conflicting activity pairs / all pairs
-    "ub_lb_gap",              # (heuristic_UB - root_LB) / root_LB — near 0 => nearly closed
-    "remaining_slack_ratio",  # mean scheduling slack (latest_start - head) / horizon
-]
-
-
-def critic_features(
-    *,
-    incumbent: Optional[int],
-    node_lb: int,
-    cp_lb: int,
-    depth: int,
-    n_unscheduled: int,
-    n_ready: int,
-    num_activities: int,
-    static_feats: Optional[List[float]] = None,
-) -> List[float]:
-    """
-    Build the critic-only feature vector for the node X the agent is about to
-    branch on. Every input is a property of X / the remaining subproblem — see
-    CRITIC_FEATURE_NAMES for the layout and the design rationale above.
-
-    Before any incumbent exists, gap-style features are 0 and incumbent_exists
-    is 0 so the critic can tell the two pruning regimes apart.
-
-    If static_feats is provided (the 8 instance-static difficulty features
-    from instance_static_features()), they are appended at the end. This gives
-    the value head an instance fingerprint that resolves the shallow-depth
-    blindness where dynamic features are near-identical across instances.
-    """
-    has_inc = incumbent is not None and incumbent > 0
-    inc_f = float(incumbent) if has_inc else 0.0
-    cp = float(cp_lb) if cp_lb > 0 else 1.0
-    N = float(num_activities) if num_activities > 0 else 1.0
-
-    if has_inc:
-        local_gap = max(0.0, (inc_f - float(node_lb)) / inc_f)
-        incumbent_ratio = max(0.0, inc_f / cp - 1.0)
-    else:
-        local_gap = 0.0
-        incumbent_ratio = 0.0
-
-    feats = [
-        # Pruning power
-        local_gap,
-        1.0 if has_inc else 0.0,
-        incumbent_ratio,
-        # Structure
-        min(1.0, max(0.0, float(depth) / N)),
-        min(1.0, max(0.0, float(n_unscheduled) / N)),
-        min(1.0, max(0.0, float(n_ready) / N)),
-        max(0.0, (float(node_lb) - float(cp_lb)) / max(1.0, float(cp_lb))),
-    ]
-
-    # Append instance-static difficulty features if provided.
-    if static_feats is not None:
-        feats.extend(static_feats)
-
-    return feats
-
-
-def critic_feature_dim() -> int:
-    return len(CRITIC_FEATURE_NAMES)
-
-
-# Number of instance-static features appended to the critic vector.
-N_STATIC_CRITIC_FEATURES = 8
-
-
-def instance_static_features(instance: RCPSPInstance) -> List[float]:
-    """
-    Compute the 8 instance-static difficulty features (constant per episode).
-
-    Appended to the per-node critic vector so the value head can tell an easy
-    root from a hard one at shallow depth — where the dynamic features are
-    near-identical across instances and the critic is otherwise blind.
-
-    Order matches the last 8 entries of CRITIC_FEATURE_NAMES:
-      order_strength, normalized_cpl, resource_factor, mean_resource_pressure,
-      max_resource_pressure, conflict_density, ub_lb_gap, remaining_slack_ratio
-    """
-    from rcpsp_bnb_rl.bnb.lower_bounds import _compute_reachability, lb_cp
-    from rcpsp_bnb_rl.bnb.scheduling import heuristic_upper_bound
-
-    acts = instance.activities
-    ids = list(acts.keys())
-    N = len(ids)
-    num_res = instance.num_resources
-    caps = instance.resource_caps
-    S = float(sum(a.duration for a in acts.values())) or 1.0
-
-    preds = build_predecessors(instance)
-    successors = _build_successors_from_predecessors(preds, ids)
-    topo = _topological_order_from_predecessors(preds, ids)
-
-    # --- 1. order_strength: transitive precedence pairs / all ordered pairs ---
-    reachable = _compute_reachability(topo, successors)
-    n_transitive = sum(len(reachable.get(a, set())) for a in ids)
-    total_pairs = N * (N - 1) / 2.0 if N > 1 else 1.0
-    order_strength = min(1.0, n_transitive / total_pairs)
-
-    # --- 2. normalized_cpl: critical-path length / sum_durations ---
-    heads = _compute_heads(instance, {}, preds, topo)
-    tails = _compute_tails(instance, successors, topo)
-    cpl = max(
-        (heads[a] + acts[a].duration + tails[a] for a in ids),
-        default=0,
-    )
-    normalized_cpl = min(1.0, float(cpl) / S)
-
-    # --- 3. resource_factor: mean fraction of resources each activity uses ---
-    if num_res > 0 and N > 0:
-        resource_factor = sum(
-            sum(1 for r in range(num_res) if acts[a].resources[r] > 0) / num_res
-            for a in ids
-        ) / N
-    else:
-        resource_factor = 0.0
-
-    # --- 4,5. resource pressure: total demand / (cap * critical-path horizon) ---
-    horizon = float(cpl) if cpl > 0 else S
-    pressures: List[float] = []
-    for r in range(num_res):
-        cap = float(caps[r]) if caps[r] > 0 else 1.0
-        demand = float(sum(acts[a].duration * acts[a].resources[r] for a in ids))
-        pressures.append(demand / (cap * horizon))
-    mean_resource_pressure = min(1.0, sum(pressures) / num_res) if num_res > 0 else 0.0
-    max_resource_pressure = min(1.0, max(pressures)) if pressures else 0.0
-
-    # --- 6. conflict_density: activity pairs that cannot run in parallel ---
-    # A pair conflicts if, for some resource, their combined demand exceeds cap
-    # (and they are not precedence-ordered — those cannot overlap anyway).
-    conflicts = 0
-    for i in range(N):
-        a = ids[i]
-        for j in range(i + 1, N):
-            b = ids[j]
-            # Skip precedence-ordered pairs (they never contend for parallelism).
-            if b in reachable.get(a, set()) or a in reachable.get(b, set()):
-                continue
-            for r in range(num_res):
-                if acts[a].resources[r] + acts[b].resources[r] > caps[r]:
-                    conflicts += 1
-                    break
-    conflict_density = conflicts / total_pairs if total_pairs > 0 else 0.0
-
-    # --- 7. ub_lb_gap: (heuristic UB - root LB) / root LB ---
-    root_lb = int(lb_cp(instance, set(ids), {}))
-    ub = int(heuristic_upper_bound(instance))
-    if root_lb > 0:
-        ub_lb_gap = max(0.0, (ub - root_lb) / root_lb)
-    else:
-        ub_lb_gap = 0.0
-    ub_lb_gap = min(1.0, ub_lb_gap)
-
-    # --- 8. remaining_slack_ratio: mean (latest_start - head) / horizon ---
-    latest_starts = _compute_latest_starts(
-        instance=instance,
-        scheduled={},
-        successors=successors,
-        order=topo,
-        horizon=int(horizon),
-    )
-    slacks = [max(0, latest_starts[a] - heads[a]) for a in ids]
-    remaining_slack_ratio = (
-        min(1.0, (sum(slacks) / len(slacks)) / horizon) if slacks and horizon > 0 else 0.0
-    )
-
-    return [
-        order_strength,
-        normalized_cpl,
-        resource_factor,
-        mean_resource_pressure,
-        max_resource_pressure,
-        conflict_density,
-        ub_lb_gap,
-        remaining_slack_ratio,
-    ]
-
-
-# ---------------------------------------------------------------------------
-# Batch featurisation from TrajectoryRecord (IL training path)
-# ---------------------------------------------------------------------------
-
-def _ctx_from_record(record: TrajectoryRecord, instance: RCPSPInstance) -> NodeContext:
-    """Reconstruct a NodeContext from a logged TrajectoryRecord."""
-    raw = record.raw
-
-    # Rebuild scheduled as plain dicts (already that format in JSONL)
-    scheduled = {int(k): v for k, v in raw.get("scheduled", {}).items()}
-    unscheduled = {int(a) for a in raw.get("unscheduled", [])}
-    ready = {int(a) for a in raw.get("ready", [])}
-    lb = int(raw.get("lower_bound", 0))
-    incumbent = raw.get("incumbent", None)
-    if incumbent is not None:
-        incumbent = int(incumbent)
-
-    earliest_starts: Dict[int, Optional[int]] = {
-        int(k): (None if v is None else int(v))
-        for k, v in raw.get("earliest_start", {}).items()
-    }
-
-    return NodeContext(
-        instance=instance,
-        scheduled=scheduled,
-        unscheduled=unscheduled,
-        ready=ready,
-        lower_bound=lb,
-        incumbent=incumbent,
-        earliest_starts=earliest_starts,
-    )
-
-
-def featurize_states(
-    records: Sequence[TrajectoryRecord],
-    instance: RCPSPInstance,
-    max_resources: int,
-) -> Dict[str, torch.Tensor]:
-    """
-    Convert a batch of TrajectoryRecord instances into tensors for listwise training.
-
-    Returns
-    -------
-    {
-        "candidate_feats": [Nc, Fc],
-        "global_feats":    [Nc, Fg],   # same global repeated per candidate
-        "lengths":         [B],
-        "targets":         [B],
-        "depths":          [B],
-    }
-    """
-    cand_feats: List[List[float]] = []
-    glob_feats: List[List[float]] = []
-    lengths: List[int] = []
-    targets: List[int] = []
-    depths: List[int] = []
-
-    for rec in records:
-        ready_sorted = rec.ready
-        if not ready_sorted:
-            continue
-        try:
-            target_idx = ready_sorted.index(rec.action_task)
-        except ValueError:
-            continue
-
-        ctx = _ctx_from_record(rec, instance)
-        depth = int(rec.raw.get("depth", 0))
-        glob = global_features(ctx, max_resources, depth=depth)
-
-        lengths.append(len(ready_sorted))
-        targets.append(target_idx)
-        depths.append(depth)
-
-        for act_id in ready_sorted:
-            cand_feats.append(candidate_features(ctx, act_id, max_resources))
-            glob_feats.append(glob)
-
-    return {
-        "candidate_feats": torch.tensor(cand_feats, dtype=torch.float32),
-        "global_feats": torch.tensor(glob_feats, dtype=torch.float32),
-        "lengths": torch.tensor(lengths, dtype=torch.long),
-        "targets": torch.tensor(targets, dtype=torch.long),
-        "depths": torch.tensor(depths, dtype=torch.long),
-    }
 
 
 def featurize_states_resource_set(
     records: Sequence[TrajectoryRecord],
     instance: RCPSPInstance,
+    *,
+    lb_spec: object = DEFAULT_LOWER_BOUND_ID,
 ) -> Dict[str, object]:
-    """Featurise teacher states for the variable-resource policy.
+    """Rebuild teacher inputs through the same incumbent-free Actor path."""
+    from rcpsp_bnb_rl.ml.observations import build_actor_observation
 
-    Candidate and global features have fixed widths. Resource features and
-    candidate/resource interactions retain the instance's complete resource
-    dimension and are returned one tensor per state because both the number of
-    candidates and resources vary independently.
-    """
+    statics = build_instance_statics(instance)
     cand_feats: List[List[float]] = []
     glob_feats: List[List[float]] = []
     lengths: List[int] = []
@@ -980,82 +429,34 @@ def featurize_states_resource_set(
     interaction_batches: List[torch.Tensor] = []
 
     for rec in records:
-        ready_sorted = rec.ready
+        ready_sorted = sorted(rec.ready)
         if not ready_sorted:
             continue
         try:
             target_idx = ready_sorted.index(rec.action_task)
         except ValueError:
             continue
-        ctx = _ctx_from_record(rec, instance)
         depth = int(rec.raw.get("depth", 0))
+        observation = build_actor_observation(
+            instance,
+            {int(k): value for k, value in rec.raw.get("scheduled", {}).items()},
+            {int(a) for a in rec.raw.get("unscheduled", [])},
+            set(ready_sorted), depth, statics=statics, lb_spec=lb_spec,
+        )
         lengths.append(len(ready_sorted))
         targets.append(target_idx)
         depths.append(depth)
-        glob_feats.append(global_set_features(ctx, depth=depth))
-        resource_batches.append(torch.tensor(resource_set_features(ctx), dtype=torch.float32))
-        interaction_batches.append(torch.tensor(
-            [candidate_resource_features(ctx, act_id) for act_id in ready_sorted],
-            dtype=torch.float32,
-        ))
-        for act_id in ready_sorted:
-            cand_feats.append(candidate_set_features(ctx, act_id))
+        glob_feats.append(observation["global_feats"].tolist())
+        resource_batches.append(observation["resource_feats"])
+        interaction_batches.append(observation["candidate_resource_feats"])
+        cand_feats.extend(observation["candidate_feats"].tolist())
 
     return {
-        "candidate_feats": torch.tensor(cand_feats, dtype=torch.float32),
-        "global_feats": torch.tensor(glob_feats, dtype=torch.float32),
+        "candidate_feats": torch.tensor(cand_feats, dtype=torch.float32).reshape(-1, set_candidate_feature_dim()),
+        "global_feats": torch.tensor(glob_feats, dtype=torch.float32).reshape(-1, set_global_feature_dim()),
         "lengths": torch.tensor(lengths, dtype=torch.long),
         "targets": torch.tensor(targets, dtype=torch.long),
         "depths": torch.tensor(depths, dtype=torch.long),
         "resource_feats": resource_batches,
         "candidate_resource_feats": interaction_batches,
-    }
-
-
-def collate_state_batch(
-    batch: Sequence[Tuple[TrajectoryRecord, RCPSPInstance]],
-    max_resources: int = 4,
-) -> Dict[str, torch.Tensor]:
-    """
-    DataLoader collate_fn.  Each item in batch is (TrajectoryRecord, RCPSPInstance).
-    """
-    if not batch:
-        return {
-            "candidate_feats": torch.zeros((0, candidate_feature_dim(max_resources))),
-            "global_feats": torch.zeros((0, global_feature_dim(max_resources))),
-            "lengths": torch.zeros(0, dtype=torch.long),
-            "targets": torch.zeros(0, dtype=torch.long),
-            "depths": torch.zeros(0, dtype=torch.long),
-        }
-    records, instances = zip(*batch)
-    # Group by instance to share NodeContext construction
-    from collections import defaultdict
-    groups: Dict[int, List] = defaultdict(list)
-    for rec, inst in zip(records, instances):
-        groups[id(inst)].append((rec, inst))
-
-    all_cand: List[List[float]] = []
-    all_glob: List[List[float]] = []
-    all_lengths: List[int] = []
-    all_targets: List[int] = []
-    all_depths: List[int] = []
-
-    for group in groups.values():
-        recs, insts = zip(*group)
-        inst = insts[0]
-        result = featurize_states(list(recs), inst, max_resources)
-        if result["lengths"].numel() == 0:
-            continue
-        all_cand.extend(result["candidate_feats"].tolist())
-        all_glob.extend(result["global_feats"].tolist())
-        all_lengths.extend(result["lengths"].tolist())
-        all_targets.extend(result["targets"].tolist())
-        all_depths.extend(result["depths"].tolist())
-
-    return {
-        "candidate_feats": torch.tensor(all_cand, dtype=torch.float32),
-        "global_feats": torch.tensor(all_glob, dtype=torch.float32),
-        "lengths": torch.tensor(all_lengths, dtype=torch.long),
-        "targets": torch.tensor(all_targets, dtype=torch.long),
-        "depths": torch.tensor(all_depths, dtype=torch.long),
     }

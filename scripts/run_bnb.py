@@ -40,8 +40,6 @@ OPTIONAL_CONFIG_KEYS = {
     "branching_order",
     "policy_path",
     "policy_device",
-    "policy_max_resources",
-    "policy_resource_encoder",
     "random_seed",
     "dominance",
     "progress_every",
@@ -126,7 +124,7 @@ def parse_args() -> argparse.Namespace:
         "--show-schedule",
         action="store_true",
         default=False,
-        help="Print the best schedule as an activity order list (single-instance runs only).",
+        help="Print the best schedule's activity order and start/finish times (single-instance runs only).",
     )
     parser.add_argument(
         "--emit-csv",
@@ -242,8 +240,6 @@ def validate_and_resolve(
     str,
     Optional[str],
     str,
-    int,
-    str,
     object,
     object,
     str,
@@ -278,10 +274,6 @@ def validate_and_resolve(
     policy_path = None if policy_path is None else str(policy_path)
 
     policy_device = str(cfg.get("policy_device", "cpu"))
-    policy_max_resources = int(cfg.get("policy_max_resources", 4))
-    policy_resource_encoder = str(cfg.get("policy_resource_encoder", "legacy_flat"))
-    if policy_max_resources <= 0:
-        raise ValueError("policy_max_resources must be > 0.")
     if branch_order == "policy" and not policy_path:
         raise ValueError(
             "branching_order=policy requires 'policy_path' to be set in the config."
@@ -355,8 +347,6 @@ def validate_and_resolve(
         branch_order,
         (None if policy_path is None else str(policy_path)),
         policy_device,
-        policy_max_resources,
-        policy_resource_encoder,
         lb_spec,
         dominance_spec,
         search_strategy,
@@ -450,8 +440,6 @@ def main() -> None:
         branch_order,
         policy_path,
         policy_device,
-        policy_max_resources,
-        policy_resource_encoder,
         lb_spec,
         dominance_spec,
         search_strategy,
@@ -482,10 +470,6 @@ def main() -> None:
 
         device = resolve_policy_device(policy_device)
         policy_model = load_policy_checkpoint(policy_path, device=device)
-        if policy_resource_encoder == "set" and not getattr(policy_model, "resource_set_enabled", False):
-            raise ValueError("policy_resource_encoder='set' requires a resource-set checkpoint")
-        if policy_resource_encoder == "legacy_flat" and getattr(policy_model, "resource_set_enabled", False):
-            policy_resource_encoder = "set"
 
     rows: List[Dict[str, object]] = []
     for idx, path in enumerate(paths, start=1):
@@ -497,8 +481,6 @@ def main() -> None:
                 "policy",
                 instance=instance,
                 model=policy_model,
-                max_resources=policy_max_resources,
-                resource_encoder=policy_resource_encoder,
                 device=device,
                 predecessors=order_context_solver.predecessors,
                 lb_spec=lb_spec,
@@ -755,6 +737,9 @@ def main() -> None:
             ordered = sorted(sched.items(), key=lambda kv: (kv[1].start, int(kv[0])))
             activity_order = [int(act_id) for act_id, _ in ordered]
             emit(f"Schedule: {activity_order}")
+            emit(f"{'Activity':>8}  {'Start':>8}  {'Finish':>8}  {'Duration':>8}")
+            for act_id, entry in ordered:
+                emit(f"{int(act_id):>8}  {entry.start:>8}  {entry.finish:>8}  {entry.duration:>8}")
 
     if output_path is not None:
         out_path = Path(output_path)

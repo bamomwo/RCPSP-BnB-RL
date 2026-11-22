@@ -1,6 +1,7 @@
 import argparse
 import json
 import sys
+from functools import partial
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -13,18 +14,15 @@ if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
 from rcpsp_bnb_rl.data.parsing import RCPSPInstance, load_instance  # noqa: E402
+from rcpsp_bnb_rl.bnb.lower_bounds import DEFAULT_LOWER_BOUND_ID  # noqa: E402
 from rcpsp_bnb_rl.ml.il.featurize import (  # noqa: E402
-    featurize_states,
     featurize_states_resource_set,
-    global_feature_dim,
-    candidate_feature_dim,
     set_global_feature_dim,
     set_candidate_feature_dim,
-    set_resource_feature_dim,
-    set_interaction_feature_dim,
 )
 from rcpsp_bnb_rl.ml.il.generate_trajectories import TrajectoryRecord, _load_jsonl  # noqa: E402
 from rcpsp_bnb_rl.ml.models import BranchingTransformer, save_policy_checkpoint  # noqa: E402
+from rcpsp_bnb_rl.ml.observations import OBSERVATION_SCHEMA  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -38,8 +36,7 @@ DEFAULT_CONFIG: Dict = {
     "instances_pattern": "*.rcp",
     "pattern": "*.jsonl",
     "val_frac": 0.1,
-    "max_resources": 4,
-    "resource_encoder": "set",
+    "lower_bound": DEFAULT_LOWER_BOUND_ID,
     # Model
     "d_model": 64,
     "n_heads": 4,
@@ -147,56 +144,12 @@ class InstanceTrajectoryDataset(Dataset):
 # Collate — builds feature tensors from a batch of (record, instance) pairs
 # ---------------------------------------------------------------------------
 
-def collate_fn(
-    batch: List[Tuple[TrajectoryRecord, RCPSPInstance]],
-    max_resources: int,
-) -> Optional[Dict[str, torch.Tensor]]:
-    """
-    Group records by instance so NodeContext is built once per instance,
-    then featurize all records in the batch.
-    """
-    from collections import defaultdict
-    inst_map: Dict[int, RCPSPInstance] = {}
-    rec_map: Dict[int, List[TrajectoryRecord]] = defaultdict(list)
-
-    for rec, inst in batch:
-        key = id(inst)
-        inst_map[key] = inst
-        rec_map[key].append(rec)
-
-    all_cand: List[List[float]] = []
-    all_glob: List[List[float]] = []
-    all_lengths: List[int] = []
-    all_targets: List[int] = []
-    all_depths: List[int] = []
-
-    for key, recs in rec_map.items():
-        inst = inst_map[key]
-        result = featurize_states(recs, inst, max_resources)
-        if result["lengths"].numel() == 0:
-            continue
-        all_cand.extend(result["candidate_feats"].tolist())
-        all_glob.extend(result["global_feats"].tolist())
-        all_lengths.extend(result["lengths"].tolist())
-        all_targets.extend(result["targets"].tolist())
-        all_depths.extend(result["depths"].tolist())
-
-    if not all_lengths:
-        return None
-
-    return {
-        "candidate_feats": torch.tensor(all_cand, dtype=torch.float32),
-        "global_feats": torch.tensor(all_glob, dtype=torch.float32),
-        "lengths": torch.tensor(all_lengths, dtype=torch.long),
-        "targets": torch.tensor(all_targets, dtype=torch.long),
-        "depths": torch.tensor(all_depths, dtype=torch.long),
-    }
-
-
 def collate_set_fn(
     batch: List[Tuple[TrajectoryRecord, RCPSPInstance]],
+    *,
+    lb_spec: object = DEFAULT_LOWER_BOUND_ID,
 ) -> Optional[Dict[str, object]]:
-    """Collate variable-resource states while retaining per-state resource sets."""
+    """Recompute shared packing inputs while retaining teacher action labels."""
     from collections import defaultdict
     inst_map: Dict[int, RCPSPInstance] = {}
     rec_map: Dict[int, List[TrajectoryRecord]] = defaultdict(list)
@@ -213,7 +166,7 @@ def collate_set_fn(
     all_resources: List[torch.Tensor] = []
     all_interactions: List[torch.Tensor] = []
     for key, recs in rec_map.items():
-        result = featurize_states_resource_set(recs, inst_map[key])
+        result = featurize_states_resource_set(recs, inst_map[key], lb_spec=lb_spec)
         lengths = result["lengths"]
         if not isinstance(lengths, torch.Tensor) or lengths.numel() == 0:
             continue
@@ -251,8 +204,13 @@ def parse_args() -> argparse.Namespace:
 
 
 def load_config(path: Path) -> Dict:
-    with path.open() as f:
-        return json.load(f)
+    supplied = json.loads(path.read_text())
+    if not isinstance(supplied, dict):
+        raise ValueError("BC config must be a JSON object")
+    unknown = supplied.keys() - DEFAULT_CONFIG.keys()
+    if unknown:
+        raise ValueError(f"Unknown BC config keys: {sorted(unknown)}")
+    return supplied
 
 
 def set_seed(seed: int) -> None:
@@ -295,9 +253,7 @@ def make_loaders(
 
     train_ds = InstanceTrajectoryDataset(train_pairs)
     val_ds = InstanceTrajectoryDataset(val_pairs) if val_pairs else None
-    use_set = str(config.get("resource_encoder", "legacy_flat")).lower() == "set"
-    max_resources = int(config.get("max_resources", 4))
-    collate = collate_set_fn if use_set else lambda batch: collate_fn(batch, max_resources)
+    collate = partial(collate_set_fn, lb_spec=config["lower_bound"])
     train_loader = DataLoader(
         train_ds, batch_size=int(config["batch_size"]),
         shuffle=True, collate_fn=collate,
@@ -307,6 +263,26 @@ def make_loaders(
         shuffle=False, collate_fn=collate,
     )
     return train_loader, val_loader
+
+
+def forward_states(
+    model: BranchingTransformer,
+    batch: Dict[str, object],
+    device: torch.device,
+) -> torch.Tensor:
+    """Score each variable-size state, retaining every resource token."""
+    candidates = batch["candidate_feats"].to(device)
+    globals_ = batch["global_feats"].to(device)
+    logits = []
+    offset = 0
+    for i, length in enumerate(batch["lengths"].tolist()):
+        logits.append(model(
+            candidates[offset:offset + length], globals_[i],
+            resource_feats=batch["resource_feats"][i].to(device),
+            candidate_resource_feats=batch["candidate_resource_feats"][i].to(device),
+        ))
+        offset += length
+    return torch.cat(logits, dim=0)
 
 
 def evaluate(
@@ -320,48 +296,16 @@ def evaluate(
         for batch in loader:
             if batch is None or batch["lengths"].numel() == 0:
                 continue
-            cand = batch["candidate_feats"].to(device)
-            glob = batch["global_feats"].to(device)
             lengths = batch["lengths"]
             targets = batch["targets"].to(device)
-
-            # global_feats in the batch are repeated per candidate — take one per state
-            # for the transformer we need one global vector per state, not per candidate.
-            # Reconstruct per-state global by taking the first row of each state's block.
-            offsets = [0] + torch.cumsum(lengths, dim=0).tolist()[:-1]
-            # Legacy collation repeats global features per candidate; the set
-            # collation stores one global row per state.
-            if "resource_feats" in batch:
-                glob_per_state = glob
-            else:
-                glob_per_state = glob[offsets]  # [B, Fg]
-
-            logits_list = []
-            offset = 0
-            for i, length in enumerate(lengths.tolist()):
-                c = cand[offset: offset + length]          # [R, Fc]
-                g = glob_per_state[i]                      # [Fg]
-                if "resource_feats" in batch:
-                    logits_i, _ = model(
-                        c, g,
-                        resource_feats=batch["resource_feats"][i].to(device),
-                        candidate_resource_feats=batch["candidate_resource_feats"][i].to(device),
-                    )
-                else:
-                    logits_i, _ = model(c, g)
-                logits_list.append(logits_i)
-                offset += length
-
-            logits_flat = torch.cat(logits_list, dim=0)
-            loss = BranchingTransformer.listwise_nll(logits_flat, lengths, targets)
-            acc = BranchingTransformer.listwise_accuracy(logits_flat, lengths, targets)
+            logits = forward_states(model, batch, device)
+            loss = BranchingTransformer.listwise_nll(logits, lengths, targets)
+            acc = BranchingTransformer.listwise_accuracy(logits, lengths, targets)
             total_loss += loss.item()
             total_acc += acc.item()
             batches += 1
 
-    if batches == 0:
-        return 0.0, 0.0
-    return total_loss / batches, total_acc / batches
+    return total_loss / max(1, batches), total_acc / max(1, batches)
 
 
 # ---------------------------------------------------------------------------
@@ -380,22 +324,14 @@ def main() -> None:
     print("Loading dataset...")
     train_loader, val_loader = make_loaders(config)
 
-    use_set = str(config.get("resource_encoder", "legacy_flat")).lower() == "set"
-    max_resources = int(config.get("max_resources", 4))
-    global_dim = set_global_feature_dim() if use_set else global_feature_dim(max_resources)
-    candidate_dim = set_candidate_feature_dim() if use_set else candidate_feature_dim(max_resources)
-    print(f"Feature dims — global: {global_dim}, candidate: {candidate_dim}")
-
+    print(f"Features: {OBSERVATION_SCHEMA}; global={set_global_feature_dim()}, "
+          f"candidate={set_candidate_feature_dim()}")
     model = BranchingTransformer(
-        global_dim=global_dim,
-        candidate_dim=candidate_dim,
         d_model=int(config["d_model"]),
         n_heads=int(config["n_heads"]),
         n_layers=int(config["n_layers"]),
         ffn_dim=int(config["ffn_dim"]),
         dropout=float(config["dropout"]),
-        resource_feature_dim=set_resource_feature_dim() if use_set else 0,
-        interaction_feature_dim=set_interaction_feature_dim() if use_set else 0,
     ).to(device)
     print(f"Model params: {sum(p.numel() for p in model.parameters()):,}")
 
@@ -421,37 +357,11 @@ def main() -> None:
             if batch is None or batch["lengths"].numel() == 0:
                 continue
 
-            cand = batch["candidate_feats"].to(device)
-            glob = batch["global_feats"].to(device)
             lengths = batch["lengths"]
             targets = batch["targets"].to(device)
-
-            # One global vector per state (first row of each candidate block)
-            offsets = [0] + torch.cumsum(lengths, dim=0).tolist()[:-1]
-            if "resource_feats" in batch:
-                glob_per_state = glob
-            else:
-                glob_per_state = glob[offsets]
-
-            logits_list = []
-            offset = 0
-            for i, length in enumerate(lengths.tolist()):
-                c = cand[offset: offset + length]
-                g = glob_per_state[i]
-                if "resource_feats" in batch:
-                    logits_i, _ = model(
-                        c, g,
-                        resource_feats=batch["resource_feats"][i].to(device),
-                        candidate_resource_feats=batch["candidate_resource_feats"][i].to(device),
-                    )
-                else:
-                    logits_i, _ = model(c, g)
-                logits_list.append(logits_i)
-                offset += length
-
-            logits_flat = torch.cat(logits_list, dim=0)
-            loss = BranchingTransformer.listwise_nll(logits_flat, lengths, targets)
-            acc = BranchingTransformer.listwise_accuracy(logits_flat, lengths, targets)
+            logits = forward_states(model, batch, device)
+            loss = BranchingTransformer.listwise_nll(logits, lengths, targets)
+            acc = BranchingTransformer.listwise_accuracy(logits, lengths, targets)
 
             optimizer.zero_grad()
             loss.backward()

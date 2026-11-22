@@ -4,16 +4,16 @@
   "instances_pattern": "*.rcp",
   "pattern": "*.jsonl",
   "batch_size": 64,
-  "lr": 3e-4,
+  "lr": 0.0003,
   "d_model": 64,
   "n_heads": 4,
   "n_layers": 2,
   "ffn_dim": 128,
   "dropout": 0.1,
   "val_frac": 0.3,
-  "resource_encoder": "set",
   "output": "models/policy_bcM.pt",
   "seed": 42,
   "patience": 10,
-  "min_epochs": 5
+  "min_epochs": 5,
+  "lower_bound": "lb_cp"
 }

@@ -1,4 +1,4 @@
-"""Actor training with greedy single dives and sibling forks."""
+"""Primal-policy training with greedy single dives and sibling RankNet."""
 from __future__ import annotations
 
 import argparse
@@ -19,23 +19,19 @@ if str(PROJECT_ROOT / "src") not in sys.path:
 
 from rcpsp_bnb_rl.data.dataset import list_instance_paths
 from rcpsp_bnb_rl.data.parsing import load_instance
-from rcpsp_bnb_rl.ml.il.featurize import (
-    set_global_feature_dim, set_candidate_feature_dim,
-    set_resource_feature_dim, set_interaction_feature_dim,
-)
-from rcpsp_bnb_rl.ml.models import BranchingTransformer, load_actor_checkpoint, save_policy_checkpoint
+from rcpsp_bnb_rl.ml.models import BranchingTransformer, load_policy_checkpoint, save_policy_checkpoint
 from rcpsp_bnb_rl.ml.observations import OBSERVATION_SCHEMA
 from rcpsp_bnb_rl.ml.rl.evaluation import evaluate_actor
 from rcpsp_bnb_rl.ml.rl.primal_training import train_update
 from rcpsp_bnb_rl.ml.rl.reporting import format_evaluation, save_evaluation, summarize_evaluation
-from rcpsp_bnb_rl.ml.rl.single_dive import collect_fork_episode
+from rcpsp_bnb_rl.ml.rl.env import collect_fork_episode
 
 
 DEFAULT_CONFIG = {
     "root": "data/train/1kNetRes",
     "pattern": "*.rcp",
     "max_instances": None,
-    "bc_checkpoint": "models/policy_bc.pt",
+    "bc_checkpoint": None,
     "d_model": 64,
     "n_heads": 4,
     "n_layers": 2,
@@ -110,18 +106,11 @@ def initialize_actor(config: dict, device: torch.device | str) -> BranchingTrans
     """Load an actor checkpoint or construct a random actor for the shared schema."""
     if config["bc_checkpoint"] is None:
         actor = BranchingTransformer(
-            global_dim=set_global_feature_dim(), candidate_dim=set_candidate_feature_dim(),
             d_model=config["d_model"], n_heads=config["n_heads"],
             n_layers=config["n_layers"], ffn_dim=config["ffn_dim"], dropout=0.0,
-            resource_feature_dim=set_resource_feature_dim(),
-            interaction_feature_dim=set_interaction_feature_dim(), policy_only=True,
-            observation_schema=OBSERVATION_SCHEMA,
         ).to(device)
     else:
-        actor = load_actor_checkpoint(config["bc_checkpoint"], device=device)
-    if not actor.resource_set_enabled or actor.cls_proj.in_features != 17 or actor.cand_proj.in_features != 18:
-        raise ValueError("Sibling training requires the resource-set schema (17 global / 18 candidate)")
-    actor.observation_schema = OBSERVATION_SCHEMA
+        actor = load_policy_checkpoint(config["bc_checkpoint"], device=device)
     return actor.eval()
 
 
@@ -269,6 +258,7 @@ def run_training(config: dict) -> dict:
                         writer.add_scalar(f"rollout/{band}/{key}", value, update)
             metadata = {"step": env_steps, "update": update, "training_config": config,
                         "training_method": "greedy_sibling_ranknet_v1", "observation_schema": OBSERVATION_SCHEMA,
+                        "feature_schema": OBSERVATION_SCHEMA,
                         "actor_initialization": "random" if config["bc_checkpoint"] is None else "checkpoint",
                         "fork_selection": "stratified_depth", "fork_outcome_scope": "selected_fork_states"}
             save_policy_checkpoint(actor, str(save_path), metadata)
@@ -276,7 +266,7 @@ def run_training(config: dict) -> dict:
                 save_policy_checkpoint(actor, str(checkpoint_dir / f"policy_update{update}.pt"), metadata)
                 if eval_paths:
                     print("\n" + "." * 110, flush=True)
-                    evaluation = evaluate_actor(actor, eval_paths, observation_schema=OBSERVATION_SCHEMA, **evaluation_options)
+                    evaluation = evaluate_actor(actor, eval_paths, **evaluation_options)
                     entry = summarize_evaluation(evaluation, update)
                     save_evaluation(evaluation_log, entry)
                     print(format_evaluation(evaluation, entry), flush=True)
@@ -294,7 +284,7 @@ def run_training(config: dict) -> dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", default="config/train_ppo.json", type=Path)
+    parser.add_argument("--config", default="config/train_rl.json", type=Path)
     parser.add_argument("--log", action="store_true", help="Also save console output beside the policy as <policy_stem>_train_log.txt.")
     args = parser.parse_args()
     config = load_config(args.config)

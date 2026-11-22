@@ -4,7 +4,6 @@
   "time_limit_s": 60,
   "policy_path": "models/primal-policy/checkpoints/policy_update100.pt",
   "policy_device": "cpu",
-  "policy_resource_encoder": "set",
   "search_strategy": "ubs",
   "lbs_initial_lower_bound": null,
   "dominance": "set_based",
