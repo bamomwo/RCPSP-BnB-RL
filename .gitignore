@@ -14,6 +14,7 @@ __pycache__/
 /data/eval/J30/J30_100/
 
 
+
 models/*
 !models/best/
 !models/policy_bc.pt
@@ -22,5 +23,6 @@ results/
 znotes/
 zfigures/
 tests/
+!tests/test_bottleneck_features.py
 
 visualize_bnb.py

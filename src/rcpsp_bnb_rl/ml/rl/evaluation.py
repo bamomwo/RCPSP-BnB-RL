@@ -45,9 +45,11 @@ def evaluate_actor(
     lb_spec: object = DEFAULT_LOWER_BOUND_ID,
     optimal_makespans: Optional[Mapping[str, int]] = None,
 ) -> dict:
-    """Report solved, primal_opt, primal_gap, dive1_gap, and mean nodes.
+    """Report solved (proven), primal_opt, primal_gap, dive1_gap, and mean nodes.
 
-    Proof rate uses all instances. Primal attainment uses known optima, including
+    ``solved`` requires a completed optimality proof; matching a known optimum
+    on a truncated search only sets ``primal_opt``. Proof rate uses all instances.
+    Primal attainment uses known optima, including
     schedule failures; gap means use available schedules with positive optima.
     Gaps are percentages in both instance rows and the summary.
     """
@@ -57,7 +59,7 @@ def evaluate_actor(
         raise ValueError("time_limit_s must be non-negative or None")
     schema = actor.observation_schema
     if schema != OBSERVATION_SCHEMA:
-        raise ValueError("Evaluation requires resource_set_v2 observations")
+        raise ValueError("Evaluation requires resource_set observations")
     optima = _references(optimal_makespans)
     rows = []
     actor.eval()
@@ -110,7 +112,7 @@ def compare_policies(
     paths: Iterable[Path | str],
     **kwargs,
 ) -> dict:
-    """Compare a v2 BC actor and a trained actor under identical DFS budgets."""
+    """Compare BC and trained actors under identical DFS budgets."""
     paths = list(paths)
     return {
         "bc": evaluate_actor(bc_actor, paths, **kwargs),

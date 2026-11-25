@@ -81,7 +81,7 @@ def make_policy_order_fn(
     """
     device = torch.device(device)
     if model.observation_schema != OBSERVATION_SCHEMA:
-        raise ValueError("Policy ordering requires a resource_set_v2 checkpoint")
+        raise ValueError("Policy ordering requires a resource_set checkpoint")
     model = model.to(device)
     model.eval()
     model = _maybe_script_model(model, device)

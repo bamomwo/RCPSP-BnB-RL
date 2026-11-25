@@ -38,8 +38,8 @@ instances per update, and writes artifacts under `models/primal-policy/`. Set
 Set `"bc_checkpoint": null` to train from scratch. The seeded random Actor uses
 `d_model: 64`, `n_heads: 4`, `n_layers: 2`, and `ffn_dim: 128` by default;
 these architecture settings can be changed in the training config. A checkpoint
-path to a newly trained v2 BC actor loads its saved architecture and weights instead.
-Both paths use 13 global / 20 candidate / 5 resource / 4 interaction inputs, disabled
+path to a newly trained BC actor loads its saved architecture and weights instead.
+Both paths use 14 global / 21 candidate / 7 resource / 8 interaction inputs, disabled
 dropout, and incumbent-free observations. Startup logs and saved metadata record
 the initialization source. An invalid checkpoint path raises an error.
 
@@ -80,7 +80,7 @@ For a quick end-to-end validation, copy the config and set `total_updates: 1`,
 ## Observation and checkpoint contract
 
 BC, rollout training, and DFS evaluation share `ml/observations.py` and the
-**resource_set_v2** packing features. Bounds and resource-feasible earliest starts
+**resource_set** packing features. Bounds and resource-feasible earliest starts
 are recomputed without an incumbent or the solver's cached mask. Latest starts
 use `max(local lower bound, dynamic critical path)` as an aspiration horizon;
 signed slack and time windows can be negative without declaring infeasibility.
@@ -97,10 +97,10 @@ The exact column order is declared by `SET_*_FEATURE_NAMES` in
 
 | Input | Width | Ordered columns |
 |---|---:|---|
-| Global | 13 | frac_scheduled, makespan_so_far_norm, lb_norm, lb_gap_norm, rem_dur_sum_norm, rem_dur_mean_norm, rem_dur_max_norm, num_ready_norm, n_res_norm, max_energy_pressure, mean_occ_at_min_est, max_occ_at_min_est, min_est_ready_norm |
-| Candidate | 20 | duration_norm, res_intensity, total_resource_load, head_norm, tail_norm, head_dur_tail_norm, is_critical, num_succ_norm, num_pred_norm, succ_dur_sum_norm, est_norm, est_minus_head_norm, finish_norm, conflict_count_norm, slack_to_lb_signed, ls_norm, time_window_signed, is_urgent, makespan_ext_norm, rel_est_norm |
-| Resource | 5 | is_real_resource, occ_frac_at_min_est, avail_frac_at_min_est, rem_energy_norm, energy_pressure |
-| Candidate-resource | 4 | demand_frac, conflict_load_norm, has_demand, rem_after_demand_at_est_frac |
+| Global | 14 | frac_scheduled, makespan_so_far_norm, lb_norm, lb_gap_norm, rem_dur_sum_norm, rem_dur_mean_norm, rem_dur_max_norm, num_ready_norm, n_res_norm, max_energy_pressure, mean_occ_at_min_est, max_occ_at_min_est, min_est_ready_norm, max_dyn_rem_pressure |
+| Candidate | 21 | duration_norm, res_intensity, total_resource_load, head_norm, tail_norm, head_dur_tail_norm, is_critical, num_succ_norm, num_pred_norm, succ_dur_sum_norm, est_norm, est_minus_head_norm, finish_norm, conflict_count_norm, slack_to_lb_signed, ls_norm, time_window_signed, is_urgent, makespan_ext_norm, rel_est_norm, bottleneck_weighted_desc_load |
+| Resource | 7 | is_real_resource, occ_frac_at_min_est, avail_frac_at_min_est, rem_energy_norm, energy_pressure, dyn_rem_energy_pressure, exclusive_load_pressure |
+| Candidate-resource | 8 | demand_frac, conflict_load_norm, has_demand, rem_after_demand_at_est_frac, desc_demand_energy_frac, direct_succ_demand_frac, is_heavy_demand, mean_rem_after_demand_interval_frac |
 
 Time quantities use `S=max(1,sum(durations))`; activity counts use total activities
 `N`, including dummy endpoints. `n_res_norm=min(1,R/N)`. Ready conflict counts use
@@ -109,11 +109,23 @@ use one). Remaining energy uses `cap*S`; total-energy pressure uses
 `cap*max(1,root_cp)`. Occupancy alone is clamped to [0,1]; signed slack/windows
 and energy pressure are not clamped. Urgency is `time_window_signed < 1/N`.
 
+Dynamic pressure divides remaining resource energy by `cap*H`, where
+`H=max(1,target_horizon-min_est_ready)`. Exclusive-load pressure divides the
+remaining duration of activities with demand strictly above half capacity by
+`H`. Descendant energy uses `cap*root_cp`; direct-successor demand uses `cap`.
+Both downstream aggregates intersect with unscheduled activities, and direct
+successors may still have other unsatisfied predecessors. The candidate's
+derived bottleneck load sums descendant energy fractions weighted by dynamic
+resource pressure. Interval residual capacity averages the live pre-action
+profile over `[EST,EST+duration)`, falling back to the start-point residual for
+zero duration. New pressure and downstream features return zero when capacity
+or their critical-path denominator is zero.
+
 Checkpoints record both `observation_schema` and `feature_schema` as
-`resource_set_v2`, together with the input widths and training configuration.
+`resource_set`, together with the input widths and training configuration.
 Old resource-set checkpoints are rejected; retrain BC from the existing raw
-teacher trajectories or use scratch training. There is no v1 feature path or
-automatic weight migration. Teacher action labels are preserved while inputs
+teacher trajectories or use scratch training. There is one feature path and
+no automatic weight migration. Teacher action labels are preserved while inputs
 are recomputed through the shared builder; configure the same `lower_bound` in
 BC and rollout training. Solver bound pruning, DFS, and dominance are unchanged.
 
@@ -123,33 +135,44 @@ Training begins without evaluation. When `eval_root` is configured, the trainer
 evaluates the updated actor at each evaluation interval and after the final
 update. Omitting `eval_root` uses `data/eval/intrain/J30_10`; explicitly setting
 `eval_root: null` disables evaluation. Evaluation uses exact DFS with `dominance="set_based"`.
-The `compare_policies` helper compares a v2 BC actor and a trained actor under
+Training evaluation allows at most **5,000 expanded nodes per instance**, with
+`eval_max_nodes: 5000` and `eval_time_limit_s: null`. Search can finish earlier
+when optimality is proved. A time limit does not truncate this node budget.
+For a separate time-limited experiment, explicitly set `eval_max_nodes: null`
+and a positive `eval_time_limit_s`; if both limits are set, search stops at the first.
+The `compare_policies` helper compares BC and trained actors under
 identical budgets and observations.
 
 `evaluation.json` is a readable JSON array with one flat record per evaluation:
 
 ```json
 [
-  {"update": 10, "solved": 0.1, "primal_opt": 0.4, "primal_gap": 2.27, "dive1_gap": 10.75, "nodes": 103957}
+  {"update": 10, "solved": 0.2, "primal_opt": 0.4, "primal_gap": 1.819, "dive1_gap": 5.171, "nodes": 4187.1}
 ]
 ```
 
-The evaluator itself computes only these five metrics. Its in-memory result
-contains the same five summary fields and per-instance rows with the instance
-name plus those fields; gaps use percentage units throughout. Reporting adds
-the update number and formats attainment counts for the console.
+The evaluator computes five metrics. Its in-memory result contains the same
+five summary fields and per-instance rows with the instance name plus those
+fields; gaps use percentage units throughout. Reporting adds the update number
+and formats counts for the console. The active search budget is recorded in the
+training configuration saved with each checkpoint.
 
-`solved` is the fraction proven optimal across all evaluation instances.
+`solved` is the fraction with optimality proved across all evaluation instances.
 `primal_opt` is the fraction reaching a known optimum among instances with a
-known optimum, including failures to find a schedule. Both gaps are percentages
+known optimum, including failures to find a schedule. Finding that makespan
+within a node or time limit does not itself count as a proof. Both gaps are percentages
 relative to the known optimum; unknown references produce null metrics. Gap
 means use instances with both a schedule and a known optimum. `nodes` is the mean
 number of expanded nodes, retained at full precision in JSON and rounded for
 console display. The console shows counts as well as percentages:
 
 ```text
-[Eval 10] solved=1/10 (10%)  primal_opt=4/10 (40%)  primal_gap=2.27%  dive1_gap=10.75%  nodes=103957
+[Eval 10] solved=2/10 (20%, proven)  primal_opt=4/10 (40%, found)  primal_gap=1.82%  dive1_gap=5.17%  nodes=4187
 ```
+
+The standalone `run_bnb.py` summary likewise reports `Proven optimal` separately
+from `Optimal makespan found`. Its labels CSV retains `solved`, which means
+optimality was proved.
 
 Training prints aligned episode rows and an update summary, with evaluation
 blocks separated by dotted lines and blank lines. No `training.jsonl` is written.

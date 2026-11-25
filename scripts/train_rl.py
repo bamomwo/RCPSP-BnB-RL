@@ -53,8 +53,8 @@ DEFAULT_CONFIG = {
     "eval_root": "data/eval/intrain/J30_10",
     "eval_pattern": "*.rcp",
     "eval_limit": None,
-    "eval_time_limit_s": 60.0,
-    "eval_max_nodes": None,
+    "eval_time_limit_s": None,
+    "eval_max_nodes": 5000,
     "eval_optimal_json": "data/baseline/j30_opt.json",
     "save_path": "models/primal-policy/policy.pt",
     "checkpoint_dir": "models/primal-policy/checkpoints",
@@ -79,7 +79,7 @@ def load_config(path: Path) -> dict:
         value = config[name]
         if isinstance(value, bool) or not isinstance(value, int) or value < 1:
             raise ValueError(f"{name} must be a positive integer")
-    for name in ("actor_lr", "max_grad_norm", "eval_time_limit_s"):
+    for name in ("actor_lr", "max_grad_norm"):
         value = config[name]
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
             raise ValueError(f"{name} must be positive and finite")
@@ -87,13 +87,16 @@ def load_config(path: Path) -> dict:
         value = config[name]
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
             raise ValueError(f"{name} must be non-negative and finite")
-    value = config["target_kl"]
-    if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0):
-        raise ValueError("target_kl must be positive and finite or null")
+    for name in ("target_kl", "eval_time_limit_s"):
+        value = config[name]
+        if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0):
+            raise ValueError(f"{name} must be positive and finite or null")
     for name in ("max_instances", "eval_limit", "eval_max_nodes", "max_forks_per_dive"):
         value = config[name]
         if value is not None and (isinstance(value, bool) or not isinstance(value, int) or value < 1):
             raise ValueError(f"{name} must be a positive integer or null")
+    if config["eval_root"] and config["eval_max_nodes"] is None and config["eval_time_limit_s"] is None:
+        raise ValueError("Evaluation requires eval_max_nodes or eval_time_limit_s")
     checkpoint = config["bc_checkpoint"]
     if checkpoint is not None and (not isinstance(checkpoint, str) or not checkpoint.strip()):
         raise ValueError("bc_checkpoint must be a nonempty path string or null for random initialization")
@@ -185,6 +188,13 @@ def run_training(config: dict) -> dict:
     print(f"  fork_budget={fork_budget if fork_budget is not None else 'all'}  "
           f"active_forks={config['max_active_forks']}  inference_batch={config['inference_chunk_size']}  "
           f"metrics_batch={config['metrics_batch_size']}", flush=True)
+    if eval_paths:
+        node_limit = config["eval_max_nodes"]
+        time_limit = config["eval_time_limit_s"]
+        print(f"  evaluation: {len(eval_paths)} instances  "
+              f"max_nodes/instance={node_limit if node_limit is not None else 'none'}  "
+              f"time_limit/instance={f'{time_limit:g}s' if time_limit is not None else 'none'}", flush=True)
+        print("  solved=optimality proved  primal_opt=known optimal makespan found", flush=True)
     try:
         for update in range(1, config["total_updates"] + 1):
             print(f"\n[Collect {update}/{config['total_updates']}] instances={config['episodes_per_update']}", flush=True)

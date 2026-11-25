@@ -35,7 +35,7 @@ class _TransformerEncoderLayer(nn.Module):
 
 
 class BranchingTransformer(nn.Module):
-    """Score ready activities from the fixed resource_set_v2 feature schema."""
+    """Score ready activities from the unified ``resource_set`` schema."""
 
     def __init__(self, d_model: int = 64, n_heads: int = 4, n_layers: int = 2,
                  ffn_dim: int = 128, dropout: float = 0.0) -> None:
@@ -189,7 +189,12 @@ def save_policy_checkpoint(model: BranchingTransformer, path: str, extra: dict |
 
 def load_policy_checkpoint(path: str, device: torch.device | str = "cpu",
                            dropout: float = 0.0) -> BranchingTransformer:
-    """Restore a resource_set_v2 Actor without parameter migration."""
+    """Restore a ``resource_set`` Actor without parameter migration.
+
+    Checkpoints produced for an older feature schema are rejected explicitly:
+    feature semantics are part of the model contract and cannot be migrated by
+    loading weights into differently sized projections.
+    """
     checkpoint = torch.load(path, map_location=device, weights_only=False)
     if not isinstance(checkpoint, dict) or "model_state" not in checkpoint:
         raise ValueError(f"Checkpoint at {path} is missing 'model_state'")

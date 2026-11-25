@@ -16,7 +16,7 @@ def _number(value):
 
 
 def summarize_evaluation(evaluation: dict, update: int) -> dict:
-    """Attach the update to the five evaluation metrics, retaining their units."""
+    """Attach the update to the five evaluation metrics."""
     if isinstance(update, bool) or not isinstance(update, int) or update < 0:
         raise ValueError("update must be a non-negative integer")
     summary = evaluation["summary"]
@@ -32,14 +32,14 @@ def format_evaluation(evaluation: dict, entry: dict) -> str:
     rows = evaluation["instances"]
     known = [row for row in rows if row.get("primal_opt") is not None]
 
-    def attainment(count, total):
-        return f"{count}/{total} ({count / total:.0%})" if total else "n/a"
+    def attainment(count, total, label):
+        return f"{count}/{total} ({count / total:.0%}, {label})" if total else "n/a"
 
     def gap(value):
         return f"{value:.2f}%" if value is not None else "n/a"
 
-    solved = attainment(sum(bool(row.get("solved")) for row in rows), len(rows))
-    primal = attainment(sum(bool(row.get("primal_opt")) for row in known), len(known))
+    solved = attainment(sum(bool(row.get("solved")) for row in rows), len(rows), "proven")
+    primal = attainment(sum(bool(row.get("primal_opt")) for row in known), len(known), "found")
     nodes = f"{entry['nodes']:.0f}" if entry["nodes"] is not None else "n/a"
     return (
         f"[Eval {entry['update']}] solved={solved}  primal_opt={primal}  "

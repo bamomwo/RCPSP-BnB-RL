@@ -6,7 +6,7 @@ from typing import Mapping, Optional, Sequence
 import numpy as np
 import torch
 
-from rcpsp_bnb_rl.bnb.lower_bounds import DEFAULT_LOWER_BOUND_ID, lower_bound
+from rcpsp_bnb_rl.bnb.lower_bounds import DEFAULT_LOWER_BOUND_ID, lower_bound, normalize_lower_bound_spec
 from rcpsp_bnb_rl.bnb.scheduling import ResourceProfile, build_profile, earliest_feasible_start, entry_finish
 from rcpsp_bnb_rl.data.parsing import RCPSPInstance
 from rcpsp_bnb_rl.ml.il.featurize import (
@@ -31,7 +31,7 @@ def build_actor_observation(
     profile: Optional[ResourceProfile] = None,
     lb_spec: object = DEFAULT_LOWER_BOUND_ID,
 ) -> dict[str, torch.Tensor]:
-    """Build resource_set_v2 inputs without search incumbents or cached masks."""
+    """Build ``resource_set`` inputs without search incumbents or cached masks."""
     statics = statics if statics is not None else build_instance_statics(instance)
     ready_ids = sorted(ready)
     max_finish = max((entry_finish(entry) for entry in scheduled.values()), default=0)
@@ -56,9 +56,17 @@ def build_actor_observation(
         )
         for aid in ready_ids
     }
+    # Keep observations cheap and incumbent-free: ``lb_cc`` is a solver-only
+    # pruning bound and must never be evaluated while constructing Actor input.
+    requested_bounds = [name for name in normalize_lower_bound_spec(lb_spec) if name != "lb_cc"]
+    # Preserve the caller's composite semantics for inexpensive bounds while
+    # excluding the solver-only critical-chain/resource bound.
+    observation_lb = requested_bounds if len(requested_bounds) > 1 else (
+        requested_bounds[0] if requested_bounds else "lb_cp"
+    )
     ctx = NodeContext(
         instance, scheduled, unscheduled, ready,
-        lower_bound(instance, unscheduled, scheduled, lb_id=lb_spec, incumbent=None),
+        lower_bound(instance, unscheduled, scheduled, lb_id=observation_lb, incumbent=None),
         starts, statics, profile=profile,
     )
     glob = global_set_features(ctx)

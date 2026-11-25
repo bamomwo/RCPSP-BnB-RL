@@ -131,7 +131,8 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help=(
             "Optional path to write a machine-readable labels CSV "
-            "(instance, nodes, solved, done_reason, makespan, lowerbound)."
+            "(instance, nodes, solved, done_reason, makespan, lowerbound); "
+            "solved means optimality was proven."
         ),
     )
     return parser.parse_args()
@@ -565,7 +566,10 @@ def main() -> None:
                 "nodes": total_nodes,
                 "done_reason": done_reason,
                 "cpu_time_s": float(elapsed),
-                "solved": mk is not None,
+                "solved": mk is not None and (
+                    strategy_result.optimal
+                    or done_reason in {"search_exhausted", "external_bound_matched"}
+                ),
                 "schedule": strategy_result.best_schedule,
             }
         )
@@ -691,28 +695,31 @@ def main() -> None:
     total_instances = len(rows)
     emit("Comparison Summary")
     emit(f"Instances total: {total_instances}")
+    proven_count = sum(bool(row["solved"]) for row in rows)
+    proven_rate = proven_count / total_instances * 100.0
+    emit(f"Proven optimal: {proven_count}/{total_instances} ({proven_rate:.1f}%)")
     if include_opt_cols:
         with_opt = [row for row in rows if row.get("optimal_makespan") is not None]
-        solved_with_opt = [row for row in with_opt if row.get("makespan") is not None]
-        solved_match = [
+        feasible_with_opt = [row for row in with_opt if row.get("makespan") is not None]
+        optimal_matches = [
             row
-            for row in solved_with_opt
+            for row in feasible_with_opt
             if int(row["makespan"]) == int(row["optimal_makespan"])
         ]
-        solved_count = len(solved_match)
-        solved_denom = len(with_opt)
-        solved_rate = (solved_count / solved_denom * 100.0) if solved_denom > 0 else 0.0
-        emit(f"Solved: {solved_count}/{solved_denom} ({solved_rate:.1f}%)")
+        optimal_count = len(optimal_matches)
+        optimal_denom = len(with_opt)
+        optimal_rate = (optimal_count / optimal_denom * 100.0) if optimal_denom > 0 else 0.0
+        emit(f"Optimal makespan found: {optimal_count}/{optimal_denom} ({optimal_rate:.1f}%)")
         gap_vals = [
             float(row["gap_opt_pct"])
-            for row in solved_with_opt
+            for row in feasible_with_opt
             if row.get("gap_opt_pct") is not None
         ]
         if gap_vals:
             mean_gap = statistics.mean(gap_vals)
             emit(f"Mean gap to optimal: {mean_gap:.2f}%")
         else:
-            emit("Gap-to-optimal stats: unavailable (no solved instances with baseline).")
+            emit("Gap-to-optimal stats: unavailable (no feasible schedules with baseline).")
 
     emit("")
     emit("Configuration")
@@ -766,7 +773,7 @@ def main() -> None:
                 writer.writerow([
                     row["instance"],
                     int(row["nodes"]),
-                    int(bool(row["done_reason"] == "search_exhausted")),
+                    int(bool(row["solved"])),
                     row["done_reason"],
                     fmt_int(row["makespan"]),  # type: ignore[arg-type]
                     fmt_int(row["lowerbound"]),  # type: ignore[arg-type]
